@@ -103,48 +103,113 @@ supported by the lint toolchain. See
 
 ---
 
-## Setup
+## Fresh-clone setup
+
+These are the exact steps to get a clean checkout running locally. Follow them
+in order; each step is verified by the next.
 
 ```bash
 # 1. Use the pinned Node version
-nvm use            # reads .nvmrc
+nvm use                       # reads .nvmrc -> 24.19.0
 
 # 2. Install dependencies
 npm install
 
 # 3. Create your local environment file
-cp .env.example .env        # Windows PowerShell: Copy-Item .env.example .env
+cp .env.example .env          # Windows PowerShell: Copy-Item .env.example .env
+```
 
-# 4. Start local infrastructure
+`.env` ships working defaults: PostgreSQL on host port **55432** and Redis on
+host port **56379**. These are deliberately *not* the conventional 5432 / 6379,
+because a developer machine often already runs another project's PostgreSQL or
+Redis on those.
+
+**If a host port is occupied**, edit `.env` and keep each pair consistent:
+
+```dotenv
+POSTGRES_PORT=<free port>
+DATABASE_URL=postgresql://truevine:truevine@localhost:<same port>/truevine_voice?schema=public
+
+REDIS_PORT=<free port>
+REDIS_URL=redis://localhost:<same port>
+```
+
+Then restart the containers so they pick up the new mapping:
+
+```bash
+npm run infra:down
+npm run infra:up
+```
+
+`docker-compose.yml` reads `POSTGRES_PORT` / `REDIS_PORT` from `.env`. The
+container ports stay fixed at 5432 and 6379; only the published host ports
+change. Both services publish on `127.0.0.1` only, so local infrastructure is
+not reachable from the local network.
+
+```bash
+# 4. Start PostgreSQL and Redis and wait until both report healthy
 npm run infra:up
 
-# 5. Generate the Prisma client
+# 5. Confirm both services are up
+docker compose ps
+```
+
+Expected — both `healthy`, on the ports from your `.env`:
+
+```
+NAME                IMAGE                STATUS         PORTS
+truevine-postgres   postgres:18-alpine   Up (healthy)   127.0.0.1:55432->5432/tcp
+truevine-redis      redis:8-alpine       Up (healthy)   127.0.0.1:56379->6379/tcp
+```
+
+```bash
+# 6. Validate the schema and generate the Prisma client
+npm run prisma:validate
 npm run prisma:generate
 
-# 6. Run everything
+# 7. Quality gates
+npm run lint
+npm run typecheck
+npm test            # unit tests, no infrastructure needed
+
+# 8. End-to-end tests (needs the containers from step 4)
+npm run test:e2e
+
+# 9. Production build
+npm run build
+
+# 10. Run the applications
 npm run dev
 ```
+
+Then confirm the API:
+
+```bash
+curl http://localhost:3001/health
+```
+
+> **Never point the application at infrastructure you did not start.**
+> If `npm run infra:up` fails, fix the port mapping before continuing. The
+> infrastructure E2E tests assert that PostgreSQL really is the `truevine_voice`
+> database and that Redis really is answering on the port from `REDIS_URL`, so a
+> wrong target fails loudly instead of passing by accident.
 
 On Windows without `nvm`, install Node 24.19.0 directly. `npm install` fails
 fast with a clear message if the runtime does not match `engines`.
 
 ### Ports
 
-| Service    | Default port | How to change it                                  |
-| ---------- | ------------ | ------------------------------------------------- |
-| Web        | 3000         | `apps/web/package.json` → `dev`/`start` scripts   |
-| API        | 3001         | `API_PORT` in `.env`                              |
-| Admin      | 3002         | `apps/admin/package.json` → `dev`/`start` scripts |
-| PostgreSQL | 5432         | `POSTGRES_PORT` in `.env` + `DATABASE_URL`        |
-| Redis      | 6379         | `REDIS_PORT` in `.env` + `REDIS_URL`              |
+| Service    | Host port | Container port | How to change it                                  |
+| ---------- | --------- | -------------- | ------------------------------------------------- |
+| Web        | 3000      | —              | `apps/web/package.json` → `dev`/`start` scripts   |
+| API        | 3001      | —              | `API_HOST` / `API_PORT` in `.env`                 |
+| Admin      | 3002      | —              | `apps/admin/package.json` → `dev`/`start` scripts |
+| PostgreSQL | 55432     | 5432           | `POSTGRES_PORT` in `.env` + `DATABASE_URL`        |
+| Redis      | 56379     | 6379           | `REDIS_PORT` in `.env` + `REDIS_URL`              |
 
 The Next.js ports are hardcoded in each app's npm scripts rather than read from
 the environment, because `${VAR:-default}` shell syntax does not work under
 `cmd.exe` and would make the scripts Windows-only.
-
-If your machine already runs PostgreSQL or Redis (for example via another
-project's containers), set `POSTGRES_PORT` / `REDIS_PORT` in `.env` and point
-`DATABASE_URL` / `REDIS_URL` at those ports before running `npm run infra:up`.
 
 `npm run dev` runs the API, worker, web and admin dev servers together.
 

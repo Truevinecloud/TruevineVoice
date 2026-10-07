@@ -4,6 +4,21 @@
 # admin) run on the host via npm during development so that hot reload and
 # debugging behave normally.
 #
+# HOST PORTS
+# ---------
+# The *container* ports are fixed (PostgreSQL 5432, Redis 6379): they are
+# internal to the Compose network and never change.
+#
+# The *host* ports are configurable through the root `.env` and default to
+# 55432 / 56379 instead of the conventional 5432 / 6379. Developer machines
+# routinely already run another project's PostgreSQL or Redis on the
+# conventional ports, which makes `npm run infra:up` fail with "port is already
+# allocated" - and a naive retry then leaves the application silently pointed at
+# the *other* project's infrastructure.
+#
+# To change them, set POSTGRES_PORT / REDIS_PORT in `.env` AND update
+# DATABASE_URL / REDIS_URL to the same ports. See `.env.example`.
+#
 # Usage:
 #   npm run infra:up       # start PostgreSQL + Redis and wait for health
 #   npm run infra:ps       # status
@@ -25,9 +40,10 @@ services:
       # Deterministic collation for local development across hosts.
       POSTGRES_INITDB_ARGS: '--locale=C --encoding=UTF8'
     ports:
-      # Published host port is configurable because a developer machine may
-      # already run PostgreSQL. Defaults to the conventional 5432.
-      - '${POSTGRES_PORT:-5432}:5432'
+      # HOST port is configurable (see header). CONTAINER port stays 5432.
+      # Bound to loopback: local development infrastructure must not be
+      # reachable from the local network.
+      - '127.0.0.1:${POSTGRES_PORT:-55432}:5432'
     volumes:
       # PostgreSQL 18 stores its data in a major-version-specific subdirectory.
       # The image requires a single mount at /var/lib/postgresql; mounting
@@ -54,8 +70,8 @@ services:
       - '60'
       - '1'
     ports:
-      # See the PostgreSQL service above for why this is configurable.
-      - '${REDIS_PORT:-6379}:6379'
+      # HOST port is configurable (see header). CONTAINER port stays 6379.
+      - '127.0.0.1:${REDIS_PORT:-56379}:6379'
     volumes:
       - redis-data:/data
     healthcheck:
