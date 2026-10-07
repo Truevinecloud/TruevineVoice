@@ -1,0 +1,7 @@
+{
+  "name": "@truevine/observability",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Structured logging, metrics and tracing primitives",
+  "license": "UNLICENSED"
+}

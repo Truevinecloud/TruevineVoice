@@ -1,0 +1,7 @@
+{
+  "name": "@truevine/auth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Authentication, sessions, authorization and RBAC for Truevine Voice",
+  "license": "UNLICENSED"
+}

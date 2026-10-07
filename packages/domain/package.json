@@ -1,0 +1,7 @@
+{
+  "name": "@truevine/domain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pure business domain model, invariants and value objects",
+  "license": "UNLICENSED"
+}

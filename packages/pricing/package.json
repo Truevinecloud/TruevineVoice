@@ -1,0 +1,7 @@
+{
+  "name": "@truevine/pricing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plan definitions, rating and price calculation for Truevine Voice",
+  "license": "UNLICENSED"
+}

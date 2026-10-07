@@ -1,0 +1,7 @@
+{
+  "name": "@truevine/messaging",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Messaging provider abstraction for SMS and WhatsApp",
+  "license": "UNLICENSED"
+}

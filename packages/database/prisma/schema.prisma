@@ -1,0 +1,36 @@
+// ---------------------------------------------------------------------------
+// Truevine Voice - PostgreSQL schema
+//
+// FOUNDATION STAGE: this schema intentionally contains NO models.
+//
+// The Truevine domain model (Organization, Membership, Contact, Campaign,
+// Call, Wallet, LedgerEntry, ...) is designed deliberately in a later task,
+// with its tenancy, money-handling and idempotency rules agreed before any
+// table is created. Creating speculative tables here would bake in decisions
+// that have not been reviewed yet, and would require destructive migrations to
+// undo.
+//
+// PostgreSQL is the system of record. Every future tenant-owned table must be
+// organization-scoped and must enforce that scope at the database level.
+//
+// What exists today:
+//   - a `prisma-client` generator, so `prisma generate` produces a typed client
+//     that `src/client.ts` re-exports;
+//   - a PostgreSQL datasource;
+//   - a migrations directory placeholder for the first real migration.
+//
+// Intentionally absent: `prisma-client-js` (deprecated in Prisma 7), models,
+// enums, views and `directUrl` (removed in Prisma 7).
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  runtime                = "nodejs"
+  moduleFormat           = "esm"
+  generatedFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}

@@ -1,0 +1,72 @@
+# Truevine Voice - local development infrastructure.
+#
+# Scope: databases and brokers only. Application processes (web, api, worker,
+# admin) run on the host via npm during development so that hot reload and
+# debugging behave normally.
+#
+# Usage:
+#   npm run infra:up       # start PostgreSQL + Redis and wait for health
+#   npm run infra:ps       # status
+#   npm run infra:logs     # tail logs
+#   npm run infra:down     # stop (keeps data)
+#   npm run infra:reset    # stop and DELETE all development data
+
+name: truevine-voice
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: truevine-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: truevine
+      POSTGRES_PASSWORD: truevine
+      POSTGRES_DB: truevine_voice
+      # Deterministic collation for local development across hosts.
+      POSTGRES_INITDB_ARGS: '--locale=C --encoding=UTF8'
+    ports:
+      # Published host port is configurable because a developer machine may
+      # already run PostgreSQL. Defaults to the conventional 5432.
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      # PostgreSQL 18 stores its data in a major-version-specific subdirectory.
+      # The image requires a single mount at /var/lib/postgresql; mounting
+      # /var/lib/postgresql/data makes it refuse to start.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U truevine -d truevine_voice -h 127.0.0.1']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  redis:
+    image: redis:8-alpine
+    container_name: truevine-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --appendfsync
+      - everysec
+      - --save
+      - '60'
+      - '1'
+    ports:
+      # See the PostgreSQL service above for why this is configurable.
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+volumes:
+  postgres-data:
+    name: truevine-postgres-data
+  redis-data:
+    name: truevine-redis-data

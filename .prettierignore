@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.next/
+coverage/
+package-lock.json
+
+# Generated Prisma client
+packages/database/src/generated/
+
+# Next.js
+next-env.d.ts
