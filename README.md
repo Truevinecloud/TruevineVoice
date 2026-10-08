@@ -268,12 +268,33 @@ with `SELECT 1` and Redis with `PING`.
 | `npm run test:e2e`  | End-to-end tests. **Requires PostgreSQL and Redis** |
 | `npm run build`     | Builds packages, then all apps                      |
 
+### Continuous integration
+
+GitHub Actions runs these gates on every pull request targeting `main` and on
+every push to `main`, as four parallel jobs:
+
+| Job          | Gate                                                      | Needs PostgreSQL / Redis |
+| ------------ | --------------------------------------------------------- | ------------------------ |
+| `quality`    | `prisma:generate`, `prisma:validate`, `lint`, `typecheck` | no                       |
+| `unit-tests` | `npm test`                                                | no                       |
+| `e2e-tests`  | `npm run test:e2e` against a real Compose stack           | yes                      |
+| `build`      | `npm run build`                                           | no                       |
+
+CI uses no repository or organisation secrets: the only credentials are the
+disposable local-development values already in `docker-compose.yml`. Node comes
+from `.nvmrc` and npm from `package.json#packageManager`. The pipeline never
+runs `prisma migrate deploy`, and it does not deploy anything.
+
+See [`.github/workflows/README.md`](./.github/workflows/README.md) for the design
+notes and [ADR 0004](./docs/adr/0004-github-actions-ci.md) for why the E2E job
+starts the repository's own Compose stack rather than a `services:` container.
+
 ### Formatting
 
-| Command                | Description              |
-| ---------------------- | ------------------------ |
-| `npm run format`       | Prettier write           |
-| `npm run format:check` | Prettier check (CI gate) |
+| Command                | Description                            |
+| ---------------------- | -------------------------------------- |
+| `npm run format`       | Prettier write                         |
+| `npm run format:check` | Prettier check (**not yet** a CI gate) |
 
 ### Infrastructure
 
@@ -321,7 +342,10 @@ probing uses `SELECT 1`, which works before any table is created. It uses the
 Prisma 7 `prisma-client` generator (`prisma-client-js` is deprecated) with
 `moduleFormat = "esm"` to match the repository's ESM-only Node workspaces.
 
-The generated client (`packages/database/src/generated/`) is gitignored.
+The generated client (`packages/database/src/generated/`) is gitignored, so
+`npm ci` does not produce it. Run `npm run prisma:generate` after a fresh clone
+and before `npm run typecheck`, `npm test` or `npm run build` — which is why
+every CI job that compiles or runs code does the same.
 
 ---
 
@@ -404,8 +428,9 @@ Not implemented in this step, by design:
 - **Business queues:** none. The worker establishes Redis/BullMQ connections and
   readiness only.
 - **OpenAPI:** deferred until the first product endpoints exist.
-- **CI (GitHub Actions):** deferred. The scripts a pipeline needs are already in
-  `package.json`; see [`.github/workflows/README.md`](./.github/workflows/README.md).
+- **Prettier as a CI gate:** `npm run format:check` is not yet a required check.
+  Three files are unformatted; see
+  [`.github/workflows/README.md`](./.github/workflows/README.md).
 - **Production infrastructure:** container images, orchestrator manifests,
   infrastructure-as-code. There is no deployment target yet.
 - **Observability vendor:** no logging/metrics SDK selected. Nest's built-in
