@@ -1,0 +1,211 @@
+# Truevine Voice - continuous integration.
+#
+# What this pipeline is for
+# -------------------------
+# It runs the quality gates that `package.json` already exposes. Nothing here
+# changes application behaviour, and no application file was modified to make
+# CI pass.
+#
+# Least privilege
+# ---------------
+# - `permissions: contents: read` is the only token scope the workflow needs. No
+#   job writes to the repository, creates releases, or talks to an environment.
+# - The workflow reads **no repository or organisation secrets at all**. Every
+#   credential it uses is a disposable value committed in `docker-compose.yml`
+#   for local development.
+# - Checkout credentials are not persisted, so a compromised test cannot push.
+# - Third-party actions are pinned to a full commit SHA, with the release tag in
+#   a trailing comment, so a moved or repointed tag cannot change what runs.
+#
+# Database safety
+# ---------------
+# - `prisma migrate deploy` is never run here. It is a controlled-environment
+#   command (AGENTS.md section 12) and must never execute on a pull request.
+# - The only teardown command is `docker compose down --volumes`, and it runs
+#   exclusively against the ephemeral Compose stack this job started on a
+#   throwaway GitHub-hosted runner. It can never reach a production database.
+#
+# Runtime
+# -------
+# Node comes from `.nvmrc` and npm from `package.json#packageManager`, both of
+# which satisfy the `engines` block. `.npmrc` sets `engine-strict=true`, so a
+# mismatch fails the install loudly instead of silently.
+#
+# `packages/database/src/generated/` is gitignored, so `npm ci` does not
+# produce it and every job that compiles or runs code needs `prisma:generate`
+# first. See the README for the equivalent local steps.
+
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run per ref. Superseded pull-request runs are cancelled; runs on `main`
+  # are allowed to finish so that a pushed commit is always fully verified.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  quality:
+    name: Lint, typecheck and Prisma validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Verify the pinned npm version
+        run: |
+          expected="$(node -p "require('./package.json').packageManager.split('@')[1]")"
+          actual="$(npm --version)"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::npm ${actual} does not match packageManager npm@${expected}"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Guards against a secret file being committed by accident. `.env` is
+      # gitignored, so `git ls-files` must not know about it.
+      - name: Assert .env is not tracked
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env is tracked in git. Remove it from the index immediately."
+            exit 1
+          fi
+
+      - name: Generate the Prisma client
+        run: npm run prisma:generate
+
+      - name: Validate the Prisma schema
+        run: npm run prisma:validate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: npm run prisma:generate
+
+      # `npm test` has a `pretest` hook that runs `build:packages`, which is why
+      # the gitignored Prisma client has to exist before this step.
+      - name: Run unit tests
+        run: npm test
+
+  e2e-tests:
+    name: End-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      # The Compose file publishes PostgreSQL and Redis on these host ports.
+      # These are the same throwaway local-development values as in
+      # docker-compose.yml, not secrets.
+      POSTGRES_PORT: '55432'
+      REDIS_PORT: '56379'
+      # `localhost`, matching .env.example: the worker's infrastructure E2E test
+      # inspects the live socket's remote port, and that assertion is only
+      # reliable for a hostname, not an IP literal.
+      DATABASE_URL: postgresql://truevine:truevine@localhost:55432/truevine_voice?schema=public
+      REDIS_URL: redis://localhost:56379
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: npm run prisma:generate
+
+      # `test:e2e` has no `pretest:e2e` hook, so the packages have to be built
+      # explicitly: apps resolve `@truevine/*` through their `dist` output.
+      - name: Build packages
+        run: npm run build:packages
+
+      # The infrastructure E2E tests assert that *this project's* Compose stack
+      # owns the configured host ports, via `docker compose port`. A GitHub
+      # Actions `services:` container cannot satisfy that, so the real Compose
+      # stack is started here instead. It is disposable, runner-local, and
+      # bound to loopback.
+      - name: Start PostgreSQL and Redis
+        run: docker compose up -d --wait
+
+      - name: Run end-to-end tests
+        run: npm run test:e2e
+
+      - name: Stop and discard the test infrastructure
+        if: always()
+        run: docker compose down --volumes
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: npm run prisma:generate
+
+      - name: Build packages and apps
+        run: npm run build
