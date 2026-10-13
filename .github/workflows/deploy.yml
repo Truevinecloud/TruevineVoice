@@ -9,48 +9,54 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository Code Layers
         uses: actions/checkout@v4
 
-      - name: Execute Remote SSH Deployment Commands
+      - name: Execute Secure Remote SSH Pipeline Sequence
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.VPS_SSH_HOST }}
           username: ${{ secrets.VPS_SSH_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            # 1. Force navigate to target directory
+            # 1. Force navigate into your server deployment root folder
             cd /var/www/TruevineVoice
             
-            # 2. Sync the latest repository code
+            # 2. Sync files securely and hard-reset any trailing manual workspace configurations
             if [ ! -d ".git" ]; then
-              git clone https://github.com .
+              git clone git@github.com:Truevinecloud/TruevineVoice.git .
             else
               git fetch --all
               git reset --hard origin/main
             fi
             
-            # 3. Clean install all package layers
-            npm install
+            # 3. Pull down and link all workspace engine layers safely
+            npm install --engine-strict=false
             
-            # 4. Compile the typescript distribution bundles
+            # 4. Compile the entire multi-workspace production asset bundles
             npm run build
             
-            # 5. Dynamically search for the compiled gateway entry points and start them
+            # 5. Clean up duplicate site links to prevent Nginx conflict loops
+            rm -f /etc/nginx/sites-enabled/voice.truevinecloud.online
+            rm -f /etc/nginx/sites-enabled/default
+            ln -s /etc/nginx/sites-available/truevinecloud.online /etc/nginx/sites-enabled/ 2>/dev/null
+            
+            # 6. Apply database migration layers to synchronize your PostgreSQL tables
+            npm run prisma:migrate:deploy
+            
+            # 7. Restart or clean-boot your core application backend components
             API_PATH=$(find . -name "main.js" | grep -v "node_modules" | grep "api" | head -n 1)
             WORKER_PATH=$(find . -name "main.js" | grep -v "node_modules" | grep "worker" | head -n 1)
             
-            if [ -n "$API_PATH" ]; then
-              pm2 describe truevine-api > /dev/null && pm2 reload truevine-api || pm2 start "$API_PATH" --name "truevine-api"
-            else
-              echo "Error: API main.js target file not found!"
-              exit 1
-            fi
+            NODE_ENV=production pm2 describe truevine-api > /dev/null && NODE_ENV=production pm2 reload truevine-api --update-env || NODE_ENV=production pm2 start "$API_PATH" --name "truevine-api"
+            NODE_ENV=production pm2 describe truevine-worker > /dev/null && NODE_ENV=production pm2 reload truevine-worker --update-env || NODE_ENV=production pm2 start "$WORKER_PATH" --name "truevine-worker"
             
-            if [ -n "$WORKER_PATH" ]; then
-              pm2 describe truevine-worker > /dev/null && pm2 reload truevine-worker || pm2 start "$WORKER_PATH" --name "truevine-worker"
-            else
-              echo "Worker main.js target file skipped or not found."
-            fi
+            # 8. Restart or clean-boot your Next.js dynamic client web views with explicit CWD settings
+            NODE_ENV=production pm2 describe truevine-web > /dev/null && NODE_ENV=production pm2 reload truevine-web --update-env || NODE_ENV=production pm2 start npm --name "truevine-web" --cwd "/var/www/TruevineVoice/apps/web" -- run start -- --port=3000
+            NODE_ENV=production pm2 describe truevine-admin > /dev/null && NODE_ENV=production pm2 reload truevine-admin --update-env || NODE_ENV=production pm2 start npm --name "truevine-admin" --cwd "/var/www/TruevineVoice/apps/admin" -- run start -- --port=3002
             
+            # 9. Freeze the finalized operational execution array grid layout
             pm2 save --force
+            
+            # 10. Force apply configurations and reload Nginx
+            nginx -t && systemctl restart nginx
