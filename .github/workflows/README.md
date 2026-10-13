@@ -29,7 +29,7 @@ Each job runs `npm ci` independently and in parallel.
   that `.env` is not tracked by git.
 - **Concurrency.** One run per ref. Superseded pull-request runs are cancelled;
   runs on `main` always finish so a pushed commit is fully verified.
-- **Runtime pinned from source.** Node from `.nvmrc`, npm checked against
+- **Runtime pinned from source.** Node from `.nvmrc`, npm installed/checked against
   `package.json#packageManager`. `.npmrc` sets `engine-strict=true`.
 - **`prisma:generate` runs in every job that compiles or executes code.**
   `packages/database/src/generated/` is gitignored, so `npm ci` does not produce
@@ -72,4 +72,21 @@ pre-existing and unrelated to this workflow, so they were left alone rather than
 silently reformatted as part of a CI change. Run `npm run format` and open that
 as its own change before adding the gate.
 
-There is no deployment workflow. No deployable artefact exists yet.
+## `deploy.yml`
+
+Triggered by completion of CI, restricted to successful push runs on main from
+this repository. Verifies all four CI jobs, checks the exact main SHA, and uses
+a protected production environment. Deployment uses OpenSSH, a non-root SSH
+account and independently verified known_hosts; no third-party SSH action.
+
+The source archive is built on the VPS with `npm ci` and the repository scripts
+in an isolated release directory. Explicit PM2 processes cover both Next.js
+apps, API and worker. Activation verifies production SHA, dependencies, HTTP
+content and stable PM2 processes. Failed activation restores the previous
+release; the job stays failed. Builds do not modify the active release.
+
+Complete the [production runbook](../../docs/runbooks/production-deployment.md)
+before setting `DEPLOYMENT_READY=true`. Required secrets are `VPS_SSH_HOST`,
+`VPS_SSH_USER`, `VPS_SSH_KEY`, and `VPS_SSH_KNOWN_HOSTS`; optional variable
+`VPS_SSH_PORT` defaults to 22. Production configuration stays on the VPS.
+No automatic Nginx changes, migrations, database resets or release pruning.

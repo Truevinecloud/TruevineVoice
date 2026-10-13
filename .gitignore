@@ -37,3 +37,13 @@ Thumbs.db
 # Misc
 .vercel/
 .cache/
+# Production deployment state (server-local only)
+/incoming/
+/releases/
+/current
+/current.*
+/deployment.json
+/.deployment.lock
+/REVISION
+/READY
+/.deployment-validation/

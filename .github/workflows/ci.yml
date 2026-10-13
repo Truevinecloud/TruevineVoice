@@ -71,14 +71,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
-      - name: Verify the pinned npm version
-        run: |
-          expected="$(node -p "require('./package.json').packageManager.split('@')[1]")"
-          actual="$(npm --version)"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error::npm ${actual} does not match packageManager npm@${expected}"
-            exit 1
-          fi
+      - name: Set up the pinned npm version
+        run: npm run ci:setup-npm
 
       - name: Install dependencies
         run: npm ci
@@ -120,6 +114,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Set up the pinned npm version
+        run: npm run ci:setup-npm
+
       - name: Install dependencies
         run: npm ci
 
@@ -158,6 +155,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+
+      - name: Set up the pinned npm version
+        run: npm run ci:setup-npm
 
       - name: Install dependencies
         run: npm ci
@@ -200,6 +200,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+
+      - name: Set up the pinned npm version
+        run: npm run ci:setup-npm
 
       - name: Install dependencies
         run: npm ci

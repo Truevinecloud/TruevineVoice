@@ -283,7 +283,8 @@ every push to `main`, as four parallel jobs:
 CI uses no repository or organisation secrets: the only credentials are the
 disposable local-development values already in `docker-compose.yml`. Node comes
 from `.nvmrc` and npm from `package.json#packageManager`. The pipeline never
-runs `prisma migrate deploy`, and it does not deploy anything.
+runs `prisma migrate deploy`, and the CI workflow itself does not deploy. A separate deployment workflow
+follows successful main-push CI after production prerequisites are configured.
 
 See [`.github/workflows/README.md`](./.github/workflows/README.md) for the design
 notes and [ADR 0004](./docs/adr/0004-github-actions-ci.md) for why the E2E job
@@ -431,8 +432,9 @@ Not implemented in this step, by design:
 - **Prettier as a CI gate:** `npm run format:check` is not yet a required check.
   Three files are unformatted; see
   [`.github/workflows/README.md`](./.github/workflows/README.md).
-- **Production infrastructure:** container images, orchestrator manifests,
-  infrastructure-as-code. There is no deployment target yet.
+- **Infrastructure provisioning:** production database provisioning, container
+  images and infrastructure-as-code remain deferred. CI-gated PM2 deployment
+  targets the existing Ubuntu VPS; see the production runbook.
 - **Observability vendor:** no logging/metrics SDK selected. Nest's built-in
   `Logger` is used.
 
@@ -480,3 +482,28 @@ If you see this, something reintroduced `@swc/core`; see
 **Next.js rewrote `apps/*/tsconfig.json`**
 Expected on the first `next build`: Next sets `jsx: react-jsx` and adds
 `.next/dev/types` to `include`. Commit the result rather than reverting it.
+
+## Production deployment
+
+The existing Ubuntu VPS is deployed through a successful main-push CI run.
+The pipeline builds all four real applications in separate release directories,
+uses a dedicated non-root SSH account with pinned host keys, preserves the
+production `.env` and databases, and verifies PM2 and local/public HTTP health.
+Existing routing, TLS and PM2 ownership must be audited before first cutover.
+Production activation has not been verified by adding this workflow.
+
+See [production setup, secrets, routing and rollback](./docs/runbooks/production-deployment.md),
+[deployment audit and verification](./docs/runbooks/deployment-audit.md), and
+[ADR 0005](./docs/adr/0005-production-deployment.md).
+
+| Command | Purpose |
+| --- | --- |
+| `npm run ci:setup-npm` | Verify exact Node pin; install/verify the pinned npm if necessary |
+| `npm run test:deployment` | Deployment safety and rollback tests without infrastructure |
+| `npm run deploy:release -- <SHA>` | Linux VPS only: build/activate the uploaded release under the deployment lock |
+| `npm run deploy:rollback -- <SHA>` | Linux VPS only: reactivate a retained verified release |
+| `npm run deploy:verify -- <config-path> <SHA>` | Verify local and confirmed public foundation pages/API |
+
+`npm test` also runs deployment safety tests. Deploy commands require the
+server-local `deployment.json`, existing readable `.env`, matching Node/npm,
+and PM2. They never reset Git, run development Compose, or apply migrations.

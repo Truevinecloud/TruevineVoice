@@ -35,6 +35,7 @@ export default tseslint.config(
   {
     ignores: [
       '**/node_modules/**',
+      '.deployment-validation/**',
       '**/dist/**',
       '**/.next/**',
       '**/out/**',
@@ -78,12 +79,20 @@ export default tseslint.config(
       'apps/worker/**/*.ts',
       'packages/**/*.ts',
       '*.mjs',
+      'infrastructure/**/*.mjs',
+      'infrastructure/**/*.ts',
       '**/*.config.ts',
       '**/*.config.mts',
     ],
     languageOptions: {
       globals: { ...globals.node },
     },
+  },
+
+  {
+    files: ['infrastructure/pm2/**/*.js'],
+    languageOptions: { sourceType: 'commonjs', globals: { ...globals.node } },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
 
   ...nextScoped,
