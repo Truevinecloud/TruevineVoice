@@ -3,7 +3,7 @@ name: TruevineVoice CI/CD Deployment
 on:
   push:
     branches:
-      - main  # Triggers deployment automatically whenever you push code to the main branch
+      - main
 
 jobs:
   deploy:
@@ -19,19 +19,38 @@ jobs:
           username: ${{ secrets.VPS_SSH_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            # Navigate to web application target directory
+            # 1. Force navigate to target directory
             cd /var/www/TruevineVoice
             
-            # If the directory doesn't have Git initialized yet, clone it dynamically
+            # 2. Sync the latest repository code
             if [ ! -d ".git" ]; then
               git clone https://github.com .
             else
-              git pull origin main
+              git fetch --all
+              git reset --hard origin/main
             fi
             
-            # Install production ecosystem dependencies
-            npm install --production
+            # 3. Clean install all package layers
+            npm install
             
-            # Start or Reload the app process gracefully under PM2 process manager
-            pm2 describe truevine-voice > /dev/null && pm2 reload truevine-voice || pm2 start index.js --name "truevine-voice"
-            pm2 save
+            # 4. Compile the typescript distribution bundles
+            npm run build
+            
+            # 5. Dynamically search for the compiled gateway entry points and start them
+            API_PATH=$(find . -name "main.js" | grep -v "node_modules" | grep "api" | head -n 1)
+            WORKER_PATH=$(find . -name "main.js" | grep -v "node_modules" | grep "worker" | head -n 1)
+            
+            if [ -n "$API_PATH" ]; then
+              pm2 describe truevine-api > /dev/null && pm2 reload truevine-api || pm2 start "$API_PATH" --name "truevine-api"
+            else
+              echo "Error: API main.js target file not found!"
+              exit 1
+            fi
+            
+            if [ -n "$WORKER_PATH" ]; then
+              pm2 describe truevine-worker > /dev/null && pm2 reload truevine-worker || pm2 start "$WORKER_PATH" --name "truevine-worker"
+            else
+              echo "Worker main.js target file skipped or not found."
+            fi
+            
+            pm2 save --force
