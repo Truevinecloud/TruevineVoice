@@ -1,0 +1,37 @@
+name: TruevineVoice CI/CD Deployment
+
+on:
+  push:
+    branches:
+      - main  # Triggers deployment automatically whenever you push code to the main branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Execute Remote SSH Deployment Commands
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VPS_SSH_HOST }}
+          username: ${{ secrets.VPS_SSH_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            # Navigate to web application target directory
+            cd /var/www/TruevineVoice
+            
+            # If the directory doesn't have Git initialized yet, clone it dynamically
+            if [ ! -d ".git" ]; then
+              git clone https://github.com .
+            else
+              git pull origin main
+            fi
+            
+            # Install production ecosystem dependencies
+            npm install --production
+            
+            # Start or Reload the app process gracefully under PM2 process manager
+            pm2 describe truevine-voice > /dev/null && pm2 reload truevine-voice || pm2 start index.js --name "truevine-voice"
+            pm2 save
