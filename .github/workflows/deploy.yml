@@ -19,10 +19,9 @@ jobs:
           username: ${{ secrets.VPS_SSH_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            # 1. Force navigate into your server deployment root folder
             cd /var/www/TruevineVoice
             
-            # 2. Sync files securely and hard-reset any trailing manual workspace configurations
+            # Sync codebase from GitHub securely
             if [ ! -d ".git" ]; then
               git clone git@github.com:Truevinecloud/TruevineVoice.git .
             else
@@ -30,33 +29,91 @@ jobs:
               git reset --hard origin/main
             fi
             
-            # 3. Pull down and link all workspace engine layers safely
             npm install --engine-strict=false
-            
-            # 4. Compile the entire multi-workspace production asset bundles
             npm run build
             
-            # 5. Clean up duplicate site links to prevent Nginx conflict loops
-            rm -f /etc/nginx/sites-enabled/voice.truevinecloud.online
-            rm -f /etc/nginx/sites-enabled/default
-            ln -s /etc/nginx/sites-available/truevinecloud.online /etc/nginx/sites-enabled/ 2>/dev/null
+            # --- CONSOLIDATE ALL SYSTEM APP ROUTES UNDER ONE VOICE SUBDOMAIN ---
+            rm -f /etc/nginx/sites-enabled/*
+            rm -f /etc/nginx/sites-available/*
             
-            # 6. Apply database migration layers to synchronize your PostgreSQL tables
+            cat << 'EOF' > /etc/nginx/sites-available/voice.truevinecloud.online
+            server {
+                listen 80;
+                listen 443 ssl;
+                server_name voice.truevinecloud.online;
+
+                ssl_certificate /etc/letsencrypt/live/truevinecloud-web/fullchain.pem;
+                ssl_certificate_key /etc/letsencrypt/live/truevinecloud-web/privkey.pem;
+                include /etc/letsencrypt/options-ssl-nginx.conf;
+                ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+                if ($scheme = http) {
+                    return 301 https://$host$request_uri;
+                }
+
+                # ROUTE 1: Main Customer Web Interface (Port 3000) -> Handles Login & Basic Profiles
+                location / {
+                    proxy_pass http://127.0.0.1:3000;
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection 'upgrade';
+                    proxy_set_header Host $host;
+                    proxy_cache_bypass $http_upgrade;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                }
+
+                # ROUTE 2: Platform Admin Dashboard (Port 3002) -> Handles Higher Roles & Permissions
+                location /admin {
+                    proxy_pass http://127.0.0.1:3002;
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection 'upgrade';
+                    proxy_set_header Host $host;
+                    proxy_cache_bypass $http_upgrade;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                }
+
+                # ROUTE 3: NestJS Backend API Core Server Gateway (Port 3001)
+                location /api/ {
+                    proxy_pass http://127.0.0;
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection 'upgrade';
+                    proxy_set_header Host $host;
+                    proxy_cache_bypass $http_upgrade;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                }
+
+                # ROUTE 4: NestJS API Health diagnostics endpoint route (Port 3001)
+                location /health {
+                    proxy_pass http://127.0.0health;
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection 'upgrade';
+                    proxy_set_header Host $host;
+                    proxy_cache_bypass $http_upgrade;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                }
+            }
+            EOF
+            
+            # Activate configuration and deploy database schema updates
+            ln -s /etc/nginx/sites-available/voice.truevinecloud.online /etc/nginx/sites-enabled/
             npm run prisma:migrate:deploy
             
-            # 7. Restart or clean-boot your core application backend components
+            # Orchestrate PM2 lifecycle daemons for all apps
             API_PATH=$(find . -name "main.js" | grep -v "node_modules" | grep "api" | head -n 1)
             WORKER_PATH=$(find . -name "main.js" | grep -v "node_modules" | grep "worker" | head -n 1)
             
             NODE_ENV=production pm2 describe truevine-api > /dev/null && NODE_ENV=production pm2 reload truevine-api --update-env || NODE_ENV=production pm2 start "$API_PATH" --name "truevine-api"
             NODE_ENV=production pm2 describe truevine-worker > /dev/null && NODE_ENV=production pm2 reload truevine-worker --update-env || NODE_ENV=production pm2 start "$WORKER_PATH" --name "truevine-worker"
             
-            # 8. Restart or clean-boot your Next.js dynamic client web views with explicit CWD settings
             NODE_ENV=production pm2 describe truevine-web > /dev/null && NODE_ENV=production pm2 reload truevine-web --update-env || NODE_ENV=production pm2 start npm --name "truevine-web" --cwd "/var/www/TruevineVoice/apps/web" -- run start -- --port=3000
             NODE_ENV=production pm2 describe truevine-admin > /dev/null && NODE_ENV=production pm2 reload truevine-admin --update-env || NODE_ENV=production pm2 start npm --name "truevine-admin" --cwd "/var/www/TruevineVoice/apps/admin" -- run start -- --port=3002
             
-            # 9. Freeze the finalized operational execution array grid layout
             pm2 save --force
-            
-            # 10. Force apply configurations and reload Nginx
             nginx -t && systemctl restart nginx
