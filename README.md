@@ -120,7 +120,7 @@ cp .env.example .env          # Windows PowerShell: Copy-Item .env.example .env
 ```
 
 `.env` ships working defaults: PostgreSQL on host port **55432** and Redis on
-host port **56379**. These are deliberately *not* the conventional 5432 / 6379,
+host port **56379**. These are deliberately _not_ the conventional 5432 / 6379,
 because a developer machine often already runs another project's PostgreSQL or
 Redis on those.
 
@@ -320,28 +320,54 @@ starts the repository's own Compose stack rather than a `services:` container.
 
 > `npm run typecheck` and `npm run test` build `packages/*` first, because apps
 > resolve `@truevine/*` through their built `dist` output.
+>
+> `npm run prisma:migrate:deploy` is a supervised operator action. It is not run
+> by CI, and it is never the right command against a database you did not create.
 
 ---
 
 ## Database
 
-The Prisma schema is **intentionally empty**.
+The Prisma schema holds the **tenancy core only**.
 
 ```prisma
-generator client { ... }   // prisma-client generator -> src/generated/prisma
-datasource db { ... }      // postgresql
+model Organization { ... }   // unit of tenancy, unique immutable slug
+model Membership   { ... }   // principal <-> organization, coarse role
+enum MembershipRole { OWNER, ADMIN, OPERATOR, VIEWER }
 ```
 
-There are **no models**. The domain model (Organization, Membership, Contact,
-Campaign, Call, Wallet, LedgerEntry, ...) is designed deliberately in a later
-task, with tenancy, money handling and idempotency agreed before any table
-exists. Creating speculative tables now would bake in unreviewed decisions and
-require destructive migrations to undo.
+`Contact`, `Campaign`, `Call`, `Audio`, `Wallet`, `LedgerEntry` and `Billing` do
+**not** exist yet. Money handling (AGENTS.md 6-7) and idempotency (AGENTS.md 9)
+are not expressed anywhere in the schema, so no financial table is introduced
+before those rules are agreed.
 
-The generator exists so `prisma generate` produces a typed client, and health
-probing uses `SELECT 1`, which works before any table is created. It uses the
-Prisma 7 `prisma-client` generator (`prisma-client-js` is deprecated) with
-`moduleFormat = "esm"` to match the repository's ESM-only Node workspaces.
+### Tenant isolation lives in the schema
+
+`memberships` has **no `id`**. Its primary key is `(organization_id, user_id)`,
+so tenant scope is part of row identity rather than a column a query might forget
+to filter on. Three consequences:
+
+- A membership cannot exist without an organization.
+- A user holds at most one role per organization, so "which role applies" is never
+  ambiguous.
+- Authorization is per tenant: one person in two organizations is two
+  memberships with independent roles.
+
+Every future tenant-owned table must follow the same rule: a primary key or
+unique index that **leads with** `organization_id`, and a foreign key that
+**carries** `organization_id` alongside the parent id. A bare foreign key to a
+parent row's id is a cross-tenant write waiting to happen. See
+[ADR 0006](./docs/adr/0006-tenancy-core-schema.md).
+
+> **The first migration is unreviewed and blocks production deployment.**
+> `assertNoMigrations` refuses to deploy a tree containing any model or
+> migration. That is intentional. The reviewed SQL, backward-compatibility
+> argument, rollback and supervised execution plan are in ADR 0006. Read it
+> before changing the interlock.
+
+The generator uses the Prisma 7 `prisma-client` generator (`prisma-client-js` is
+deprecated) with `moduleFormat = "esm"` to match the repository's ESM-only Node
+workspaces. Health probing uses `SELECT 1`, which works with or without tables.
 
 The generated client (`packages/database/src/generated/`) is gitignored, so
 `npm ci` does not produce it. Run `npm run prisma:generate` after a fresh clone
@@ -362,6 +388,14 @@ Unit tests never touch PostgreSQL or Redis: infrastructure is injected through
 the same NestJS injection tokens production uses, with fakes substituted. There
 are no silent skips — an end-to-end test that needs a dependency and cannot
 reach it fails loudly, which is intentional.
+
+`packages/database/test/tenancy.e2e-spec.ts` asserts the tenancy rules against
+live PostgreSQL: the database rejects an orphan membership, a duplicate
+organization slug and a duplicate membership, and cascade delete removes an
+organization's memberships. That is the point of putting tenant scope in the
+schema — a missing `where` clause becomes a test failure rather than a breach.
+Every test runs inside a transaction that is rolled back, so the suite leaves no
+rows behind and can be run repeatedly.
 
 ---
 
@@ -425,7 +459,12 @@ Not implemented in this step, by design:
   SMS, WhatsApp, RBAC, authentication, admin functionality.
 - **Africa's Talking adapter:** will be the first Voice provider, behind the
   `@truevine/telephony` interface. Not started.
-- **Database models:** none. See [Database](#database).
+- **Database models beyond tenancy:** Contact, Campaign, Call, Audio, Wallet,
+  LedgerEntry, Billing. Only Organization and Membership exist. See
+  [Database](#database).
+- **Production migration execution:** the tenancy migration is authored and
+  reviewed on paper but has **not** been applied to production. See
+  [ADR 0006](./docs/adr/0006-tenancy-core-schema.md).
 - **Business queues:** none. The worker establishes Redis/BullMQ connections and
   readiness only.
 - **OpenAPI:** deferred until the first product endpoints exist.
@@ -497,13 +536,13 @@ See [production setup, secrets, routing and rollback](./docs/runbooks/production
 [deployment audit and verification](./docs/runbooks/deployment-audit.md), and
 [ADR 0005](./docs/adr/0005-production-deployment.md).
 
-| Command | Purpose |
-| --- | --- |
-| `npm run ci:setup-npm` | Verify exact Node pin; install/verify the pinned npm if necessary |
-| `npm run test:deployment` | Deployment safety and rollback tests without infrastructure |
-| `npm run deploy:release -- <SHA>` | Linux VPS only: build/activate the uploaded release under the deployment lock |
-| `npm run deploy:rollback -- <SHA>` | Linux VPS only: reactivate a retained verified release |
-| `npm run deploy:verify -- <config-path> <SHA>` | Verify local and confirmed public foundation pages/API |
+| Command                                        | Purpose                                                                       |
+| ---------------------------------------------- | ----------------------------------------------------------------------------- |
+| `npm run ci:setup-npm`                         | Verify exact Node pin; install/verify the pinned npm if necessary             |
+| `npm run test:deployment`                      | Deployment safety and rollback tests without infrastructure                   |
+| `npm run deploy:release -- <SHA>`              | Linux VPS only: build/activate the uploaded release under the deployment lock |
+| `npm run deploy:rollback -- <SHA>`             | Linux VPS only: reactivate a retained verified release                        |
+| `npm run deploy:verify -- <config-path> <SHA>` | Verify local and confirmed public foundation pages/API                        |
 
 `npm test` also runs deployment safety tests. Deploy commands require the
 server-local `deployment.json`, existing readable `.env`, matching Node/npm,
