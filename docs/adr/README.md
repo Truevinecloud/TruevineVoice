@@ -14,6 +14,7 @@ Naming: `NNNN-short-kebab-title.md`, numbered sequentially and never reused.
 | [0003](./0003-postgresql-system-of-record.md)    | PostgreSQL is the system of record; Redis is not | Accepted                       |
 | [0004](./0004-github-actions-ci.md)              | CI E2E tests run the real Compose stack          | Accepted                       |
 | [0005](./0005-production-deployment.md)          | CI-gated release directories and PM2 deployment  | Accepted; VPS adoption pending |
+| [0006](./0006-tenancy-core-schema.md)            | Tenancy enforced by composite keys, not queries  | Accepted                       |
 
 ## When to write an ADR
 

@@ -1,26 +1,31 @@
 // ---------------------------------------------------------------------------
 // Truevine Voice - PostgreSQL schema
 //
-// FOUNDATION STAGE: this schema intentionally contains NO models.
+// FOUNDATION STAGE: this schema contains the tenancy core only.
 //
-// The Truevine domain model (Organization, Membership, Contact, Campaign,
-// Call, Wallet, LedgerEntry, ...) is designed deliberately in a later task,
-// with its tenancy, money-handling and idempotency rules agreed before any
-// table is created. Creating speculative tables here would bake in decisions
-// that have not been reviewed yet, and would require destructive migrations to
-// undo.
+// Present: Organization and Membership. Membership is the tenancy anchor: it is
+// what makes an organizationId a real relationship rather than a loose column,
+// and it is what RBAC and wallet scoping both hang off later.
 //
-// PostgreSQL is the system of record. Every future tenant-owned table must be
-// organization-scoped and must enforce that scope at the database level.
+// Deliberately absent: Contact, Campaign, Call, Audio, Wallet, LedgerEntry,
+// Billing, Voice, SMS, WhatsApp and every Africa's Talking concept. Money rules
+// (AGENTS.md 6-7) and idempotency (AGENTS.md 9) are not yet expressed anywhere
+// in this schema, so no financial table is introduced before they are.
 //
-// What exists today:
-//   - a `prisma-client` generator, so `prisma generate` produces a typed client
-//     that `src/client.ts` re-exports;
-//   - a PostgreSQL datasource;
-//   - a migrations directory placeholder for the first real migration.
+// DEPLOYMENT INTERLOCK
+// -------------------
+// `infrastructure/scripts/deploy.mjs#assertNoMigrations` refuses to deploy any
+// tree whose schema declares a model or whose migrations directory contains
+// anything but README.md. Both models below and the first migration therefore
+// block production deployment by design. See ADR 0006 for the reviewed SQL and
+// the expand/contract plan that must be approved before the interlock changes.
 //
-// Intentionally absent: `prisma-client-js` (deprecated in Prisma 7), models,
-// enums, views and `directUrl` (removed in Prisma 7).
+// PostgreSQL is the system of record. Every tenant-owned table must be
+// organization-scoped, and that scope must be enforced by the database rather
+// than only by application code.
+//
+// Intentionally absent: `prisma-client-js` (deprecated in Prisma 7), views and
+// `directUrl` (removed in Prisma 7).
 // ---------------------------------------------------------------------------
 
 generator client {
@@ -33,4 +38,76 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+/// The unit of tenancy. Every other tenant-owned row hangs off exactly one of
+/// these.
+///
+/// `slug` is the stable, URL-safe public identifier used to address an
+/// organization in routing and in provisioning lookups. It is unique and
+/// immutable in practice: changing it breaks customer bookmarks and any
+/// provider reference captured against it.
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  slug      String   @unique @db.VarChar(63)
+  name      String   @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  memberships Membership[]
+
+  @@map("organizations")
+}
+
+/// What a principal may do inside one organization.
+///
+/// A principal is a row here per organization. The same person in two
+/// organizations is two memberships with independent roles, which is what keeps
+/// authorization a per-tenant decision rather than a global one.
+///
+/// TENANCY ENFORCEMENT
+/// ------------------
+/// `@@unique([userId, organizationId])` is the primary access path: resolving
+/// "which organizations can this user act in?" leads with `userId`, and that
+/// lookup must not be able to return a cross-organization pair. The composite
+/// primary key `@@id([organizationId, userId])` makes the tenant scope part of
+/// the row identity itself, so a row cannot exist without an organization and a
+/// user cannot hold two roles in one organization.
+///
+/// Both constraints are deliberate and both are relied upon by later tables.
+/// Every future tenant-owned table must repeat this shape: a composite key or
+/// unique index that leads with `organization_id`, plus a foreign key that
+/// carries the organization alongside the parent id. A bare foreign key to a
+/// parent row in another tenant is a cross-tenant write waiting to happen, and
+/// no application-layer check reliably prevents it.
+model Membership {
+  // No `id`: the tenant scope and the principal together are the identity.
+  organizationId String         @map("organization_id") @db.Uuid
+  userId         String         @map("user_id") @db.Uuid
+  role           MembershipRole
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, userId])
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@map("memberships")
+}
+
+/// Coarse authorization role, evaluated within one organization.
+///
+/// INTENTIONALLY COARSE. This is not an RBAC permission graph and does not try
+/// to become one. Fine-grained permissions are a separate, later decision, and a
+/// half-specified permission system baked into a first unreviewed migration is
+/// exactly the kind of speculative table AGENTS.md 4 warns against.
+///
+/// `OWNER` is deliberately not granted implicitly: transferring ownership is a
+/// deliberate, auditable act rather than a side effect of granting admin.
+enum MembershipRole {
+  OWNER
+  ADMIN
+  OPERATOR
+  VIEWER
 }
