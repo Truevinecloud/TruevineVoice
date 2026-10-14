@@ -5,115 +5,97 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: truevinevoice-production-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Checkout Repository Code Layers
-        uses: actions/checkout@v4
-
-      - name: Execute Secure Remote SSH Pipeline Sequence
-        uses: appleboy/ssh-action@master
+      - name: Deploy verified commit to Contabo VPS
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.VPS_SSH_HOST }}
           username: ${{ secrets.VPS_SSH_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DEPLOY_SHA
+          command_timeout: 25m
           script: |
-            cd /var/www/TruevineVoice
-            
-            # Sync codebase from GitHub securely
-            if [ ! -d ".git" ]; then
-              git clone git@github.com:Truevinecloud/TruevineVoice.git .
-            else
-              git fetch --all
-              git reset --hard origin/main
-            fi
-            
+            set -Eeuo pipefail
+
+            APP_DIR=/var/www/TruevineVoice
+            cd "$APP_DIR"
+
+            test -d .git || { echo "ERROR: Git checkout missing"; exit 1; }
+            test -f .env || { echo "ERROR: Production .env missing"; exit 1; }
+            test -n "${DEPLOY_SHA:-}" || { echo "ERROR: Deployment commit missing"; exit 1; }
+
+            echo "Previous checkout: $(git rev-parse HEAD)"
+            echo "Deploying commit: $DEPLOY_SHA"
+
+            git fetch origin main
+            git cat-file -e "${DEPLOY_SHA}^{commit}"
+            git reset --hard "$DEPLOY_SHA"
+
             npm install --engine-strict=false
             npm run build
-            
-            # --- CONSOLIDATE ALL SYSTEM APP ROUTES UNDER ONE VOICE SUBDOMAIN ---
-            rm -f /etc/nginx/sites-enabled/*
-            rm -f /etc/nginx/sites-available/*
-            
-            cat << 'EOF' > /etc/nginx/sites-available/voice.truevinecloud.online
-            server {
-                listen 80;
-                listen 443 ssl;
-                server_name voice.truevinecloud.online;
-
-                ssl_certificate /etc/letsencrypt/live/truevinecloud-web/fullchain.pem;
-                ssl_certificate_key /etc/letsencrypt/live/truevinecloud-web/privkey.pem;
-                include /etc/letsencrypt/options-ssl-nginx.conf;
-                ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-
-                if ($scheme = http) {
-                    return 301 https://$host$request_uri;
-                }
-
-                # ROUTE 1: Main Customer Web Interface (Port 3000) -> Handles Login & Basic Profiles
-                location / {
-                    proxy_pass http://127.0.0.1:3000;
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade $http_upgrade;
-                    proxy_set_header Connection 'upgrade';
-                    proxy_set_header Host $host;
-                    proxy_cache_bypass $http_upgrade;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                }
-
-                # ROUTE 2: Platform Admin Dashboard (Port 3002) -> Handles Higher Roles & Permissions
-                location /admin {
-                    proxy_pass http://127.0.0.1:3002;
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade $http_upgrade;
-                    proxy_set_header Connection 'upgrade';
-                    proxy_set_header Host $host;
-                    proxy_cache_bypass $http_upgrade;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                }
-
-                # ROUTE 3: NestJS Backend API Core Server Gateway (Port 3001)
-                location /api/ {
-                    proxy_pass http://127.0.0;
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade $http_upgrade;
-                    proxy_set_header Connection 'upgrade';
-                    proxy_set_header Host $host;
-                    proxy_cache_bypass $http_upgrade;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                }
-
-                # ROUTE 4: NestJS API Health diagnostics endpoint route (Port 3001)
-                location /health {
-                    proxy_pass http://127.0.0health;
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade $http_upgrade;
-                    proxy_set_header Connection 'upgrade';
-                    proxy_set_header Host $host;
-                    proxy_cache_bypass $http_upgrade;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                }
-            }
-            EOF
-            
-            # Activate configuration and deploy database schema updates
-            ln -s /etc/nginx/sites-available/voice.truevinecloud.online /etc/nginx/sites-enabled/
             npm run prisma:migrate:deploy
-            
-            # Orchestrate PM2 lifecycle daemons for all apps
-            API_PATH=$(find . -name "main.js" | grep -v "node_modules" | grep "api" | head -n 1)
-            WORKER_PATH=$(find . -name "main.js" | grep -v "node_modules" | grep "worker" | head -n 1)
-            
-            NODE_ENV=production pm2 describe truevine-api > /dev/null && NODE_ENV=production pm2 reload truevine-api --update-env || NODE_ENV=production pm2 start "$API_PATH" --name "truevine-api"
-            NODE_ENV=production pm2 describe truevine-worker > /dev/null && NODE_ENV=production pm2 reload truevine-worker --update-env || NODE_ENV=production pm2 start "$WORKER_PATH" --name "truevine-worker"
-            
-            NODE_ENV=production pm2 describe truevine-web > /dev/null && NODE_ENV=production pm2 reload truevine-web --update-env || NODE_ENV=production pm2 start npm --name "truevine-web" --cwd "/var/www/TruevineVoice/apps/web" -- run start -- --port=3000
-            NODE_ENV=production pm2 describe truevine-admin > /dev/null && NODE_ENV=production pm2 reload truevine-admin --update-env || NODE_ENV=production pm2 start npm --name "truevine-admin" --cwd "/var/www/TruevineVoice/apps/admin" -- run start -- --port=3002
-            
+
+            if pm2 describe truevine-api >/dev/null 2>&1; then
+              NODE_ENV=production pm2 reload truevine-api --update-env
+            else
+              NODE_ENV=production pm2 start "$APP_DIR/apps/api/dist/main.js" --name truevine-api --cwd "$APP_DIR"
+            fi
+
+            if pm2 describe truevine-worker >/dev/null 2>&1; then
+              NODE_ENV=production pm2 reload truevine-worker --update-env
+            else
+              NODE_ENV=production pm2 start "$APP_DIR/apps/worker/dist/main.js" --name truevine-worker --cwd "$APP_DIR"
+            fi
+
+            if pm2 describe truevine-web >/dev/null 2>&1; then
+              NODE_ENV=production pm2 reload truevine-web --update-env
+            else
+              NODE_ENV=production pm2 start npm --name truevine-web --cwd "$APP_DIR/apps/web" -- run start -- --port=3000
+            fi
+
+            if pm2 describe truevine-admin >/dev/null 2>&1; then
+              NODE_ENV=production pm2 reload truevine-admin --update-env
+            else
+              NODE_ENV=production pm2 start npm --name truevine-admin --cwd "$APP_DIR/apps/admin" -- run start -- --port=3002
+            fi
+
+            wait_for_url() {
+              url="$1"
+              attempt=1
+              while [ "$attempt" -le 30 ]; do
+                if curl --silent --show-error --fail "$url" >/dev/null; then
+                  echo "PASS: $url"
+                  return 0
+                fi
+                sleep 2
+                attempt=$((attempt + 1))
+              done
+              echo "FAIL: $url" >&2
+              return 1
+            }
+
+            wait_for_url http://127.0.0.1:3001/health
+            wait_for_url http://127.0.0.1:3000/
+            wait_for_url http://127.0.0.1:3002/admin
+
+            # Validate existing Nginx configuration; never rewrite or restart it here.
+            nginx -t
+            wait_for_url https://voice.truevinecloud.online/health
+            wait_for_url https://voice.truevinecloud.online/
+            wait_for_url https://voice.truevinecloud.online/admin
+
             pm2 save --force
-            nginx -t && systemctl restart nginx
+            echo "Deployment succeeded: $(git rev-parse HEAD)"
