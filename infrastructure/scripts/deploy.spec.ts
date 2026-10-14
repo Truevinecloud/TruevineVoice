@@ -54,7 +54,7 @@ function response(kind = 'api', body = healthy, status = 200) {
     json: async () => body,
     text: async () =>
       kind === 'web'
-        ? 'Truevine Voice Customer web application Outbound Voice for Uganda No product functionality'
+        ? 'Truevine Voice Customer web application Live web for voice voice.truevinecloud.online the voice product is still under construction'
         : 'Truevine Voice Admin No admin functionality yet internal operators',
   };
 }
