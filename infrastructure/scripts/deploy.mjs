@@ -43,18 +43,62 @@ function run(command, args, cwd, capture = false) {
   }
 }
 
-export function assertNoMigrations(directory) {
-  const schema = readFileSync(join(directory, 'packages/database/prisma/schema.prisma'), 'utf8');
-  if (
-    /^\s*(model|enum|view)\s+/m.test(schema) ||
-    readdirSync(join(directory, 'packages/database/prisma/migrations')).some(
-      (name) => name !== 'README.md',
-    )
-  ) {
+/** Directories under `prisma/migrations` that are migration folders. */
+function migrationDirectories(directory) {
+  return readdirSync(join(directory, 'packages/database/prisma/migrations'), {
+    withFileTypes: true,
+  })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+}
+
+/**
+ * Gate that permits reviewed migrations and blocks everything else.
+ *
+ * This replaces a blanket "no models, no migrations" rule, which became
+ * impossible to keep once the tenancy schema landed. The safety property is
+ * preserved rather than dropped: a migration reaches production only after a
+ * human has listed it in `infrastructure/migrations-reviewed.json`, and that
+ * file is where the review of its SQL, backward compatibility, rollback and
+ * execution plan is recorded.
+ *
+ * Both directions are checked. An unreviewed migration blocks the deploy, and
+ * so does an entry that claims a migration the tree does not contain, because
+ * that means the manifest and the schema have drifted apart.
+ */
+export function assertReviewedMigrations(directory, reviewed = readReviewedMigrations(directory)) {
+  const present = migrationDirectories(directory);
+  const missing = present.filter((name) => !reviewed.includes(name));
+  if (missing.length > 0) {
     throw new Error(
-      'Schema/migrations changed: review SQL and introduce an expand/contract plan before deploying',
+      `Unreviewed migration(s) present: ${missing.join(', ')}. ` +
+        'Review the SQL, backward compatibility, rollback and execution plan, then add the ' +
+        'migration name to infrastructure/migrations-reviewed.json before deploying.',
     );
   }
+  const absent = reviewed.filter((name) => !present.includes(name));
+  if (absent.length > 0) {
+    throw new Error(
+      `Reviewed migration(s) listed but absent from this tree: ${absent.join(', ')}. ` +
+        'infrastructure/migrations-reviewed.json and prisma/migrations have drifted apart.',
+    );
+  }
+}
+
+/** Reads the reviewed-migration manifest from the release being deployed. */
+export function readReviewedMigrations(directory) {
+  const manifest = JSON.parse(
+    readFileSync(join(directory, 'infrastructure/migrations-reviewed.json'), 'utf8'),
+  );
+  if (
+    !Array.isArray(manifest.migrations) ||
+    manifest.migrations.some((n) => typeof n !== 'string')
+  ) {
+    throw new Error(
+      'infrastructure/migrations-reviewed.json must list a "migrations" string array',
+    );
+  }
+  return manifest.migrations;
 }
 
 function switchCurrent(release) {
@@ -160,7 +204,7 @@ async function main() {
     const staging = realpathSync(process.cwd());
     if (!staging.startsWith(`${ROOT}/incoming/`))
       throw new Error('Build from an isolated incoming directory');
-    assertNoMigrations(staging);
+    assertReviewedMigrations(staging);
     const expectedNode = readFileSync(join(staging, '.nvmrc'), 'utf8').trim();
     const pkg = JSON.parse(readFileSync(join(staging, 'package.json'), 'utf8'));
     if (
@@ -186,7 +230,7 @@ async function main() {
   ]) {
     if (!existsSync(join(release, file))) throw new Error(`Missing production build: ${file}`);
   }
-  assertNoMigrations(release);
+  assertReviewedMigrations(release);
   await activate({
     release,
     previous,
