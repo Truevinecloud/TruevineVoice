@@ -1,119 +1,81 @@
-name: TruevineVoice CI/CD Deployment
+name: Production deployment
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: truevinevoice-production-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      vars.DEPLOYMENT_READY == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout Repository Code Layers
-        uses: actions/checkout@v4
-
-      - name: Execute Secure Remote SSH Pipeline Sequence
-        uses: appleboy/ssh-action@master
+      - name: Check out tested source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          host: ${{ secrets.VPS_SSH_HOST }}
-          username: ${{ secrets.VPS_SSH_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            cd /var/www/TruevineVoice
-            
-            # Sync codebase from GitHub securely
-            if [ ! -d ".git" ]; then
-              git clone git@github.com:Truevinecloud/TruevineVoice.git .
-            else
-              git fetch --all
-              git reset --hard origin/main
-            fi
-            
-            npm install --engine-strict=false
-            npm run build
-            
-            # --- CONSOLIDATE ALL SYSTEM APP ROUTES UNDER ONE VOICE SUBDOMAIN ---
-            rm -f /etc/nginx/sites-enabled/*
-            rm -f /etc/nginx/sites-available/*
-            
-            cat << 'EOF' > /etc/nginx/sites-available/voice.truevinecloud.online
-            server {
-                listen 80;
-                listen 443 ssl;
-                server_name voice.truevinecloud.online;
+          ref: ${{ env.DEPLOY_SHA }}
+          persist-credentials: false
 
-                ssl_certificate /etc/letsencrypt/live/truevinecloud-web/fullchain.pem;
-                ssl_certificate_key /etc/letsencrypt/live/truevinecloud-web/privkey.pem;
-                include /etc/letsencrypt/options-ssl-nginx.conf;
-                ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+      - name: Verify CI gates and current main
+        env:
+          CI_RUN: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN/jobs?per_page=100" > "$RUNNER_TEMP/jobs.json"
+          node --input-type=module -e '
+            import fs from "node:fs";
+            import {assertCiJobs} from "./infrastructure/scripts/verify-deployment.mjs";
+            const {jobs} = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/jobs.json"));
+            assertCiJobs(jobs);
+          '
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [ "$latest" != "$DEPLOY_SHA" ]; then
+            echo "Superseded commit; deployment skipped"
+            echo "DEPLOY_CURRENT=false" >> "$GITHUB_ENV"
+          else
+            echo "DEPLOY_CURRENT=true" >> "$GITHUB_ENV"
+          fi
 
-                if ($scheme = http) {
-                    return 301 https://$host$request_uri;
-                }
-
-                # ROUTE 1: Main Customer Web Interface (Port 3000) -> Handles Login & Basic Profiles
-                location / {
-                    proxy_pass http://127.0.0.1:3000;
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade $http_upgrade;
-                    proxy_set_header Connection 'upgrade';
-                    proxy_set_header Host $host;
-                    proxy_cache_bypass $http_upgrade;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                }
-
-                # ROUTE 2: Platform Admin Dashboard (Port 3002) -> Handles Higher Roles & Permissions
-                location /admin {
-                    proxy_pass http://127.0.0.1:3002;
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade $http_upgrade;
-                    proxy_set_header Connection 'upgrade';
-                    proxy_set_header Host $host;
-                    proxy_cache_bypass $http_upgrade;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                }
-
-                # ROUTE 3: NestJS Backend API Core Server Gateway (Port 3001)
-                location /api/ {
-                    proxy_pass http://127.0.0;
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade $http_upgrade;
-                    proxy_set_header Connection 'upgrade';
-                    proxy_set_header Host $host;
-                    proxy_cache_bypass $http_upgrade;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                }
-
-                # ROUTE 4: NestJS API Health diagnostics endpoint route (Port 3001)
-                location /health {
-                    proxy_pass http://127.0.0health;
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade $http_upgrade;
-                    proxy_set_header Connection 'upgrade';
-                    proxy_set_header Host $host;
-                    proxy_cache_bypass $http_upgrade;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                }
-            }
-            EOF
-            
-            # Activate configuration and deploy database schema updates
-            ln -s /etc/nginx/sites-available/voice.truevinecloud.online /etc/nginx/sites-enabled/
-            npm run prisma:migrate:deploy
-            
-            # Orchestrate PM2 lifecycle daemons for all apps
-            API_PATH=$(find . -name "main.js" | grep -v "node_modules" | grep "api" | head -n 1)
-            WORKER_PATH=$(find . -name "main.js" | grep -v "node_modules" | grep "worker" | head -n 1)
-            
-            NODE_ENV=production pm2 describe truevine-api > /dev/null && NODE_ENV=production pm2 reload truevine-api --update-env || NODE_ENV=production pm2 start "$API_PATH" --name "truevine-api"
-            NODE_ENV=production pm2 describe truevine-worker > /dev/null && NODE_ENV=production pm2 reload truevine-worker --update-env || NODE_ENV=production pm2 start "$WORKER_PATH" --name "truevine-worker"
-            
-            NODE_ENV=production pm2 describe truevine-web > /dev/null && NODE_ENV=production pm2 reload truevine-web --update-env || NODE_ENV=production pm2 start npm --name "truevine-web" --cwd "/var/www/TruevineVoice/apps/web" -- run start -- --port=3000
-            NODE_ENV=production pm2 describe truevine-admin > /dev/null && NODE_ENV=production pm2 reload truevine-admin --update-env || NODE_ENV=production pm2 start npm --name "truevine-admin" --cwd "/var/www/TruevineVoice/apps/admin" -- run start -- --port=3002
-            
-            pm2 save --force
-            nginx -t && systemctl restart nginx
+      - name: Build and activate isolated release
+        if: env.DEPLOY_CURRENT == 'true'
+        env:
+          SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          SSH_USER: ${{ secrets.VPS_SSH_USER }}
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          SSH_PORT: ${{ vars.VPS_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          test "$SSH_HOST" = '169.58.162.143'
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] && test "$SSH_USER" != root
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]]
+          test -n "$SSH_KEY" && test -n "$SSH_KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/deploy-ssh"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/deploy-ssh/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/deploy-ssh/known_hosts"
+          opts=(-i "$RUNNER_TEMP/deploy-ssh/key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/deploy-ssh/known_hosts" -o ConnectTimeout=20)
+          destination="$SSH_USER@$SSH_HOST"
+          incoming="/var/www/TruevineVoice/incoming/$DEPLOY_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          ssh "${opts[@]}" -p "$SSH_PORT" "$destination" "mkdir -m 750 '$incoming'"
+          git archive "$DEPLOY_SHA" | ssh "${opts[@]}" -p "$SSH_PORT" "$destination" "tar -x -C '$incoming'"
+          ssh "${opts[@]}" -p "$SSH_PORT" "$destination" "export PATH=/opt/truevine-runtime/bin:/usr/local/bin:/usr/bin:/bin; cd '$incoming' && npm run deploy:release -- '$DEPLOY_SHA'"

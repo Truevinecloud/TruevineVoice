@@ -3,6 +3,13 @@
 Target: Ubuntu VPS `169.58.162.143`, application root `/var/www/TruevineVoice`.
 Customer URL: `https://voice.truevinecloud.online/`.
 
+The 2026-10-14 audit confirmed the existing public `/health` and `/admin` routes,
+including the admin app's `/admin` basePath. Preserve these routes and Nginx/TLS.
+The deployment account uses `/opt/truevine-runtime/bin` for the exact Node/npm pins.
+The owner authorized restricting `.env` access to root and the deployment group;
+its content remains unchanged. The legacy checkout and its local admin configuration
+backup are retained for recovery and are never used as release input.
+
 ## Prerequisites and audit
 
 Do these read-only checks in a trusted administrator SSH session. Do not print
@@ -107,7 +114,7 @@ enabling public admin deployment; do not remove the access controls.
 ## First cutover and rollback baseline
 
 Automatic deployment refuses to adopt existing managed PM2 processes without a
-`current` link to a verified release. It also refuses dirty production checkouts.
+`current` link to a verified release. Legacy checkout edits are preserved untouched.
 Review/back up local changes with their owner; do not reset or clean them.
 As the repository owner, ignore only server-local deployment state through the
 checkout's local exclude file, so an old tracked .gitignore need not be edited:

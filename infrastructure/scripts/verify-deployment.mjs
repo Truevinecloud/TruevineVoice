@@ -4,6 +4,20 @@ import { pathToFileURL } from 'node:url';
 
 export const PROCESS_NAMES = ['truevine-web', 'truevine-admin', 'truevine-api', 'truevine-worker'];
 
+export function assertCiJobs(jobs) {
+  for (const name of [
+    'Lint, typecheck and Prisma validation',
+    'Unit tests',
+    'End-to-end tests',
+    'Production build',
+  ]) {
+    const matches = jobs.filter((job) => job.name === name);
+    if (matches.length !== 1 || matches[0].conclusion !== 'success') {
+      throw new Error(`Missing successful CI gate: ${name}`);
+    }
+  }
+}
+
 export function validateConfig(config) {
   if (config.webUrl !== 'https://voice.truevinecloud.online/') {
     throw new Error('webUrl must be the agreed customer production URL');
@@ -75,7 +89,7 @@ export async function verifyHttp(config, sha, fetcher = fetch) {
   validateConfig(config);
   const checks = [
     ['http://127.0.0.1:3000/', 'web'],
-    ['http://127.0.0.1:3002/', 'admin'],
+    ['http://127.0.0.1:3002/admin', 'admin'],
     [`http://127.0.0.1:${config.apiPort}/health`, 'api'],
     [config.webUrl, 'web'],
     [config.apiHealthUrl, 'api'],

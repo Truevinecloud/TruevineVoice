@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { activate, assertNoMigrations } from './deploy.mjs';
 import {
+  assertCiJobs,
   checkHttp,
   PROCESS_NAMES,
   validateConfig,
@@ -12,6 +13,26 @@ import {
 } from './verify-deployment.mjs';
 
 const sha = 'a'.repeat(40);
+const requiredJobs = [
+  'Lint, typecheck and Prisma validation',
+  'Unit tests',
+  'End-to-end tests',
+  'Production build',
+].map((name) => ({ name, conclusion: 'success' }));
+
+describe('deployment CI gates', () => {
+  it('accepts all four successful gates', () => {
+    expect(() => assertCiJobs(requiredJobs)).not.toThrow();
+  });
+  it.each(requiredJobs)('rejects missing, failed, skipped or duplicate $name', (job) => {
+    const others = requiredJobs.filter((entry) => entry.name !== job.name);
+    expect(() => assertCiJobs(others)).toThrow(job.name);
+    for (const conclusion of ['failure', 'cancelled', 'skipped', null]) {
+      expect(() => assertCiJobs([...others, { ...job, conclusion }])).toThrow(job.name);
+    }
+    expect(() => assertCiJobs([...requiredJobs, job])).toThrow(job.name);
+  });
+});
 const config = {
   webUrl: 'https://voice.truevinecloud.online/',
   apiHealthUrl: 'https://example.test/api/health',
@@ -73,7 +94,7 @@ describe('deployment HTTP checks', () => {
     await verifyHttp(config, sha, fetcher);
     expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
       'http://127.0.0.1:3000/',
-      'http://127.0.0.1:3002/',
+      'http://127.0.0.1:3002/admin',
       'http://127.0.0.1:3001/health',
       config.webUrl,
       config.apiHealthUrl,

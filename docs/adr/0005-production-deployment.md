@@ -1,6 +1,6 @@
 # ADR 0005: CI-gated release directories and PM2 deployment
 
-- **Status:** Accepted for repository implementation; VPS adoption pending audit
+- **Status:** Accepted; supervised VPS adoption authorized on 2026-10-14
 - **Date:** 2026-10-13
 
 ## Context
@@ -24,6 +24,15 @@ the root build script on Ubuntu. Keep the original checkout and `.env` untouched
 link `.env` into completed releases. Use explicit PM2 entries for web, admin,
 API and worker, binding HTTP services to loopback. Do not publish a new admin
 route or alter Nginx/TLS without an existing-route audit.
+
+The 2026-10-14 audit confirmed existing `/admin` and `/health` public routes.
+Preserve the admin app's established `/admin` basePath. The legacy checkout's
+local admin configuration and backup are retained for recovery; it is never a
+release input, so dirty legacy Git state does not block an isolated source archive.
+The owner authorized migration from root PM2 to a dedicated deployment account.
+Restrict the existing environment file to root and the deployment group (640)
+without changing its content. Keep the exact pinned runtime under
+`/opt/truevine-runtime`, isolated from the legacy system Node installation.
 
 Serialize deploys/rollbacks with GitHub concurrency and server-side flock.
 Verify HTTP content, production SHA, dependencies and PM2 process stability.

@@ -489,8 +489,9 @@ The existing Ubuntu VPS is deployed through a successful main-push CI run.
 The pipeline builds all four real applications in separate release directories,
 uses a dedicated non-root SSH account with pinned host keys, preserves the
 production `.env` and databases, and verifies PM2 and local/public HTTP health.
-Existing routing, TLS and PM2 ownership must be audited before first cutover.
-Production activation has not been verified by adding this workflow.
+The 2026-10-14 audit confirmed the existing `/admin` and `/health` routes.
+The deployment uses an isolated pinned runtime under `/opt/truevine-runtime`
+and preserves the legacy checkout for recovery. See the runbook for first cutover.
 
 See [production setup, secrets, routing and rollback](./docs/runbooks/production-deployment.md),
 [deployment audit and verification](./docs/runbooks/deployment-audit.md), and

@@ -5,6 +5,14 @@ import HomePage from './page';
 import { WEB_APP_INFO } from '../lib/app-info';
 
 describe('web placeholder page', () => {
+  it('describes the planned Uganda experience without claiming calling is available', () => {
+    const markup = renderToStaticMarkup(<HomePage />);
+
+    expect(markup).toContain('aria-labelledby="roadmap-heading"');
+    expect(markup).toContain('Built for customer conversations in Uganda');
+    expect(markup).toContain('Coming next');
+    expect(markup).toContain('not available yet');
+  });
   it('renders the product name', () => {
     const markup = renderToStaticMarkup(<HomePage />);
 

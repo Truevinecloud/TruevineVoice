@@ -128,11 +128,7 @@ async function main() {
       'Production .env must already exist with mode 600 or 640; it will not be changed',
     );
   }
-  if (existsSync(join(ROOT, '.git')) && run('git', ['status', '--porcelain'], ROOT, true).trim()) {
-    throw new Error(
-      'Production checkout has changes; review them before deployment (no reset performed)',
-    );
-  }
+  // The audited legacy checkout is retained for recovery, never used as release input.
   mkdirSync(RELEASES, { recursive: true, mode: 0o750 });
   let previous = null;
   if (existsSync(CURRENT)) {
