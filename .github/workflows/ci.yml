@@ -178,6 +178,17 @@ jobs:
       - name: Start PostgreSQL and Redis
         run: docker compose up -d --wait
 
+      # Applies migrations to the disposable database this job just started on a
+      # throwaway runner. This is not production and not an operator action: the
+      # container is created by this job and destroyed with the runner, so there
+      # is no data to preserve and no restore to rehearse. Production
+      # application stays a supervised operator step, per AGENTS.md 12.
+      #
+      # Required, not optional: the schema has models, so the tenancy E2E suite
+      # queries tables that a freshly initialised PostgreSQL does not have.
+      - name: Apply migrations to the test database
+        run: npm run prisma:migrate:deploy
+
       - name: Run end-to-end tests
         run: npm run test:e2e
 
