@@ -1,0 +1,19 @@
+{
+  "$comment": [
+    "Reviewed migrations that are permitted to exist in a deployable tree.",
+    "",
+    "assertReviewedMigrations blocks any migration directory present in the",
+    "release that is not listed here, and any entry listed here that is not",
+    "present in the release. Adding a migration therefore BLOCKS deployment",
+    "until a human adds it to this file, which is the review point.",
+    "",
+    "Each entry must be reviewed for: generated SQL, backward compatibility with",
+    "the currently deployed application (expand/contract), a rollback, and a",
+    "supervised execution plan. See docs/adr/0006-tenancy-core-schema.md.",
+    "",
+    "Migrations are applied by an operator with `prisma migrate deploy` from a",
+    "controlled environment, never by this pipeline. Listing a migration here",
+    "permits the CODE to deploy; it does not apply the migration."
+  ],
+  "migrations": ["20261014042915_tenancy_core"]
+}

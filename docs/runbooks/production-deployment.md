@@ -294,9 +294,20 @@ a lost SSH connection/power failure requires inspecting `pm2 ls`, `current`, and
 public health before retrying; no system can run an in-process rollback after
 being killed. The retained releases and lock support supervised recovery.
 
-There are no models or SQL migrations. Deploy never runs migrate/reset/db push
-or Compose teardown. It refuses schema models or non-placeholder migrations
-until reviewed expand/contract SQL and a controlled migration procedure exist.
+Deploy never runs migrate/reset/db push or Compose teardown. The schema has
+models and there are SQL migrations, but deploy still does not apply them.
+
+A migration reaches a release only when it is listed in
+`infrastructure/migrations-reviewed.json`. `assertReviewedMigrations` blocks the
+deploy when the release contains a migration that is not listed there, and when
+the manifest lists a migration the release does not contain. Adding a migration
+therefore blocks deployment until a human reviews its SQL, backward
+compatibility, rollback and execution plan and adds its name to that file.
+
+Listing a migration permits the **code** to deploy. It does not apply the
+migration: that remains a supervised operator action with
+`prisma migrate deploy` from a controlled environment, with a rehearsed backup.
+See [ADR 0006](../../docs/adr/0006-tenancy-core-schema.md).
 
 ## Rollback
 

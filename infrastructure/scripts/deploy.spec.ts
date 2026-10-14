@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { activate, assertNoMigrations } from './deploy.mjs';
+import { activate, assertReviewedMigrations } from './deploy.mjs';
 import {
   assertCiJobs,
   checkHttp,
@@ -228,19 +228,68 @@ describe('activation and rollback', () => {
 });
 
 describe('migration safety', () => {
-  it('allows the foundation schema and blocks new models or migrations', () => {
+  /** Builds a minimal tree with a manifest and an optional set of migrations. */
+  function tree(migrations: string[], reviewed: string[]): string {
     const directory = mkdtempSync(join(tmpdir(), 'truevine-deploy-'));
-    const prisma = join(directory, 'packages/database/prisma');
-    mkdirSync(join(prisma, 'migrations'), { recursive: true });
-    writeFileSync(join(prisma, 'schema.prisma'), 'datasource db { provider = "postgresql" }');
-    writeFileSync(join(prisma, 'migrations/README.md'), 'No migrations');
+    const prismaMigrations = join(directory, 'packages/database/prisma/migrations');
+    mkdirSync(prismaMigrations, { recursive: true });
+    for (const name of migrations) mkdirSync(join(prismaMigrations, name));
+    mkdirSync(join(directory, 'infrastructure'), { recursive: true });
+    writeFileSync(
+      join(directory, 'infrastructure/migrations-reviewed.json'),
+      JSON.stringify({ migrations: reviewed }),
+    );
+    return directory;
+  }
+
+  it('allows a tree with no migrations', () => {
+    const directory = tree([], []);
     try {
-      expect(() => assertNoMigrations(directory)).not.toThrow();
-      writeFileSync(join(prisma, 'schema.prisma'), 'model Organization { id String @id }');
-      expect(() => assertNoMigrations(directory)).toThrow('expand/contract');
-      writeFileSync(join(prisma, 'schema.prisma'), 'datasource db { provider = "postgresql" }');
-      mkdirSync(join(prisma, 'migrations/20261013_initial'));
-      expect(() => assertNoMigrations(directory)).toThrow('expand/contract');
+      expect(() => assertReviewedMigrations(directory)).not.toThrow();
+    } finally {
+      rmSync(directory, { recursive: true });
+    }
+  });
+
+  it('allows a reviewed migration', () => {
+    const directory = tree(['20261014042915_tenancy_core'], ['20261014042915_tenancy_core']);
+    try {
+      expect(() => assertReviewedMigrations(directory)).not.toThrow();
+    } finally {
+      rmSync(directory, { recursive: true });
+    }
+  });
+
+  it('blocks a migration that has not been reviewed', () => {
+    const directory = tree(['20261014042915_tenancy_core'], []);
+    try {
+      expect(() => assertReviewedMigrations(directory)).toThrow(
+        'Unreviewed migration(s) present: 20261014042915_tenancy_core',
+      );
+    } finally {
+      rmSync(directory, { recursive: true });
+    }
+  });
+
+  it('blocks when the manifest claims a migration the tree does not contain', () => {
+    const directory = tree([], ['20261014042915_tenancy_core']);
+    try {
+      expect(() => assertReviewedMigrations(directory)).toThrow(
+        'Reviewed migration(s) listed but absent from this tree',
+      );
+    } finally {
+      rmSync(directory, { recursive: true });
+    }
+  });
+
+  it('rejects a malformed manifest rather than silently permitting everything', () => {
+    const directory = tree([], []);
+    try {
+      writeFileSync(
+        join(directory, 'infrastructure/migrations-reviewed.json'),
+        '{"migrations": "all"}',
+      );
+      expect(() => assertReviewedMigrations(directory)).toThrow('string array');
     } finally {
       rmSync(directory, { recursive: true });
     }
