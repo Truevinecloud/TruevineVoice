@@ -355,7 +355,7 @@ describe('process validation for baseline verification', () => {
 
     // The failure this whole change exists to fix: PM2 reported `online` while
     // still pointing at the previous release. The message must say so, because
-    // the operator action differs completely — a failed switch, not a sick app.
+    // the operator action differs completely â€” a failed switch, not a sick app.
     expect(() => assertProcessesRunRelease(processes, release, sha, now)).toThrow(
       'did not switch to the release under verification',
     );
@@ -623,12 +623,30 @@ describe('release switching', () => {
 
   const created: string[] = [];
 
-  /** A release directory carrying the `REVISION` the ecosystem reads. */
-  function release(version: string): string {
-    const directory = mkdtempSync(join(tmpdir(), 'truevine-release-'));
-    created.push(directory);
+  /**
+   * A release under a `releases/` root, carrying the `REVISION` the ecosystem
+   * reads.
+   *
+   * The `releases` parent is built explicitly rather than recovered by walking
+   * up from `mkdtemp`. Temporary-directory depth is platform-specific â€” two
+   * levels under `/tmp`, four under `%LOCALAPPDATA%\Temp` â€” so a walk-up
+   * fixture resolves to `/` on the CI runner and to the temp directory on the
+   * developer's machine. The same test then asserts two different things and
+   * passes on one platform only.
+   */
+  function fixture(): { root: string; releases: string } {
+    const root = mkdtempSync(join(tmpdir(), 'truevine-root-'));
+    created.push(root);
+    const releases = resolve(join(root, 'releases'));
+    mkdirSync(releases, { recursive: true });
+    return { root, releases };
+  }
+
+  function release(version: string, releases = fixture().releases): string {
+    const directory = join(releases, `v-${version}`);
+    mkdirSync(directory, { recursive: true });
     writeFileSync(join(directory, 'REVISION'), `${version}\n`);
-    return resolve(directory);
+    return directory;
   }
 
   afterAll(() => {
@@ -641,7 +659,7 @@ describe('release switching', () => {
    * The important detail is `startOrReload`: for a name that already exists,
    * PM2 restarts the script it registered the first time and carries the
    * captured `pm_cwd` into the restarted process, while `--update-env` does
-   * still refresh the environment. That combination is the whole defect — the
+   * still refresh the environment. That combination is the whole defect â€” the
    * process comes back `online` and carrying the new `APP_VERSION`, while its
    * working directory silently remains the previous release's.
    *
@@ -861,8 +879,8 @@ describe('release switching', () => {
 
   describe('audit before cutover', () => {
     it('accepts managed processes running from a release directory', () => {
-      const previous = release(OLD_SHA);
-      const releases = resolve(previous, '..', '..');
+      const { releases } = fixture();
+      const previous = release(OLD_SHA, releases);
       const processes = PROCESS_NAMES.map((name) => ({
         name,
         pm2_env: { pm_cwd: expectedCwd(name, previous) },
@@ -879,6 +897,70 @@ describe('release switching', () => {
       expect(() =>
         assertManagedProcessesAuditable(processes, '/var/www/TruevineVoice/releases'),
       ).toThrow('Audit and migrate the existing process before cutover: truevine-api');
+    });
+
+    // These use literal POSIX paths on purpose. The audit is pure string
+    // matching, so fixed paths test it identically on every platform â€” unlike a
+    // fixture whose shape depends on where the temporary directory happens to
+    // sit, which is what let a `//` prefix regression reach CI.
+    const productionProcesses = PROCESS_NAMES.map((name) => ({
+      name,
+      pm2_env: {
+        pm_cwd: `/var/www/TruevineVoice/releases/v-1/apps/${name.slice('truevine-'.length)}`,
+      },
+    }));
+
+    it.each([
+      { label: 'no trailing slash', root: '/var/www/TruevineVoice/releases' },
+      { label: 'one trailing slash', root: '/var/www/TruevineVoice/releases/' },
+      { label: 'several trailing slashes', root: '/var/www/TruevineVoice/releases///' },
+    ])('accepts the releases root with $label', ({ root }) => {
+      // Regression: `${root}/` produced `//` for a root that already ended in a
+      // slash, and nothing starts with `//`, so a healthy deployment would have
+      // been aborted as unauditable.
+      expect(() => assertManagedProcessesAuditable(productionProcesses, root)).not.toThrow();
+    });
+
+    it('accepts the filesystem root rather than rejecting every process', () => {
+      // `/` is the degenerate case behind the same defect, and the one the
+      // original CI failure produced.
+      expect(() => assertManagedProcessesAuditable(productionProcesses, '/')).not.toThrow();
+    });
+
+    it('still rejects a process outside the root when the root has a trailing slash', () => {
+      const processes = [
+        { name: 'truevine-api', pm2_env: { pm_cwd: '/home/truevine-deploy/api.js' } },
+      ];
+
+      expect(() =>
+        assertManagedProcessesAuditable(processes, '/var/www/TruevineVoice/releases/'),
+      ).toThrow('Audit and migrate the existing process before cutover: truevine-api');
+    });
+
+    it('does not let a sibling directory pass by name prefix alone', () => {
+      // `/var/www/TruevineVoice/releases-evil` must not satisfy the
+      // `/var/www/TruevineVoice/releases/` prefix.
+      const processes = [
+        {
+          name: 'truevine-api',
+          pm2_env: { pm_cwd: '/var/www/TruevineVoice/releases-evil/apps/api' },
+        },
+      ];
+
+      expect(() =>
+        assertManagedProcessesAuditable(processes, '/var/www/TruevineVoice/releases'),
+      ).toThrow('Audit and migrate the existing process before cutover: truevine-api');
+    });
+
+    it('reports the name of the process that is not auditable', () => {
+      const processes = [
+        { name: 'truevine-web', pm2_env: { pm_cwd: '/var/www/TruevineVoice/releases/v-1/apps/web' } },
+        { name: 'truevine-worker', pm2_env: { pm_cwd: '/opt/stale/worker' } },
+      ];
+
+      expect(() =>
+        assertManagedProcessesAuditable(processes, '/var/www/TruevineVoice/releases'),
+      ).toThrow('truevine-worker');
     });
   });
 
