@@ -16,6 +16,7 @@ import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import {
+  assertReleaseEnvAccessible,
   PROCESS_NAMES,
   validateConfig,
   validateProcesses,
@@ -136,6 +137,12 @@ function checkedRelease(candidate) {
 
 async function verify(release, config) {
   const sha = readFileSync(join(release, 'REVISION'), 'utf8').trim();
+  // Checked before the first activation attempt, and therefore before the
+  // release can serve traffic. A release that cannot read its environment
+  // would otherwise crash-loop the API and worker. ROOT is the application root
+  // that holds the shared environment file, matching where the release symlink
+  // was created.
+  assertReleaseEnvAccessible(release, join(ROOT, '.env'));
   let lastError;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     try {
