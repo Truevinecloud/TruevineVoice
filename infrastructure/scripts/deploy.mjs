@@ -85,7 +85,13 @@ export function pm2Runner(cwd = ROOT) {
  * Unrelated processes are ignored by design — the audit is about our own four.
  */
 export function assertManagedProcessesAuditable(processes, releases = RELEASES) {
-  const prefix = `${String(releases).replace(/\\/g, '/')}/`;
+  // Normalise before appending the separator. `${releases}/` on its own yields
+  // `//` whenever the root already ends in a slash — including when it is the
+  // filesystem root — and nothing starts with `//`, so every managed process
+  // would be rejected as unauditable and the deployment would abort on a
+  // perfectly healthy PM2 state. Trailing slashes are stripped so the check is
+  // idempotent and does not depend on the caller formatting the path.
+  const prefix = `${String(releases).replace(/\\/g, '/').replace(/\/+$/, '')}/`;
   for (const entry of managedProcesses(processes)) {
     if (!entry.pm2_env?.pm_cwd?.replace(/\\/g, '/').startsWith(prefix)) {
       throw new Error(`Audit and migrate the existing process before cutover: ${entry.name}`);
