@@ -196,13 +196,65 @@ export async function verifyHttp(
   await Promise.all(checks.map(([url, kind]) => checkHttp(url, kind, sha, fetcher)));
 }
 
+/**
+ * Runs the command-line entry point.
+ *
+ * Both the release directory and the shared environment file are **required**
+ * and are never inferred. An earlier version defaulted them to `process.cwd()`
+ * and `../.env`, which meant that running the verifier from a temporary
+ * directory validated the temporary directory instead of the release under
+ * verification — precisely the failure `assertReleaseEnvAccessible` exists to
+ * prevent. Guessing a path from the working directory is never safe here.
+ *
+ * @returns Resolved absolute paths, for tests.
+ */
+export function parseVerifierArguments(argv) {
+  const [configPath, sha, releaseDir, sharedEnvDir] = argv;
+  if (!configPath) throw new Error('Missing CONFIG path');
+  if (!/^[a-f0-9]{40}$/.test(sha ?? ''))
+    throw new Error('Missing or invalid SHA: expected 40 lowercase hex characters');
+  if (!releaseDir) throw new Error('Missing RELEASE_DIR; it is never inferred from the cwd');
+  if (!sharedEnvDir) throw new Error('Missing SHARED_ENV path; it is never inferred');
+  return {
+    config: resolve(configPath),
+    sha,
+    release: resolve(releaseDir),
+    sharedEnv: resolve(sharedEnvDir),
+  };
+}
+
+/**
+ * Read-only confirmation that the four managed processes run from `release`.
+ *
+ * Separate from `checkHttp` because it needs PM2, and therefore only makes
+ * sense on the server. Baseline verification requires BOTH:
+ *
+ *  - this module's `verifyHttp`, for the HTTP surface, release version and
+ *    dependency health;
+ *  - `deploy.mjs`'s `validateProcesses`, for process ownership and working
+ *    directory, which the CLI entry point cannot perform.
+ *
+ * `deploy.mjs` performs both automatically. Anything verifying a baseline by
+ * hand must run both.
+ *
+ * @param processes Parsed `pm2 jlist` output.
+ * @param release Absolute release directory the processes must run from.
+ * @param sha Full commit SHA the processes must report.
+ * @param now Injectable clock for the stability window.
+ */
+export function assertProcessesRunRelease(processes, release, sha, now = Date.now()) {
+  validateProcesses(processes, release, sha, now);
+  return PROCESS_NAMES.length;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const [configPath, sha, releaseDir] = process.argv.slice(2);
-  if (!configPath || !/^[a-f0-9]{40}$/.test(sha ?? ''))
-    throw new Error('Usage: npm run deploy:verify -- CONFIG SHA [RELEASE_DIR]');
-  // Run from inside the release so the environment check targets that release.
-  const release = resolve(releaseDir ?? process.cwd());
-  assertReleaseEnvAccessible(release, resolve(release, '../.env'));
-  await verifyHttp(JSON.parse(readFileSync(configPath, 'utf8')), sha);
-  process.stdout.write(`HTTP verification passed for ${sha}\n`);
+  const args = parseVerifierArguments(process.argv.slice(2));
+  assertReleaseEnvAccessible(args.release, args.sharedEnv);
+  await verifyHttp(JSON.parse(readFileSync(args.config, 'utf8')), args.sha);
+  process.stdout.write(`HTTP verification passed for ${args.sha}\n`);
+  process.stdout.write(
+    'Note: HTTP only. Confirm processes run from this release with ' +
+      'deploy.mjs validateProcesses, or npm run deploy:verify -- CONFIG SHA RELEASE_DIR SHARED_ENV ' +
+      'plus a separate process check.\n',
+  );
 }

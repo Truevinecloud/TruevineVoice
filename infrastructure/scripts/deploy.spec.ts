@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   chmodSync,
   mkdtempSync,
@@ -9,12 +9,14 @@ import {
   rmSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { activate, assertReviewedMigrations, releaseEnv } from './deploy.mjs';
 import {
   assertCiJobs,
+  assertProcessesRunRelease,
   assertReleaseEnvAccessible,
   checkHttp,
+  parseVerifierArguments,
   PROCESS_NAMES,
   validateConfig,
   validateProcesses,
@@ -228,6 +230,155 @@ describe('release environment accessibility', () => {
       chmodSync(shared, 0o600);
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('verifier CLI argument handling', () => {
+  // Built from tmpdir rather than hardcoded, because `resolve()` is
+  // platform-dependent and CI runs Ubuntu while this suite also runs on Windows.
+  const appRoot = mkdtempSync(join(tmpdir(), 'truevine-cli-'));
+  const release = join(appRoot, 'releases', 'abc123-baseline');
+  const shared = join(appRoot, '.env');
+  const config = join(appRoot, 'deployment.json');
+
+  afterAll(() => {
+    rmSync(appRoot, { recursive: true, force: true });
+  });
+
+  it('resolves the explicitly supplied release and shared env paths', () => {
+    const args = parseVerifierArguments([config, sha, release, shared]);
+
+    expect(args.release).toBe(resolve(release));
+    expect(args.sharedEnv).toBe(resolve(shared));
+    expect(args.sha).toBe(sha);
+  });
+
+  it('rejects a missing release directory instead of using the cwd', () => {
+    // The regression: the previous version defaulted to process.cwd(), so
+    // running the verifier from a temporary directory validated that
+    // directory rather than the release under verification.
+    expect(() => parseVerifierArguments([config, sha])).toThrow('Missing RELEASE_DIR');
+  });
+
+  it('rejects a missing shared environment path instead of guessing one', () => {
+    expect(() => parseVerifierArguments([config, sha, release])).toThrow('Missing SHARED_ENV');
+  });
+
+  it('rejects a missing or malformed SHA', () => {
+    expect(() => parseVerifierArguments([config])).toThrow('Missing or invalid SHA');
+    expect(() => parseVerifierArguments([config, 'not-a-sha', release, shared])).toThrow(
+      'Missing or invalid SHA',
+    );
+    expect(() => parseVerifierArguments([config, 'A'.repeat(40), release, shared])).toThrow(
+      'Missing or invalid SHA',
+    );
+  });
+
+  it('rejects a missing config path', () => {
+    expect(() => parseVerifierArguments([])).toThrow('Missing CONFIG');
+  });
+
+  it('resolves relative paths against the cwd rather than accepting them as-is', () => {
+    const args = parseVerifierArguments([config, sha, 'rel/release', 'rel/.env']);
+
+    expect(args.release).toBe(resolve('rel/release'));
+    expect(args.sharedEnv).toBe(resolve('rel/.env'));
+  });
+
+  it('validates the supplied release, not the directory the verifier runs from', () => {
+    // A temporary directory stands in for wherever the verifier is invoked from.
+    const elsewhere = mkdtempSync(join(tmpdir(), 'truevine-cwd-'));
+    const previousCwd = process.cwd();
+    try {
+      // Deliberately give the invocation directory a valid-looking .env. If
+      // the verifier fell back to cwd it would pass, which is the bug.
+      writeFileSync(join(elsewhere, '.env'), 'DATABASE_URL=placeholder\n');
+
+      const root = mkdtempSync(join(tmpdir(), 'truevine-env-'));
+      const real = join(root, 'releases', 'abc123-baseline');
+      mkdirSync(real, { recursive: true });
+      const realShared = join(root, '.env');
+      writeFileSync(realShared, 'DATABASE_URL=placeholder\n');
+
+      process.chdir(elsewhere);
+      const args = parseVerifierArguments([config, sha, real, realShared]);
+
+      // The broken release still fails even though cwd holds a valid .env.
+      expect(args.release).toBe(real);
+      expect(() => assertReleaseEnvAccessible(args.release, args.sharedEnv)).toThrow('no .env');
+
+      // And a release whose .env is a different file than the shared one fails
+      // on the mismatch, rather than passing because cwd happened to be valid.
+      writeFileSync(join(real, '.env'), 'DATABASE_URL=placeholder\n');
+      expect(() => assertReleaseEnvAccessible(args.release, args.sharedEnv)).toThrow(
+        'does not resolve to the shared',
+      );
+      rmSync(root, { recursive: true, force: true });
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('process validation for baseline verification', () => {
+  // POSIX-style path built portably: `validateProcesses` compares
+  // `pm_cwd` against `${release}/apps/<name>` with a forward slash, so the
+  // release must be built the same way on every platform.
+  const release = resolve('/srv/releases/abc123-baseline').replace(/\\/g, '/');
+  const now = 1_700_000_000_000;
+
+  const stable = (name: string, overrides: Record<string, unknown> = {}) => ({
+    name,
+    pm2_env: {
+      status: 'online',
+      APP_VERSION: sha,
+      pm_uptime: now - 60_000,
+      pm_cwd: `${release}/apps/${name.slice('truevine-'.length)}`,
+      ...overrides,
+    },
+  });
+
+  it('confirms all four processes run from the expected release', () => {
+    const processes = PROCESS_NAMES.map((name) => stable(name));
+
+    expect(assertProcessesRunRelease(processes, release, sha, now)).toBe(4);
+  });
+
+  it('rejects a process running from a different release', () => {
+    const processes = PROCESS_NAMES.map((name) =>
+      stable(name, { pm_cwd: '/var/www/TruevineVoice/apps/api' }),
+    );
+
+    expect(() => assertProcessesRunRelease(processes, release, sha, now)).toThrow(
+      'not stable on the expected release',
+    );
+  });
+
+  it('rejects a process reporting a different release version', () => {
+    const processes = PROCESS_NAMES.map((name, index) =>
+      stable(name, index === 0 ? { APP_VERSION: 'b'.repeat(40) } : {}),
+    );
+
+    expect(() => assertProcessesRunRelease(processes, release, sha, now)).toThrow(
+      'not stable on the expected release',
+    );
+  });
+
+  it('rejects a missing process', () => {
+    const processes = PROCESS_NAMES.slice(1).map((name) => stable(name));
+
+    expect(() => assertProcessesRunRelease(processes, release, sha, now)).toThrow(
+      'Expected exactly one PM2 process: truevine-web',
+    );
+  });
+
+  it('rejects a process that restarted too recently to be considered stable', () => {
+    const processes = PROCESS_NAMES.map((name) => stable(name, { pm_uptime: now - 2_000 }));
+
+    expect(() => assertProcessesRunRelease(processes, release, sha, now)).toThrow(
+      'not stable on the expected release',
+    );
   });
 });
 
