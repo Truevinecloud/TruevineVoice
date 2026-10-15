@@ -17,7 +17,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import {
   assertReleaseEnvAccessible,
+  managedProcesses,
   PROCESS_NAMES,
+  staleManagedProcesses,
   validateConfig,
   validateProcesses,
   verifyHttp,
@@ -62,6 +64,85 @@ function run(command, args, cwd, capture = false) {
       { cause: error },
     );
   }
+}
+
+/** Ecosystem file a release is started from. */
+export const ECOSYSTEM = 'infrastructure/pm2/ecosystem.config.js';
+
+/** Builds a PM2 caller bound to `cwd`, for injection into `switchRelease`. */
+export function pm2Runner(cwd = ROOT) {
+  return (...args) => run('pm2', args, cwd, true);
+}
+
+/**
+ * Pre-flight audit of the processes this deployment is about to take over.
+ *
+ * Deployment may only replace processes that already run from a release
+ * directory under our own root. A managed name pointing anywhere else is an
+ * unmanaged process wearing our name, and replacing it would silently destroy
+ * something the audit never looked at.
+ *
+ * Unrelated processes are ignored by design — the audit is about our own four.
+ */
+export function assertManagedProcessesAuditable(processes, releases = RELEASES) {
+  const prefix = `${String(releases).replace(/\\/g, '/')}/`;
+  for (const entry of managedProcesses(processes)) {
+    if (!entry.pm2_env?.pm_cwd?.replace(/\\/g, '/').startsWith(prefix)) {
+      throw new Error(`Audit and migrate the existing process before cutover: ${entry.name}`);
+    }
+  }
+}
+
+/**
+ * Switches the four managed processes onto `release`.
+ *
+ * Why this replaces `pm2 startOrReload`:
+ *
+ * `startOrReload` finds an existing process by name and issues a *reload*.
+ * A reload restarts the script PM2 registered when that process was first
+ * started, and PM2 carries the `cwd` and `pm_exec_path` captured at that moment
+ * forward into the restarted process. With a release layout — where every
+ * process's `cwd` is a different absolute path per release — the switch
+ * therefore completes, every process reports `online`, and `pm2 jlist` still
+ * shows the *previous* release's directory. `validateProcesses` then rejects a
+ * build that is perfectly healthy, and automatic rollback restarts a release
+ * that was never at fault.
+ *
+ * Switching is made explicit instead. The managed processes are deleted and
+ * started again, so `cwd`, `script`, `args` and `APP_VERSION` are all read from
+ * the ecosystem belonging to the release being activated. Nothing else changes
+ * shape.
+ *
+ * Two independent guards keep this inside its boundary:
+ *
+ *  - every deletion is named, built from `managedProcesses()`, so an unrelated
+ *    process on the shared daemon can never be deleted — not by a broad PM2
+ *    subcommand and not by a name typo reaching `delete`;
+ *  - the start is scoped with `--only` to the same four names, so the switch
+ *    cannot adopt or disturb anything else even if the ecosystem later grows an
+ *    entry that is not ours.
+ *
+ * `previous` is switched exactly the same way during rollback, so a rollback
+ * also produces processes that genuinely run from the baseline release rather
+ * than inheriting the failed release's paths.
+ *
+ * @param release Absolute release directory to switch to.
+ * @param pm2 Injected PM2 caller, so the command sequence is testable without
+ *   a PM2 daemon. Returns raw stdout, like `execFileSync`.
+ * @returns `deleted` names and `alreadyStale` names — the subset that was still
+ *   pointing at a different release. Non-empty on a first switch and non-empty
+ *   again after a deployment that was rolled back, which is the signature of the
+ *   `startOrReload` defect this replaces.
+ */
+export async function switchRelease(release, pm2) {
+  const processes = JSON.parse(pm2('jlist'));
+  const managed = managedProcesses(processes);
+  const alreadyStale = staleManagedProcesses(processes, release).map((entry) => entry.name);
+  if (managed.length > 0) {
+    pm2('delete', ...managed.map((entry) => entry.name));
+  }
+  pm2('start', join(release, ECOSYSTEM), '--only', PROCESS_NAMES.join(','), '--update-env');
+  return { deleted: managed.map((entry) => entry.name), alreadyStale };
 }
 
 /** Directories under `prisma/migrations` that are migration folders. */
@@ -209,17 +290,13 @@ async function main() {
       throw new Error('The rollback baseline is not verified (READY missing)');
   }
   const processes = JSON.parse(run('pm2', ['jlist'], ROOT, true));
-  const managed = processes.filter((entry) => PROCESS_NAMES.includes(entry.name));
+  const managed = managedProcesses(processes);
   if (!previous && managed.length) {
     throw new Error(
       'Existing PM2 deployment needs a verified baseline release before first cutover; see runbook',
     );
   }
-  for (const entry of managed) {
-    if (!entry.pm2_env.pm_cwd?.startsWith(`${RELEASES}/`)) {
-      throw new Error(`Audit and migrate the existing process before cutover: ${entry.name}`);
-    }
-  }
+  assertManagedProcessesAuditable(processes);
   let release;
   if (rollback) {
     const matches = readdirSync(RELEASES).filter(
@@ -261,16 +338,10 @@ async function main() {
   await activate({
     release,
     previous,
-    restart: (directory) =>
-      run(
-        'pm2',
-        [
-          'startOrReload',
-          join(directory, 'infrastructure/pm2/ecosystem.config.js'),
-          '--update-env',
-        ],
-        directory,
-      ),
+    // Restart is a genuine switch, not a reload. Rollback re-enters this same
+    // function with `previous`, so the baseline is started from its own
+    // ecosystem rather than inheriting the failed release's process paths.
+    restart: (directory) => switchRelease(directory, pm2Runner(directory)),
     check: (directory) => verify(directory, config),
     switchLink: (directory) => {
       writeFileSync(join(directory, 'READY'), readFileSync(join(directory, 'REVISION')), {
@@ -280,9 +351,9 @@ async function main() {
     },
     save: () => run('pm2', ['save'], ROOT),
     stopNew: () => {
-      const started = JSON.parse(run('pm2', ['jlist'], ROOT, true)).filter((entry) =>
-        PROCESS_NAMES.includes(entry.name),
-      );
+      // Named deletes only. `pm2 delete all` would also remove unrelated
+      // processes on the shared deployment-account daemon.
+      const started = managedProcesses(JSON.parse(run('pm2', ['jlist'], ROOT, true)));
       if (started.length) run('pm2', ['delete', ...started.map((entry) => entry.name)], ROOT);
       if (existsSync(CURRENT)) unlinkSync(CURRENT);
       run('pm2', ['save'], ROOT);
