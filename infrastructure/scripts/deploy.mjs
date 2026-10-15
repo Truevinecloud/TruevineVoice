@@ -26,13 +26,33 @@ const ROOT = '/var/www/TruevineVoice';
 const RELEASES = join(ROOT, 'releases');
 const CURRENT = join(ROOT, 'current');
 
+/**
+ * Environment every release command runs with.
+ *
+ * `NODE_ENV` is `production` for everything here, including the build.
+ * Forcing `development` made `next build` prerender with the development React
+ * renderer, which expects a live dispatcher and crashes on `useContext` while
+ * statically rendering `/_global-error`:
+ *
+ *   TypeError: Cannot read properties of null (reading 'useContext')
+ *   Export encountered an error on /_global-error/page, exiting the build.
+ *
+ * That failed only on the VPS, because the deploy script set the variable while
+ * a local `npm run build` left it unset.
+ *
+ * `NEXT_TELEMETRY_DISABLED` keeps the build from phoning home from the VPS.
+ */
+export function releaseEnv() {
+  return { NODE_ENV: 'production', NEXT_TELEMETRY_DISABLED: '1' };
+}
+
 function run(command, args, cwd, capture = false) {
   try {
     return execFileSync(command, args, {
       cwd,
       encoding: 'utf8',
       stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
-      env: { ...process.env, NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1' },
+      env: { ...process.env, ...releaseEnv() },
       timeout: 30 * 60 * 1000,
     });
   } catch (error) {

@@ -76,9 +76,21 @@ export async function checkHttp(url, kind, sha, fetcher = fetch) {
       throw new Error('API release/dependency check failed');
   } else {
     const body = await response.text();
+    // Markers prove Nginx is serving THIS release's own page rather than a
+    // default site or a stale release. They are updated deliberately whenever
+    // the foundation page copy changes, in the same commit as that change.
     const markers =
       kind === 'web'
-        ? ['Truevine Voice', 'Customer web application', 'Outbound Voice for Uganda', 'No product']
+        ? [
+            'Truevine Voice',
+            'Customer web application',
+            'Live web for voice',
+            'voice.truevinecloud.online',
+            // The honest scope statement. The platform is live; the voice
+            // product is not built. Removing this would let a page claiming
+            // calling works pass the gate.
+            'still under construction',
+          ]
         : ['Truevine Voice Admin', 'No admin functionality yet', 'internal operators'];
     if (!markers.every((marker) => body.includes(marker)))
       throw new Error(`${kind} foundation page check failed`);
