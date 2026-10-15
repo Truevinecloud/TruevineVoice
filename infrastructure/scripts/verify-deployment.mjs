@@ -77,7 +77,11 @@ export function assertReleaseEnvAccessible(release, expected) {
     // Read the mode from the resolved target, not the link. `lstatSync` does
     // not follow symlinks and would report the link's own 0777, which is
     // useless for diagnosing a permissions problem.
-    const mode = (statSync(resolvedEnv).mode & 0o777).toString(8);
+    //
+    // Padded to three digits: `toString(8)` renders mode 000 as "0", and a
+    // permissions diagnostic that reads "mode 0" instead of "mode 000" is
+    // actively misleading to whoever has to fix it.
+    const mode = (statSync(resolvedEnv).mode & 0o777).toString(8).padStart(3, '0');
     throw new Error(`Release .env is not readable by the deployment account (mode ${mode})`);
   }
 }
