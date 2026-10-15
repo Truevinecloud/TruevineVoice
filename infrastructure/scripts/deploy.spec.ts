@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { activate, assertReviewedMigrations } from './deploy.mjs';
+import { activate, assertReviewedMigrations, releaseEnv } from './deploy.mjs';
 import {
   assertCiJobs,
   checkHttp,
@@ -58,6 +58,18 @@ function response(kind = 'api', body = healthy, status = 200) {
         : 'Truevine Voice Admin No admin functionality yet internal operators',
   };
 }
+
+describe('release command environment', () => {
+  it('builds with NODE_ENV=production, not development', () => {
+    // Regression: `development` made `next build` prerender `/_global-error`
+    // with the development React renderer and fail on
+    // `Cannot read properties of null (reading 'useContext')` on the VPS only.
+    expect(releaseEnv().NODE_ENV).toBe('production');
+  });
+  it('disables Next.js telemetry so the VPS build does not phone home', () => {
+    expect(releaseEnv().NEXT_TELEMETRY_DISABLED).toBe('1');
+  });
+});
 
 describe('deployment HTTP checks', () => {
   it('accepts the expected production API commit and both dependencies', async () => {
