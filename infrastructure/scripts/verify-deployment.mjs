@@ -1,4 +1,4 @@
-import { accessSync, constants, lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { accessSync, constants, lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -47,9 +47,8 @@ export function assertCiJobs(jobs) {
 export function assertReleaseEnvAccessible(release, expected) {
   const releaseEnv = resolve(release, '.env');
 
-  let stats;
   try {
-    stats = lstatSync(releaseEnv);
+    lstatSync(releaseEnv);
   } catch {
     throw new Error('Release has no .env; it cannot load required configuration');
   }
@@ -75,9 +74,11 @@ export function assertReleaseEnvAccessible(release, expected) {
   try {
     accessSync(releaseEnv, constants.R_OK);
   } catch {
-    throw new Error(
-      `Release .env is not readable by the deployment account (mode ${(stats.mode & 0o777).toString(8)})`,
-    );
+    // Read the mode from the resolved target, not the link. `lstatSync` does
+    // not follow symlinks and would report the link's own 0777, which is
+    // useless for diagnosing a permissions problem.
+    const mode = (statSync(resolvedEnv).mode & 0o777).toString(8);
+    throw new Error(`Release .env is not readable by the deployment account (mode ${mode})`);
   }
 }
 

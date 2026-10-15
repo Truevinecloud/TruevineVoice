@@ -202,6 +202,11 @@ describe('release environment accessibility', () => {
   });
 
   posixOnly('rejects a release .env the deployment account cannot read', () => {
+    // root bypasses file permission checks, and CI runners are commonly root,
+    // so this assertion cannot hold there. Production verification runs as the
+    // unprivileged deployment account, which is exactly the case under test.
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return;
+
     const { root, release, shared } = fixture();
     try {
       symlinkSync(shared, join(release, '.env'));
@@ -214,7 +219,8 @@ describe('release environment accessibility', () => {
       }
       // Reports the permission bits, and never the contents.
       expect(message).toContain('not readable');
-      expect(message).toContain('0');
+      // The mode must be the resolved target's, not the symlink's 0777.
+      expect(message).toMatch(/mode 000/);
       expect(message).not.toContain('placeholder');
       expect(message).not.toContain('DATABASE_URL');
     } finally {
