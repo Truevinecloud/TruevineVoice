@@ -1,10 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { activate, assertReviewedMigrations, releaseEnv } from './deploy.mjs';
 import {
   assertCiJobs,
+  assertReleaseEnvAccessible,
   checkHttp,
   PROCESS_NAMES,
   validateConfig,
@@ -90,6 +99,135 @@ describe('release command environment', () => {
   });
   it('disables Next.js telemetry so the VPS build does not phone home', () => {
     expect(releaseEnv().NEXT_TELEMETRY_DISABLED).toBe('1');
+  });
+});
+
+describe('release environment accessibility', () => {
+  /**
+   * Builds a throwaway application root containing one release.
+   *
+   * Nothing here reads or asserts on the contents of the environment file. A
+   * placeholder is written only because the checks under test care about
+   * existence, link resolution and permission bits, never values.
+   */
+  function fixture() {
+    const root = mkdtempSync(join(tmpdir(), 'truevine-env-'));
+    const release = join(root, 'releases', 'abc123-baseline');
+    mkdirSync(release, { recursive: true });
+    const shared = join(root, '.env');
+    writeFileSync(shared, 'DATABASE_URL=placeholder\nREDIS_URL=placeholder\n', { mode: 0o640 });
+    return { root, release, shared };
+  }
+
+  /**
+   * `realpath` resolves symlinks, not hard links, so the "resolves to the
+   * shared file" contract can only be exercised with a real symlink. Creating
+   * one on Windows requires elevation or Developer Mode, and `chmod 000` does
+   * not deny the owner access there either.
+   *
+   * This is a platform capability gate, not a weakened assertion. CI runs
+   * Ubuntu and production is Ubuntu, so every case below runs there. The cases
+   * that need neither primitive run on every platform.
+   */
+  const posixOnly = process.platform === 'win32' ? it.skip : it;
+
+  it('rejects a release with no .env at all', () => {
+    const { root, release, shared } = fixture();
+    try {
+      expect(() => assertReleaseEnvAccessible(release, shared)).toThrow('no .env');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a release .env that is a different file with the same name', () => {
+    const { root, release, shared } = fixture();
+    try {
+      // Present, resolvable, readable, but NOT the shared file.
+      writeFileSync(join(release, '.env'), readFileSync(shared));
+      expect(() => assertReleaseEnvAccessible(release, shared)).toThrow(
+        'does not resolve to the shared',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a missing shared environment file', () => {
+    const { root, release } = fixture();
+    try {
+      writeFileSync(join(release, '.env'), 'DATABASE_URL=placeholder\n');
+      expect(() => assertReleaseEnvAccessible(release, join(root, 'absent.env'))).toThrow(
+        'Shared environment file is missing',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('checks the release it is given, not a sibling release', () => {
+    const { root, release, shared } = fixture();
+    try {
+      // A healthy release and a broken one side by side. Verifying the broken
+      // one must fail even though a healthy release exists in the same root.
+      const healthy = join(root, 'releases', 'def456-baseline');
+      mkdirSync(healthy, { recursive: true });
+      writeFileSync(join(healthy, '.env'), readFileSync(shared));
+
+      expect(() => assertReleaseEnvAccessible(healthy, join(healthy, '.env'))).not.toThrow();
+      expect(() => assertReleaseEnvAccessible(release, shared)).toThrow('no .env');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  posixOnly('accepts a release whose .env links to the shared file and is readable', () => {
+    const { root, release, shared } = fixture();
+    try {
+      symlinkSync(shared, join(release, '.env'));
+      expect(() => assertReleaseEnvAccessible(release, shared)).not.toThrow();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  posixOnly('rejects a broken symlink', () => {
+    const { root, release, shared } = fixture();
+    try {
+      symlinkSync(join(root, 'does-not-exist'), join(release, '.env'));
+      expect(() => assertReleaseEnvAccessible(release, shared)).toThrow('does not resolve');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  posixOnly('rejects a release .env the deployment account cannot read', () => {
+    // root bypasses file permission checks, and CI runners are commonly root,
+    // so this assertion cannot hold there. Production verification runs as the
+    // unprivileged deployment account, which is exactly the case under test.
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return;
+
+    const { root, release, shared } = fixture();
+    try {
+      symlinkSync(shared, join(release, '.env'));
+      chmodSync(shared, 0o000);
+      let message = '';
+      try {
+        assertReleaseEnvAccessible(release, shared);
+      } catch (error) {
+        message = error.message;
+      }
+      // Reports the permission bits, and never the contents.
+      expect(message).toContain('not readable');
+      // The mode must be the resolved target's, not the symlink's 0777.
+      expect(message).toMatch(/mode 000/);
+      expect(message).not.toContain('placeholder');
+      expect(message).not.toContain('DATABASE_URL');
+    } finally {
+      // Restore before cleanup so the temporary file is always removable.
+      chmodSync(shared, 0o600);
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
