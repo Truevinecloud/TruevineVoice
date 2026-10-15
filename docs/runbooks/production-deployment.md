@@ -182,14 +182,23 @@ For an existing installation, perform one supervised cutover first:
 5. As the service account, in the baseline directory:
 
    ```bash
-   pm2 startOrReload infrastructure/pm2/ecosystem.config.js --update-env
+   # Delete ONLY the four managed names, then start them scoped to those names.
+   # Do not use `pm2 startOrReload`: a reload restarts the script PM2 registered
+   # first and carries its captured cwd forward, so the processes come back
+   # online while still pointing at the previous release. That fails
+   # verification and rolls back a healthy release. `pm2 delete all` is equally
+   # wrong here — it would remove unrelated applications on the same daemon.
+   pm2 delete truevine-web truevine-admin truevine-api truevine-worker
+   pm2 start infrastructure/pm2/ecosystem.config.js \
+      --only truevine-web,truevine-admin,truevine-api,truevine-worker --update-env
    sleep 10
    npm run deploy:verify -- /var/www/TruevineVoice/deployment.json "$VERIFIED_SHA"
    pm2 ls
    ```
 
    Privately verify all four PM2 processes are stable with their cwd/script in
-   this baseline release. Confirm Nginx/TLS/public URLs.
+   this baseline release. Confirm Nginx/TLS/public URLs. A managed name that was
+   absent before the switch is started too; `pm2 ls` must show all four.
 
 6. **Only after verification**, create the `current` symlink to that baseline,
    write `READY` containing the SHA, and `pm2 save`:
@@ -279,13 +288,16 @@ configuration is overwritten by the pipeline.
 A source archive of the CI-tested SHA is transferred using pinned host keys,
 then built on Ubuntu in `incoming`. Builds complete before PM2 activation. The
 pipeline uses the actual root build script, checks all four build outputs, links
-`.env`, and starts/reloads the explicit ecosystem. `APP_VERSION` reports the SHA.
+`.env`, and switches the four managed processes by deleting those exact names
+and starting the explicit ecosystem scoped to them. `APP_VERSION` reports the SHA.
 It verifies local web/admin/API, public web/API, any confirmed public admin,
 and PM2 uptime/cwd/version for all four processes. `current` switches atomically
 only after those checks pass, then PM2 state is saved. Both workflow concurrency
 and server-side `flock` serialize activation and rollback.
 
-PM2 fork-mode reloads can briefly restart each process; this is not a zero-downtime
+The switch deletes and restarts only the four managed processes; unrelated PM2
+applications on the deployment account's daemon are never touched. Process
+restarts briefly interrupt each application; this is not a zero-downtime
 blue/green deployment. Compilation does not interrupt the active release. A
 failed build leaves live processes untouched. Activation/check/save failure
 restores and verifies the previous release and still fails the job. If recovery

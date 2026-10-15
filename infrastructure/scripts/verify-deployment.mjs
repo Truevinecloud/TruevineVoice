@@ -4,6 +4,52 @@ import { pathToFileURL } from 'node:url';
 
 export const PROCESS_NAMES = ['truevine-web', 'truevine-admin', 'truevine-api', 'truevine-worker'];
 
+/** Application directory a managed process runs from inside `release`. */
+export function appDirectory(name) {
+  return name.slice('truevine-'.length);
+}
+
+/**
+ * Working directory PM2 must report for `name` once it runs `release`.
+ *
+ * Single source of truth for the release path shape. `validateProcesses` and
+ * the release switch both derive it here, so they cannot disagree about which
+ * directory a process is supposed to be in.
+ *
+ * PM2 reports POSIX paths, so separators are normalised. Without this the
+ * comparison is correct on the VPS and wrong in a Windows test run, which is
+ * exactly the kind of platform-only failure this module exists to prevent.
+ */
+export function expectedCwd(name, release) {
+  return `${String(release).replace(/\\/g, '/')}/apps/${appDirectory(name)}`;
+}
+
+/**
+ * Selects only the four processes this deployment owns.
+ *
+ * The deployment account's PM2 daemon is shared. Anything else running under it
+ * — an operator's ad-hoc script, a monitoring agent — is not ours to delete,
+ * reload or restart. Every command in the switch and cleanup paths filters
+ * through here first, so an unrelated process cannot be reached by name
+ * accident or by a broad PM2 subcommand.
+ */
+export function managedProcesses(processes) {
+  return processes.filter((entry) => PROCESS_NAMES.includes(entry.name));
+}
+
+/**
+ * Managed processes that are not running from `release`.
+ *
+ * The failure this detects is silent from PM2's side: a reload restarts the
+ * script PM2 registered first, so a release switch can leave every process
+ * reporting the previous release's directory while appearing perfectly online.
+ */
+export function staleManagedProcesses(processes, release) {
+  return managedProcesses(processes).filter(
+    (entry) => entry.pm2_env?.pm_cwd !== expectedCwd(entry.name, release),
+  );
+}
+
 export function assertCiJobs(jobs) {
   for (const name of [
     'Lint, typecheck and Prisma validation',
@@ -116,10 +162,22 @@ export function validateProcesses(processes, release, sha, now = Date.now()) {
     const matches = processes.filter((entry) => entry.name === name);
     if (matches.length !== 1) throw new Error(`Expected exactly one PM2 process: ${name}`);
     const env = matches[0].pm2_env;
+    const cwd = env.pm_cwd;
+    const wanted = expectedCwd(name, release);
+    if (cwd !== wanted) {
+      // Reported separately from the generic stability failure because the
+      // operator action is completely different. A process pointing at another
+      // release is a failed switch, not an unhealthy application: the release
+      // that is actually serving traffic is fine and must not be rolled back
+      // for this. Naming both paths is what tells the two apart under pressure.
+      throw new Error(
+        `PM2 process did not switch to the release under verification: ${name} ` +
+          `runs from ${cwd ?? 'an unknown directory'}, expected ${wanted}`,
+      );
+    }
     if (
       env.status !== 'online' ||
       env.APP_VERSION !== sha ||
-      env.pm_cwd !== `${release}/apps/${name.slice('truevine-'.length)}` ||
       !Number.isFinite(env.pm_uptime) ||
       now - env.pm_uptime < 10000
     ) {
