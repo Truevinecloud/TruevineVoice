@@ -48,14 +48,36 @@ const healthy = {
   dependencies: { postgres: { status: 'up' }, redis: { status: 'up' } },
 };
 
+/**
+ * Body as React actually emits it from server rendering.
+ *
+ * The `<!-- -->` separators are not decoration. When a heading mixes an
+ * interpolated expression with literal text, as `{product} Admin` does, React
+ * SSR inserts a comment between the two text nodes, so the concatenated words
+ * never appear as a contiguous substring of the HTML. A marker built by joining
+ * those words therefore fails against a perfectly healthy page.
+ *
+ * Reproducing that here means a marker regression of this kind fails in CI
+ * rather than on the VPS, where the deployment has already activated a release
+ * before verification rejects it.
+ */
+const SSR_ADMIN_BODY =
+  '<main><h1>Truevine Voice<!-- --> Admin</h1>' +
+  '<p>Intended audience: Truevine Voice<!-- --> internal operators.</p>' +
+  '<h2>No admin functionality yet</h2></main>';
+
+const SSR_WEB_BODY =
+  '<main><h1>Truevine Voice</h1>' +
+  '<p>Customer web application<!-- --> for Truevine Voice is live.</p>' +
+  '<h2>Live web for voice</h2>' +
+  '<p>Live at voice.truevinecloud.online</p>' +
+  '<p>The voice product is still under construction.</p></main>';
+
 function response(kind = 'api', body = healthy, status = 200) {
   return {
     status,
     json: async () => body,
-    text: async () =>
-      kind === 'web'
-        ? 'Truevine Voice Customer web application Live web for voice voice.truevinecloud.online the voice product is still under construction'
-        : 'Truevine Voice Admin No admin functionality yet internal operators',
+    text: async () => (kind === 'web' ? SSR_WEB_BODY : SSR_ADMIN_BODY),
   };
 }
 
@@ -93,6 +115,32 @@ describe('deployment HTTP checks', () => {
         text: async () => 'Welcome to nginx!',
       })),
     ).rejects.toThrow('foundation');
+  });
+  it('accepts the admin page as React SSR emits it', async () => {
+    // The regression this guards: the marker used to be `Truevine Voice Admin`,
+    // but React renders `<h1>Truevine Voice<!-- --> Admin</h1>`, so the
+    // contiguous string is absent and verification failed on a healthy page.
+    await expect(
+      checkHttp('https://example.test/admin', 'admin', sha, async () => response('admin')),
+    ).resolves.toBeUndefined();
+  });
+  it('still rejects an admin page that is not this application', async () => {
+    await expect(
+      checkHttp('https://example.test/admin', 'admin', sha, async () => ({
+        status: 200,
+        text: async () => '<main><h1>Some other admin</h1></main>',
+      })),
+    ).rejects.toThrow('admin foundation page check failed');
+  });
+  it('rejects an admin page missing the deferred-functionality statement', async () => {
+    // Guards against someone "fixing" the marker by dropping the checks that
+    // prove the page is ours rather than swapping in a weaker single marker.
+    await expect(
+      checkHttp('https://example.test/admin', 'admin', sha, async () => ({
+        status: 200,
+        text: async () => '<main><h1>Truevine Voice<!-- --> Admin</h1></main>',
+      })),
+    ).rejects.toThrow('admin foundation page check failed');
   });
   it('rejects non-200 responses', async () => {
     await expect(

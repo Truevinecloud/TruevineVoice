@@ -91,7 +91,12 @@ export async function checkHttp(url, kind, sha, fetcher = fetch) {
             // calling works pass the gate.
             'still under construction',
           ]
-        : ['Truevine Voice Admin', 'No admin functionality yet', 'internal operators'];
+        : // `Truevine Voice`, not `Truevine Voice Admin`: the heading is
+          // `{product} Admin`, and React SSR inserts a comment separator between
+          // the two text nodes, so the contiguous string never appears in the HTML
+          // and verification rejected a perfectly healthy page. The other two
+          // markers keep the check specific to this application.
+          ['Truevine Voice', 'No admin functionality yet', 'internal operators'];
     if (!markers.every((marker) => body.includes(marker)))
       throw new Error(`${kind} foundation page check failed`);
   }
