@@ -380,7 +380,12 @@ printf '{\n  "webUrl": "https://voice.truevinecloud.online/",\n  "region": "eu-w
 
   echo
   echo "=== 14. captured object metadata is valid, structured JSON ==="
-  CFG=$(find "$WORK/store" -path '*config*' -name '*.age' | head -1)
+  # Take the NEWEST configuration archive. `find | head -1` picks an arbitrary one
+  # when several exist, and archives from before the deployment.json fixture was
+  # written do not contain it - so the assertion passed or failed depending on
+  # directory iteration order. That is exactly the kind of ordering-dependent test
+  # which reports a real pass once and a real failure the next run.
+  CFG=$(find "$WORK/store" -path '*config*' -name '*.age' | sort | tail -1)
   if [ -n "$CFG" ]; then
     rm -rf "$WORK/cfgx"; mkdir -p "$WORK/cfgx"
     if age --decrypt -i "$BACKUP_KEYFILE" -o "$WORK/cfgx/cfg.tar.gz" "$CFG" 2>/dev/null \

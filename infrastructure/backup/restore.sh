@@ -135,9 +135,28 @@ verify_sha256 "$plain" "$expected_sha"
 # 5. structural validity
 [ "$(head -c 5 "$plain")" = "PGDMP" ] || die "$EXIT_VERIFY" "decrypted archive is not a custom-format dump"
 if command -v pg_restore >/dev/null 2>&1; then
-  entries=$(pg_restore --list < "$plain" 2>/dev/null | grep -cE '^[0-9]+;' || true)
-  [ "${entries:-0}" -gt 0 ] || die "$EXIT_VERIFY" "archive table of contents is empty or unreadable"
-  log "archive table of contents: $entries entries"
+  # Distinguish two very different situations that used to be conflated:
+  #   - pg_restore ran and reported an archive with no objects. That is a real
+  #     defect in the dump and must fail.
+  #   - pg_restore could not read the archive at all. That says something about
+  #     the LOCAL CLIENT, not about the archive. A PostgreSQL 18 dump read by an
+  #     older client fails exactly this way, and treating it as corruption made a
+  #     perfectly good backup look unrestorable - which is the most damaging kind
+  #     of false alarm a backup tool can raise.
+  #
+  # Integrity is already proven above: age authenticates the ciphertext, and the
+  # decrypted bytes match dump_sha256 recorded at backup time. So the archive is
+  # byte-for-byte what pg_dump produced. The authoritative readability proof is
+  # the --restore path below, which uses the matching PostgreSQL image.
+  toc_out=$(pg_restore --list < "$plain" 2>&1) && toc_rc=0 || toc_rc=$?
+  if [ "$toc_rc" -eq 0 ]; then
+    entries=$(printf '%s\n' "$toc_out" | grep -cE '^[0-9]+;' || true)
+    [ "${entries:-0}" -gt 0 ] || die "$EXIT_VERIFY" "pg_restore read the archive but it contains no objects"
+    log "archive table of contents: $entries entries"
+  else
+    warn "local pg_restore cannot read this archive (exit $toc_rc); treating it as a local client limitation, not archive damage"
+    warn "integrity is still proven by the sha256 chain; run with --restore to prove readability with a matching PostgreSQL image"
+  fi
 else
   warn "pg_restore not available on this host; skipping table-of-contents inspection"
 fi

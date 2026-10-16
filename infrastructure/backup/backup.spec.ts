@@ -273,4 +273,28 @@ describe('integrity verification is real', () => {
   it('refuses a manifest that cannot vouch for the object', () => {
     expect(restore).toMatch(/manifest has no cipher_sha256/);
   });
+
+  it('still fails when pg_restore reads the archive but finds no objects', () => {
+    // A real dump defect must still be fatal. Do not let the client-incompatibility
+    // branch below swallow it.
+    expect(restore).toMatch(/pg_restore read the archive but it contains no objects/);
+  });
+
+  it('distinguishes an incompatible local client from archive damage', () => {
+    // A PostgreSQL 18 dump read by an older pg_restore (for example Ubuntu's
+    // postgresql-client 16 on a CI runner) exits non-zero. Treating that as
+    // corruption made a healthy backup look unrestorable, which is the most
+    // damaging false alarm this tool can raise. Integrity is already proven by
+    // the age authentication plus the sha256 chain above, and readability is
+    // proven authoritatively by the --restore path, which uses a matching image.
+    expect(restore).toMatch(/toc_rc=\$\?/);
+    expect(restore).toMatch(/local pg_restore cannot read this archive/);
+    // The warning must not be the thing that ends the run.
+    expect(restore).not.toMatch(/die "\$EXIT_VERIFY" "archive table of contents is empty or unreadable"/);
+  });
+
+  it('keeps the isolated restore as the authoritative readability proof', () => {
+    expect(restore).toContain('RESTORE VERIFIED');
+    expect(restore).toMatch(/--network none/);
+  });
 });

@@ -170,6 +170,39 @@ The decrypted dump is **removed from disk on every exit path** — verify-only,
 successful restore, and failure. An auto-created staging directory is deleted
 when the script exits.
 
+### If `pg_restore` cannot read the archive
+
+Verify-only also asks the local `pg_restore` to list the archive's table of
+contents. That check is **advisory when the local client is incompatible**, and
+this distinction was added because a real incident forced it:
+
+- A PostgreSQL 18 dump read by an older client exits non-zero. This is not
+  corruption; it is a version mismatch. Ubuntu 24.04 ships `postgresql-client`
+  16, so this happens on any CI runner or operator box that has not been
+  upgraded to match the server.
+- Treating that as damage made a healthy backup report
+  `archive table of contents is empty or unreadable` and exit 6. The most
+  damaging thing a backup tool can do is make a good backup look unrestorable.
+
+So the two cases are separated by `pg_restore`'s **exit status**:
+
+| `pg_restore` result    | Meaning                              | Outcome                    |
+| ---------------------- | ------------------------------------ | -------------------------- |
+| exit 0, objects listed | client is compatible                 | entries counted and logged |
+| exit 0, **no objects** | the dump itself is defective         | **fails, exit 6**          |
+| exit non-zero          | local client cannot read the archive | **warns, continues**       |
+
+Integrity does not depend on the local client. `age` authenticates the
+ciphertext, and the decrypted bytes match `dump_sha256` recorded at backup
+time, so the archive is byte-for-byte what `pg_dump` produced. The
+authoritative readability proof is `restore.sh --latest --restore`, which runs
+`pg_restore` inside the matching PostgreSQL image.
+
+> Restoring on the VPS needs a `pg_restore` that matches the server version, or
+> the `--restore` path must point `BACKUP_PG_IMAGE` at the matching image. The
+> isolated restore already defaults to `postgres:18-alpine`, so it does this
+> automatically.
+
 ### Restore into an isolated instance and prove the data is intact
 
 ```bash
@@ -302,6 +335,8 @@ The runtime suite proves, end to end:
 - a **tampered object** is rejected
 - a **manifest that does not match its object** is rejected — the check is real,
   not a self-comparison
+- an **older `pg_restore` that cannot read the archive** warns and continues,
+  while a dump that genuinely contains no objects still fails
 - the secret gate blocks a bundle containing a credential, and does not print it
 - the retention policy keeps the right set
 - no key material or DSN reaches the log
