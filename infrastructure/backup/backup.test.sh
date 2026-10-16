@@ -211,6 +211,20 @@ if [ -z "$skip_reason" ]; then
   [ "$rc" = "0" ] && ok "verify-only restore exits 0" || { bad "verify-only failed (exit $rc)"; echo "$out" | sed 's/^/        /'; }
   case "$out" in *"VERIFY OK"*) ok "reports VERIFY OK" ;; *) bad "no VERIFY OK line" ;; esac
   case "$out" in *"no database was touched"*) ok "states no database was touched" ;; *) bad "missing safety statement" ;; esac
+  # Surface which table-of-contents branch restore.sh took. On success the
+  # captured output is otherwise discarded, so a CI log cannot tell whether the
+  # local pg_restore read the archive or was merely too old to read it. That
+  # distinction is the whole point of the fix, so it has to be visible.
+  case "$out" in
+    *"archive table of contents:"*)
+      echo "  INFO  local pg_restore read the archive (client-compatible path)" ;;
+    *"cannot read this archive"*)
+      echo "  INFO  local pg_restore is incompatible with the dump; restore.sh warned and continued" ;;
+    *"pg_restore not available"*)
+      echo "  INFO  no pg_restore on this host; table-of-contents check skipped" ;;
+    *)
+      echo "  INFO  table-of-contents outcome not reported" ;;
+  esac
 
   echo
   echo "=== 5. output must never contain key material or a DSN ==="
