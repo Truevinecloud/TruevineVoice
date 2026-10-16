@@ -1,24 +1,30 @@
 // ---------------------------------------------------------------------------
 // Truevine Voice - PostgreSQL schema
 //
-// FOUNDATION STAGE: this schema contains the tenancy core only.
+// IDENTITY AND AUTHORIZATION FOUNDATION (added 2026-10-16, ADR 0009).
 //
-// Present: Organization and Membership. Membership is the tenancy anchor: it is
-// what makes an organizationId a real relationship rather than a loose column,
-// and it is what RBAC and wallet scoping both hang off later.
+// Present: Organization, Membership, and the identity and authorization tables
+// RBAC-001 requires - User, Session, PasswordResetToken, TermsAcceptance,
+// Invitation, PlatformRoleAssignment and SecurityAuditEvent.
+//
+// Membership remains the tenancy anchor: it is what makes an organizationId a
+// real relationship rather than a loose column.
 //
 // Deliberately absent: Contact, Campaign, Call, Audio, Wallet, LedgerEntry,
 // Billing, Voice, SMS, WhatsApp and every Africa's Talking concept. Money rules
 // (AGENTS.md 6-7) and idempotency (AGENTS.md 9) are not yet expressed anywhere
-// in this schema, so no financial table is introduced before they are.
+// in this schema, so no financial table is introduced before they are. The
+// `billing:*` and `wallet:read` permissions exist in @truevine/auth and have no
+// consumer yet; that is reported as a dependency, not stubbed with fake logic.
 //
 // DEPLOYMENT INTERLOCK
 // -------------------
-// `infrastructure/scripts/deploy.mjs#assertNoMigrations` refuses to deploy any
-// tree whose schema declares a model or whose migrations directory contains
-// anything but README.md. Both models below and the first migration therefore
-// block production deployment by design. See ADR 0006 for the reviewed SQL and
-// the expand/contract plan that must be approved before the interlock changes.
+// `infrastructure/scripts/deploy.mjs#assertReviewedMigrations` refuses to deploy
+// any tree containing a migration directory not listed in
+// `infrastructure/migrations-reviewed.json`. Every migration below therefore
+// blocks production deployment until a human reviews its SQL, backward
+// compatibility, rollback and execution plan, and lists it there. See ADR 0006
+// for the pattern and ADR 0009 for the RBAC-001 migration specifically.
 //
 // PostgreSQL is the system of record. Every tenant-owned table must be
 // organization-scoped, and that scope must be enforced by the database rather
@@ -40,23 +46,267 @@ datasource db {
   provider = "postgresql"
 }
 
-/// The unit of tenancy. Every other tenant-owned row hangs off exactly one of
-/// these.
+/// What a principal may do inside one organization.
 ///
-/// `slug` is the stable, URL-safe public identifier used to address an
-/// organization in routing and in provisioning lookups. It is unique and
-/// immutable in practice: changing it breaks customer bookmarks and any
-/// provider reference captured against it.
-model Organization {
-  id        String   @id @default(uuid()) @db.Uuid
-  slug      String   @unique @db.VarChar(63)
-  name      String   @db.VarChar(200)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+/// REPLACED 2026-10-16. The original vocabulary was `OWNER | ADMIN |
+/// OPERATOR | VIEWER`, which ADR 0006 described as "intentionally coarse" and
+/// explicitly deferred fine-grained permissions to a later decision. ADR 0009
+/// makes that decision. `OPERATOR` became `CAMPAIGN_MANAGER`, whose name states
+/// what it is for, and `BILLING` was added because billing authority must be
+/// granted separately and therefore has to be expressible as a role.
+///
+/// The replacement happened while both tables were empty. After real data exists
+/// the same change becomes a data migration, which is why it was done now.
+///
+/// `OWNER` is still never granted implicitly, and is not a delegable role
+/// (`canDelegate` in @truevine/auth returns false for OWNER -> OWNER). Creating
+/// an owner happens only through `ownership:transfer`, a deliberate audited act.
+enum MembershipRole {
+  OWNER
+  ADMIN
+  CAMPAIGN_MANAGER
+  BILLING
+  VIEWER
+}
 
-  memberships Membership[]
+/// A role held inside the Truevine platform, outside every customer organization.
+///
+/// A separate enum from `MembershipRole` on purpose. Platform authority and
+/// tenant authority must never be expressible in one row, and no customer-facing
+/// endpoint may write this table.
+enum PlatformRole {
+  PLATFORM_OWNER
+  OPERATIONS_ADMIN
+  BILLING_ADMIN
+  SUPPORT_ADMIN
+  TECHNICAL_ADMIN
+  AUDITOR
+}
 
-  @@map("organizations")
+/// Whether an account may authenticate and act.
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+/// Which namespace an audit event was exercising.
+enum AuditScope {
+  ORGANIZATION
+  PLATFORM
+}
+
+/// Whether an audited action was allowed or refused.
+enum AuditOutcome {
+  SUCCESS
+  DENIED
+}
+
+/// A person who can authenticate.
+///
+/// NOT TENANT-OWNED. A user is an identity, not an organization resource: the
+/// same person may belong to several organizations with independent roles.
+/// Keying identity tables by `organizationId` would make that impossible. The
+/// ADR 0006 organization-scoping rule applies to *tenant-owned* rows, which is
+/// why Membership, Invitation and SecurityAuditEvent are organization-scoped and
+/// these are not.
+model User {
+  id    String     @id @default(uuid()) @db.Uuid
+  /// Normalised login identifier. `citext` makes uniqueness case-insensitive in
+  /// the database, so `Alice@x.com` cannot become a second account for
+  /// `alice@x.com` even if a caller skips normalisation.
+  email        String     @unique @db.Citext
+  /// Argon2id encoded hash. Never reversible, never logged, never serialised
+  /// into a response. Named `passwordHash` rather than `password` so a careless
+  /// `select *` into a response body cannot ship it under an obvious name.
+  passwordHash String     @map("password_hash") @db.Text
+  status       UserStatus @default(ACTIVE)
+  /// Consecutive failed sign-ins, reset on success. Feeds `lockedUntil`.
+  failedLoginCount Int       @default(0) @map("failed_login_count")
+  /// Set when `failedLoginCount` trips the threshold; cleared on success.
+  lockedUntil      DateTime? @map("locked_until") @db.Timestamptz(3)
+  /// Drives "your password changed, sign in again", and invalidates sessions
+  /// issued before the change.
+  passwordChangedAt DateTime @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  memberships          Membership[]
+  sessions             Session[]
+  passwordResetTokens  PasswordResetToken[]
+  termsAcceptances     TermsAcceptance[]
+  platformRole         PlatformRoleAssignment?    @relation("PlatformRoleHolder")
+  platformRoleGranted  PlatformRoleAssignment[]   @relation("PlatformRoleGrantedBy")
+  invitationsSent      Invitation[]                @relation("InvitationInviter")
+  invitationsAccepted  Invitation[]                @relation("InvitationAcceptedBy")
+  auditEvents          SecurityAuditEvent[]
+
+  @@map("users")
+}
+
+/// A signed-in session.
+///
+/// NOT TENANT-OWNED, and deliberately not pinned to an organization. The session
+/// proves *who* the caller is. Which organization they are acting in comes from
+/// the request and is validated against a membership every time. Pinning an
+/// organization into the session would let a stale cookie act in a tenant the
+/// user has since left.
+model Session {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  /// SHA-256 of the session token. The raw token exists only in the client
+  /// cookie, so a database disclosure yields no usable credential.
+  tokenHash String @unique @map("token_hash") @db.VarChar(64)
+  /// Rotated on every refresh. Presenting a superseded token is treated as theft
+  /// and revokes the family.
+  previousTokenHash String?  @map("previous_token_hash") @db.VarChar(64)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt        DateTime? @map("last_used_at") @db.Timestamptz(3)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+  /// Why the session ended. Null means "expired naturally".
+  revokedReason     String?  @map("revoked_reason") @db.VarChar(64)
+  /// Hash, not the raw value: a user agent is personal data.
+  userAgentHash    String?  @map("user_agent_hash") @db.VarChar(64)
+  /// Truncated to /24 so a log line cannot reconstruct a full address.
+  ipPrefix         String?  @map("ip_prefix") @db.VarChar(64)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// A single-use password-reset token.
+///
+/// `usedAt` is what makes reset safe. Completing a reset sets it atomically; a
+/// second presentation finds it already set and is refused. Without it, whoever
+/// saw the link could use it after the legitimate recipient had.
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.VarChar(64)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+/// Proof that a user accepted a given version of the terms.
+///
+/// Keyed by (user, version) rather than holding one "current" row, so accepting
+/// version 2 does not erase that version 1 was accepted, and so publishing new
+/// terms requires a fresh acceptance instead of silently inheriting the old one.
+model TermsAcceptance {
+  userId       String   @map("user_id") @db.Uuid
+  termsVersion String   @map("terms_version") @db.VarChar(32)
+  acceptedAt   DateTime @default(now()) @map("accepted_at") @db.Timestamptz(3)
+  ipPrefix     String?  @map("ip_prefix") @db.VarChar(64)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, termsVersion])
+  @@map("terms_acceptances")
+}
+
+/// Platform authority held by one user.
+///
+/// NOT TENANT-OWNED: a platform operator belongs to Truevine, not to a customer.
+/// `userId` is the whole primary key, so a user holds at most one platform role.
+/// That removes the "which platform role applies?" ambiguity a many-to-many join
+/// table would introduce, for a team small enough that the trade is worth it.
+model PlatformRoleAssignment {
+  userId          String       @map("user_id") @db.Uuid
+  role            PlatformRole
+  grantedByUserId String?      @map("granted_by_user_id") @db.Uuid
+  grantedAt       DateTime     @default(now()) @map("granted_at") @db.Timestamptz(3)
+  revokedAt       DateTime?    @map("revoked_at") @db.Timestamptz(3)
+
+  user          User  @relation("PlatformRoleHolder", fields: [userId], references: [id], onDelete: Cascade)
+  grantedByUser User? @relation("PlatformRoleGrantedBy", fields: [grantedByUserId], references: [id], onDelete: SetNull)
+
+  @@id([userId])
+  @@index([role])
+  @@map("platform_role_assignments")
+}
+
+/// TENANT-OWNED. ADR 0006 rule: the primary key leads with `organization_id`, so
+/// a row cannot exist without an organization.
+///
+/// An invitation to join one organization. `tokenHash` is stored, never the raw
+/// token: the emailed link holds the only copy. Expired, accepted and revoked are
+/// timestamps rather than a status enum, so "revoked after acceptance" stays
+/// distinguishable from "revoked before acceptance".
+model Invitation {
+  organizationId  String         @map("organization_id") @db.Uuid
+  id              String         @default(uuid()) @db.Uuid
+  email           String         @db.Citext
+  role            MembershipRole
+  tokenHash       String         @unique @map("token_hash") @db.VarChar(64)
+  invitedByUserId String         @map("invited_by_user_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt       DateTime       @map("expires_at") @db.Timestamptz(3)
+  acceptedAt      DateTime?      @map("accepted_at") @db.Timestamptz(3)
+  acceptedByUserId String?       @map("accepted_by_user_id") @db.Uuid
+  revokedAt       DateTime?      @map("revoked_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("InvitationInviter", fields: [invitedByUserId], references: [id], onDelete: Restrict)
+  acceptedBy   User?        @relation("InvitationAcceptedBy", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+
+  @@id([organizationId, id])
+  @@index([email])
+  @@map("invitations")
+}
+
+/// TENANT-OWNED. Append-only audit trail of security-relevant actions.
+///
+/// IMMUTABILITY IS ENFORCED IN THE DATABASE, not by application discipline. The
+/// application connects as the table owner, and an owner bypasses GRANT, so a
+/// `REVOKE UPDATE, DELETE` would be decorative. The migration installs a BEFORE
+/// UPDATE OR DELETE trigger that raises. That is the only mechanism that holds
+/// against a careless future query, a direct psql session, or an ORM call nobody
+/// reviewed.
+///
+/// Denials are recorded as well as successes. A trail containing only successes
+/// cannot answer "was this an attack?".
+///
+/// `scope` records which namespace was exercised. An Organization Owner probing
+/// platform administration produces a row scoped to their own organization with
+/// `scope = PLATFORM` and `outcome = DENIED`. That keeps this table
+/// organization-scoped and avoids a nullable `organization_id`, which would
+/// weaken the ADR 0006 key rule.
+model SecurityAuditEvent {
+  organizationId String       @map("organization_id") @db.Uuid
+  id             String       @default(uuid()) @db.Uuid
+  actorUserId    String       @map("actor_user_id") @db.Uuid
+  /// Dotted verb, for example `organization.updated` or `platform.access.denied`.
+  /// Deliberately a string rather than an enum: the set of audited actions grows
+  /// with the product, and a new audit action must not require a migration. The
+  /// values RBAC-001 emits are pinned by a test in @truevine/auth.
+  action     String       @db.VarChar(64)
+  scope      AuditScope
+  outcome    AuditOutcome
+  targetType String?      @map("target_type") @db.VarChar(64)
+  targetId   String?      @map("target_id") @db.VarChar(64)
+  /// Structured detail. Never credentials, never a password, never key material;
+  /// the writers are responsible for that and a test asserts the known ones do
+  /// not include any.
+  metadata   Json         @default("{}")
+  occurredAt DateTime     @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User        @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@id([organizationId, id])
+  @@index([actorUserId])
+  @@index([action])
+  @@index([occurredAt])
+  @@map("security_audit_events")
 }
 
 /// What a principal may do inside one organization.
@@ -78,8 +328,11 @@ model Organization {
 /// Every future tenant-owned table must repeat this shape: a composite key or
 /// unique index that leads with `organization_id`, plus a foreign key that
 /// carries the organization alongside the parent id. A bare foreign key to a
-/// parent row in another tenant is a cross-tenant write waiting to happen, and
-/// no application-layer check reliably prevents it.
+/// parent row in another tenant is a cross-tenant write waiting to happen.
+///
+/// `userId` now carries a foreign key to `users`. Until 2026-10-16 it did not:
+/// the column existed but the database accepted a membership for a user that did
+/// not exist. The table was empty, so adding the constraint was free.
 model Membership {
   // No `id`: the tenant scope and the principal together are the identity.
   organizationId String         @map("organization_id") @db.Uuid
@@ -89,6 +342,7 @@ model Membership {
   updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([organizationId, userId])
   @@unique([userId, organizationId])
@@ -96,18 +350,23 @@ model Membership {
   @@map("memberships")
 }
 
-/// Coarse authorization role, evaluated within one organization.
+/// The unit of tenancy. Every other tenant-owned row hangs off exactly one of
+/// these.
 ///
-/// INTENTIONALLY COARSE. This is not an RBAC permission graph and does not try
-/// to become one. Fine-grained permissions are a separate, later decision, and a
-/// half-specified permission system baked into a first unreviewed migration is
-/// exactly the kind of speculative table AGENTS.md 4 warns against.
-///
-/// `OWNER` is deliberately not granted implicitly: transferring ownership is a
-/// deliberate, auditable act rather than a side effect of granting admin.
-enum MembershipRole {
-  OWNER
-  ADMIN
-  OPERATOR
-  VIEWER
+/// `slug` is the stable, URL-safe public identifier used to address an
+/// organization in routing and in provisioning lookups. It is unique and
+/// immutable in practice: changing it breaks customer bookmarks and any
+/// provider reference captured against it. `name` is the mutable label.
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  slug      String   @unique @db.VarChar(63)
+  name      String   @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  memberships        Membership[]
+  invitations        Invitation[]
+  securityAuditEvents SecurityAuditEvent[]
+
+  @@map("organizations")
 }

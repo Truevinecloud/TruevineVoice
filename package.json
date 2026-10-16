@@ -20,7 +20,7 @@
     "dev:web": "npm run dev --workspace @truevine/web",
     "dev:admin": "npm run dev --workspace @truevine/admin",
     "build": "npm run build:packages && npm run build:apps",
-    "build:packages": "npm run build --workspace @truevine/shared && npm run build --workspace @truevine/database && npm run build --workspace @truevine/queue",
+    "build:packages": "npm run build --workspace @truevine/shared && npm run build --workspace @truevine/auth && npm run build --workspace @truevine/database && npm run build --workspace @truevine/queue",
     "build:apps": "npm run build --workspace @truevine/api && npm run build --workspace @truevine/worker && npm run build --workspace @truevine/web && npm run build --workspace @truevine/admin",
     "start:api": "npm run start --workspace @truevine/api",
     "start:worker": "npm run start --workspace @truevine/worker",
