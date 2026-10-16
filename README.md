@@ -268,6 +268,58 @@ with `SELECT 1` and Redis with `PING`.
 | `npm run test:e2e`  | End-to-end tests. **Requires PostgreSQL and Redis** |
 | `npm run build`     | Builds packages, then all apps                      |
 
+### RBAC-001 security remediation
+
+The [remediation report](docs/rbac-001-security-remediation.md) supersedes the
+earlier merge review. [ADR 0010](docs/adr/0010-rbac-001-security-transactions.md)
+records transaction boundaries, exactly-one-Owner constraints and terms exceptions.
+
+- `npm run test:security`: requires the local Compose PostgreSQL/Redis stack.
+  Creates disposable databases, applies migrations through Prisma on the empty
+  one, rehearses representative/inconsistent data, runs all integration tests,
+  and drops only those databases. It never migrates the existing development DB.
+- `npm run test:security:baseline`: runs the same two race-contract tests against
+  the frozen pre-fix store in a disposable schema. **Expected exit: nonzero**;
+  this is explicit before-fix reproduction, not a passing verification gate.
+
+Organizations and their first Owner must commit together. New inconsistent
+constraints fail with an actionable diagnostic and never repair customer data.
+Run these commands through npm so their subprocesses use the pinned runtime.
+Production approval, legal terms, email delivery, operator recovery and audit
+policy remain separate prerequisites. `DEPLOYMENT_READY=false`.
+
+### RBAC-001 merge review
+
+The historical [security and merge-readiness review](docs/rbac-001-merge-readiness-review.md)
+recommends **NOT MERGE READY** despite passing ordinary test suites. Local review
+fixes use matching Prisma CLI/client/adapter 7.10.1 pins; the full audit has five
+remaining high development-tool findings, and production-only audit has zero.
+The older audit discussion below is historical; the review records current
+advisory paths, exposure and why an ESLint downgrade was not considered safe.
+No migrations were changed or approved. `DEPLOYMENT_READY=false`.
+
+### RBAC-001 development verification
+
+RBAC-001 is implemented on this feature branch. Foundation descriptions above
+are historical; see [final verification](docs/rbac-001-final-verification.md).
+
+With the isolated local API/web servers running, development email capture
+enabled, and the development schema already prepared:
+
+- `npm run verify:journey`: disposable accounts, activation, test terms, dashboard,
+  settings, team/invitations, ownership transfer, token reuse, session revocation
+  and action-specific audit records through the real frontend proxy.
+- `npm run verify:boundaries`: two independent tenants, forged IDs, CSRF,
+  delegation and audit immutability against local API/Docker infrastructure.
+- `npm run verify:frontend`: rendered HTML and HTTP checks. Requires
+  `OWNER_EMAIL` and `OWNER_PASSWORD` for a disposable development Owner; missing
+  credentials fail rather than silently skipping authenticated verification.
+
+These commands do not automate a browser. They retain the real rate limiter;
+HTTP 429 requires waiting for its window. Test rows with immutable audit
+references remain in development. No command applies migrations.
+`DEPLOYMENT_READY=false`; see [release blockers](docs/release-blockers.md).
+
 ### Continuous integration
 
 GitHub Actions runs these gates on every pull request targeting `main` and on

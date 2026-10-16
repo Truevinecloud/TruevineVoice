@@ -47,3 +47,7 @@ Thumbs.db
 /REVISION
 /READY
 /.deployment-validation/
+
+# Operator provisioning: holds single-use activation tokens (0600).
+.owner-activation/
+.email-capture/
