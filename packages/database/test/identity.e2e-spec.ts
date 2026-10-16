@@ -274,21 +274,28 @@ describe('identity constraints against live PostgreSQL', () => {
     expect(roles).toEqual([{ role: 'TECHNICAL_ADMIN', memberships: 0n }]);
   });
 
-  it('leaves no rows behind after the suite', async () => {
+  it('leaves no rows of its own behind after the suite', async () => {
+    // Scoped to this file's identifiers, not a global count: other end-to-end
+    // suites share this database and create rows legitimately.
     const invitations = await database.$queryRaw<Array<{ count: bigint }>>`
       SELECT count(*) AS count FROM invitations
+      WHERE organization_id IN (${ORG_A}::uuid, ${ORG_B}::uuid)
     `;
     const sessions = await database.$queryRaw<Array<{ count: bigint }>>`
       SELECT count(*) AS count FROM sessions
+      WHERE user_id IN (${USER_A}::uuid, ${INVITER}::uuid)
     `;
     const terms = await database.$queryRaw<Array<{ count: bigint }>>`
       SELECT count(*) AS count FROM terms_acceptances
+      WHERE user_id IN (${USER_A}::uuid, ${INVITER}::uuid)
     `;
     const platform = await database.$queryRaw<Array<{ count: bigint }>>`
       SELECT count(*) AS count FROM platform_role_assignments
+      WHERE user_id IN (${USER_A}::uuid, ${INVITER}::uuid)
     `;
     const users = await database.$queryRaw<Array<{ count: bigint }>>`
       SELECT count(*) AS count FROM users
+      WHERE id IN (${USER_A}::uuid, ${INVITER}::uuid)
     `;
 
     expect(Number(invitations[0]?.count)).toBe(0);

@@ -52,11 +52,22 @@ export {
 } from './tokens.js';
 
 export {
+  assertKnownAuditAction,
+  AUDIT_ACTIONS,
+  FORBIDDEN_AUDIT_METADATA_KEYS,
+  isKnownAuditAction,
+  isSafeAuditMetadata,
+  isSafeAuditMetadataKey,
+  type AuditAction,
+} from './audit.js';
+
+export {
   AuthError,
   AUTH_ERROR_CODES,
   cannotDelegate,
   cannotRemoveLastOwner,
   invalidCredentials,
+  passwordTooWeak,
   permissionDenied,
   sessionInvalid,
   termsAcceptanceRequired,

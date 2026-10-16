@@ -1,0 +1,649 @@
+/**
+ * Authorization enforcement, tested through the guards.
+ *
+ * These are the assertions RBAC-001 is judged on. Each maps to a stated
+ * requirement, and each is a *negative* test where negative testing is what
+ * proves the control exists.
+ *
+ * No database, no Redis: every store is an in-memory fake, so the whole suite
+ * runs in milliseconds in `npm test`.
+ */
+
+import { AuthError, hashToken } from '@truevine/auth';
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import { ORGANIZATION_PERMISSION, PLATFORM_PERMISSION } from '../src/auth/permission.decorators.js';
+import { OrganizationGuard, PlatformGuard } from '../src/auth/organization.guard.js';
+import { SessionGuard } from '../src/auth/session.guard.js';
+import { CsrfGuard } from '../src/auth/csrf.guard.js';
+import { ORGANIZATION_CONTEXT, PRINCIPAL } from '../src/auth/principal.js';
+import { ORGANIZATION_ROLE_PERMISSIONS } from '@truevine/auth';
+import {
+  CSRF_COOKIE,
+  CSRF_HEADER,
+  SESSION_COOKIE,
+  generateCsrfToken,
+} from '../src/auth/cookies.js';
+import {
+  FakeAuditStore,
+  FakeAuthStore,
+  FakeOrganizationStore,
+  FakePlatformRoleStore,
+  aMembership,
+  aUser,
+  seedOwner,
+} from './fakes/auth.fakes.js';
+
+const TERMS = '2026-10-01';
+
+/** The raw cookie value the session fakes below are keyed by. */
+const RAW_TOKEN = 'raw-session-token-value';
+
+/** Minimal stand-ins for Nest's ExecutionContext and request. */
+function httpContext(options: {
+  handler?: object;
+  params?: Record<string, string>;
+  headers?: Record<string, string>;
+  method?: string;
+  principal?: unknown;
+  organization?: unknown;
+}) {
+  const request: Record<string, unknown> = {
+    params: options.params ?? {},
+    headers: options.headers ?? {},
+    method: options.method ?? 'GET',
+  };
+
+  if (options.principal) request[PRINCIPAL] = options.principal;
+  if (options.organization) request[ORGANIZATION_CONTEXT] = options.organization;
+
+  return {
+    request,
+    context: {
+      getType: () => 'http',
+      getHandler: () => options.handler ?? {},
+      getClass: () => class {},
+      switchToHttp: () => ({ getRequest: () => request }),
+    } as never,
+  };
+}
+
+/** A handler carrying a permission requirement. */
+function handlerRequiring(metadataKey: string, value: string): Record<symbol, unknown> {
+  const handler = (): undefined => undefined;
+  Reflect.defineMetadata(metadataKey, value, handler);
+  return handler as never;
+}
+
+describe('OrganizationGuard', () => {
+  let auth: FakeAuthStore;
+  let organizations: FakeOrganizationStore;
+  let audit: FakeAuditStore;
+  let guard: OrganizationGuard;
+
+  beforeEach(() => {
+    auth = new FakeAuthStore();
+    organizations = new FakeOrganizationStore();
+    audit = new FakeAuditStore();
+    guard = new OrganizationGuard(organizations, auth, audit, TERMS);
+  });
+
+  describe('tenant isolation', () => {
+    it('lets a member read their own organization', async () => {
+      seedOwner(auth, organizations);
+      const { context, request } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(request[ORGANIZATION_CONTEXT]).toEqual({ organizationId: 'org-1', role: 'OWNER' });
+    });
+
+    it('refuses Customer A reading Customer B', async () => {
+      // The membership exists for org-a. org-b is somebody else's tenant.
+      organizations.memberships.push(aMembership({ organizationId: 'org-a', userId: 'user-a' }));
+      organizations.organizations.push({ id: 'org-b', slug: 'beta', name: 'Beta' });
+
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
+        params: { organizationId: 'org-b' },
+        principal: { userId: 'user-a' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('gives the same 403 for a tenant that does not exist', async () => {
+      // A 404 for a missing organization and a 403 for someone else's would let
+      // a caller enumerate which tenants exist. Both must look identical.
+      const mine = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
+        params: { organizationId: 'org-does-not-exist' },
+        principal: { userId: 'user-a' },
+      });
+
+      const theirs = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
+        params: { organizationId: 'org-b' },
+        principal: { userId: 'user-a' },
+      });
+
+      const missing = (await guard
+        .canActivate(mine.context)
+        .catch((e: AuthError) => e)) as AuthError;
+      const foreign = (await guard
+        .canActivate(theirs.context)
+        .catch((e: AuthError) => e)) as AuthError;
+
+      expect(missing).toMatchObject({ status: 403, code: 'permission_denied' });
+      expect(foreign).toMatchObject({ status: 403, code: 'permission_denied' });
+      expect(missing.message).toBe(foreign.message);
+    });
+
+    it('scopes the membership lookup to the organization in the path', async () => {
+      seedOwner(auth, organizations);
+
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      await guard.canActivate(context);
+
+      expect(organizations.scopedCalls).toEqual(['org-1']);
+    });
+
+    it('refuses when the route carries no organization at all', async () => {
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
+        params: {},
+        principal: { userId: 'user-1' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('refuses when the guard ran without a session', async () => {
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
+        params: { organizationId: 'org-1' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+    });
+  });
+
+  describe('role permissions', () => {
+    const cases = [
+      { role: 'ADMIN', permission: 'organization:update', allowed: true },
+      { role: 'ADMIN', permission: 'ownership:transfer', allowed: false },
+      { role: 'ADMIN', permission: 'billing:read', allowed: false },
+      { role: 'CAMPAIGN_MANAGER', permission: 'campaign:create', allowed: true },
+      { role: 'CAMPAIGN_MANAGER', permission: 'member:invite', allowed: false },
+      { role: 'CAMPAIGN_MANAGER', permission: 'ownership:transfer', allowed: false },
+      { role: 'BILLING', permission: 'billing:update', allowed: true },
+      { role: 'BILLING', permission: 'member:read', allowed: false },
+      { role: 'VIEWER', permission: 'organization:read', allowed: true },
+      { role: 'VIEWER', permission: 'organization:update', allowed: false },
+      { role: 'VIEWER', permission: 'member:remove', allowed: false },
+      { role: 'VIEWER', permission: 'campaign:delete', allowed: false },
+    ] as const;
+
+    for (const { role, permission, allowed } of cases) {
+      it(`${allowed ? 'allows' : 'refuses'} ${role} -> ${permission}`, async () => {
+        organizations.memberships.push(
+          aMembership({ organizationId: 'org-1', userId: 'user-1', role }),
+        );
+
+        const { context } = httpContext({
+          handler: handlerRequiring(ORGANIZATION_PERMISSION, permission),
+          params: { organizationId: 'org-1' },
+          principal: { userId: 'user-1' },
+        });
+
+        if (allowed) {
+          await expect(guard.canActivate(context)).resolves.toBe(true);
+        } else {
+          await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+        }
+      });
+    }
+  });
+
+  describe('terms acceptance', () => {
+    it('refuses protected use before the current terms are accepted', async () => {
+      seedOwner(auth, organizations);
+
+      const handler = handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read');
+      Reflect.defineMetadata('truevine:accepted-terms', true, handler);
+
+      const { context } = httpContext({
+        handler,
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({
+        code: 'terms_acceptance_required',
+        status: 403,
+      });
+    });
+
+    it('allows protected use once accepted', async () => {
+      seedOwner(auth, organizations);
+      auth.terms.push({ userId: 'user-1', termsVersion: TERMS });
+
+      const handler = handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read');
+      Reflect.defineMetadata('truevine:accepted-terms', true, handler);
+
+      const { context } = httpContext({
+        handler,
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+    });
+
+    it('treats acceptance of an older version as not accepted', async () => {
+      seedOwner(auth, organizations);
+      auth.terms.push({ userId: 'user-1', termsVersion: '2026-01-01' });
+
+      const handler = handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read');
+      Reflect.defineMetadata('truevine:accepted-terms', true, handler);
+
+      const { context } = httpContext({
+        handler,
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({
+        code: 'terms_acceptance_required',
+      });
+    });
+  });
+
+  describe('audit of denials', () => {
+    it('records a refusal with DENIED', async () => {
+      organizations.memberships.push(
+        aMembership({ organizationId: 'org-1', userId: 'user-1', role: 'VIEWER' }),
+      );
+
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:update'),
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+
+      expect(audit.events).toHaveLength(1);
+      expect(audit.events[0]).toMatchObject({
+        organizationId: 'org-1',
+        actorUserId: 'user-1',
+        action: 'authorization.denied',
+        outcome: 'DENIED',
+        metadata: { permission: 'organization:update', reason: 'insufficient_permission' },
+      });
+    });
+
+    it('records a cross-tenant attempt', async () => {
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
+        params: { organizationId: 'org-b' },
+        principal: { userId: 'user-a' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+
+      expect(audit.events[0]).toMatchObject({
+        outcome: 'DENIED',
+        metadata: { reason: 'no_membership' },
+      });
+    });
+
+    it('does not record a refusal as a success', async () => {
+      organizations.memberships.push(
+        aMembership({ organizationId: 'org-1', userId: 'user-1', role: 'VIEWER' }),
+      );
+
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'member:invite'),
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      await guard.canActivate(context).catch(() => undefined);
+
+      expect(audit.events.every((event) => event.outcome === 'DENIED')).toBe(true);
+    });
+
+    it('still refuses when the audit write fails', async () => {
+      const failing = new FakeAuditStore();
+      failing.record = () => Promise.reject(new Error('audit store unavailable'));
+      const guarded = new OrganizationGuard(organizations, auth, failing, TERMS);
+
+      organizations.memberships.push(
+        aMembership({ organizationId: 'org-1', userId: 'user-1', role: 'VIEWER' }),
+      );
+
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:update'),
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      // A broken audit sink must not turn into a 500 that reveals the difference
+      // between "refused" and "refused and recorded".
+      await expect(guarded.canActivate(context)).rejects.toMatchObject({
+        status: 403,
+        code: 'permission_denied',
+      });
+    });
+  });
+
+  it('passes through when the route declares no organization requirement', async () => {
+    const { context } = httpContext({ params: {}, principal: { userId: 'user-1' } });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it('never records a platform-scoped action in the organization namespace', () => {
+    // Structural check: an OrganizationOwner permission set must not contain a
+    // single `platform:` string.
+    for (const permission of ORGANIZATION_ROLE_PERMISSIONS.OWNER) {
+      expect(permission.startsWith('platform:')).toBe(false);
+    }
+  });
+});
+
+describe('PlatformGuard', () => {
+  let audit: FakeAuditStore;
+  let guard: PlatformGuard;
+
+  beforeEach(() => {
+    audit = new FakeAuditStore();
+    guard = new PlatformGuard(audit);
+  });
+
+  it('refuses an Organization Owner with no platform role', async () => {
+    const { context } = httpContext({
+      handler: handlerRequiring(PLATFORM_PERMISSION, 'platform:tenant:read'),
+      principal: { userId: 'user-1', platformRole: null },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('refuses a platform role that does not hold the permission', async () => {
+    const { context } = httpContext({
+      handler: handlerRequiring(PLATFORM_PERMISSION, 'platform:admin:manage'),
+      principal: { userId: 'user-1', platformRole: 'SUPPORT_ADMIN' },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('allows a platform role that holds the permission', async () => {
+    const { context } = httpContext({
+      handler: handlerRequiring(PLATFORM_PERMISSION, 'platform:support:read'),
+      principal: { userId: 'user-1', platformRole: 'SUPPORT_ADMIN' },
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it('records a platform denial against the caller own organization', async () => {
+    const { context } = httpContext({
+      handler: handlerRequiring(PLATFORM_PERMISSION, 'platform:tenant:read'),
+      principal: { userId: 'user-1', platformRole: null },
+      organization: { organizationId: 'org-1', role: 'OWNER' },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+
+    expect(audit.events[0]).toMatchObject({
+      organizationId: 'org-1',
+      action: 'platform.access.denied',
+      scope: 'PLATFORM',
+      outcome: 'DENIED',
+    });
+  });
+
+  it('does not invent an organization when there is no context', async () => {
+    // `organization_id` is NOT NULL with a foreign key. Writing a placeholder
+    // would either fail or, worse, fabricate a tenant association.
+    const { context } = httpContext({
+      handler: handlerRequiring(PLATFORM_PERMISSION, 'platform:tenant:read'),
+      principal: { userId: 'user-1', platformRole: null },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+    expect(audit.events).toHaveLength(0);
+  });
+});
+
+describe('SessionGuard', () => {
+  let auth: FakeAuthStore;
+  let platformRoles: FakePlatformRoleStore;
+  let guard: SessionGuard;
+
+  beforeEach(() => {
+    auth = new FakeAuthStore();
+    platformRoles = new FakePlatformRoleStore();
+    guard = new SessionGuard(auth, platformRoles);
+  });
+
+  function withSession(user: ReturnType<typeof aUser>, expiresAt: Date) {
+    auth.users.push(user);
+    auth.sessions.push({
+      session: {
+        id: 'session-1',
+        userId: user.id,
+        // The guard looks up by digest of the raw cookie value, so the fake must
+        // store the same digest. A literal here would make every "valid session"
+        // case fail on lookup rather than on the check actually under test.
+        tokenHash: hashToken(RAW_TOKEN),
+        previousTokenHash: null,
+        expiresAt,
+        userAgentHash: null,
+        ipPrefix: null,
+      },
+      revokedAt: null,
+    });
+  }
+
+  const cookie = (value: string) => ({ cookie: `${SESSION_COOKIE}=${value}` });
+
+  it('refuses a request with no cookie', async () => {
+    const { context } = httpContext({ headers: {} });
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('refuses an unknown session token', async () => {
+    const { context } = httpContext({ headers: cookie('not-a-real-token') });
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('attaches a principal for a valid session', async () => {
+    const user = aUser();
+    withSession(user, new Date(Date.now() + 60_000));
+
+    const { context, request } = httpContext({ headers: cookie(RAW_TOKEN) });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request[PRINCIPAL]).toMatchObject({ userId: user.id, sessionId: 'session-1' });
+  });
+
+  it('never puts the raw session token on the principal', async () => {
+    const user = aUser();
+    withSession(user, new Date(Date.now() + 60_000));
+
+    const { context, request } = httpContext({ headers: cookie(RAW_TOKEN) });
+
+    await guard.canActivate(context);
+
+    expect(JSON.stringify(request[PRINCIPAL])).not.toContain(RAW_TOKEN);
+  });
+
+  it('does not fail a valid session when usage tracking fails', async () => {
+    const user = aUser();
+    withSession(user, new Date(Date.now() + 60_000));
+    auth.touchSession = () => Promise.reject(new Error('write failed'));
+
+    const { context } = httpContext({ headers: cookie(RAW_TOKEN) });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it('refuses an expired session', async () => {
+    const user = aUser();
+    withSession(user, new Date(Date.now() - 1_000));
+
+    const { context } = httpContext({ headers: cookie(RAW_TOKEN) });
+
+    // The store's contract already excludes expired rows, so this refusal comes
+    // from the lookup rather than from the guard's own check. What matters is
+    // that it is a 401 and not a pass.
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('refuses an expired session even from a store that does not filter', async () => {
+    // Defence in depth. If a store implementation forgets the `expiresAt`
+    // predicate its contract requires, the guard must still refuse rather than
+    // honour an expired credential.
+    const user = aUser({ id: 'user-stale' });
+    auth.users.push(user);
+    auth.sessions.push({
+      session: {
+        id: 'session-stale',
+        userId: user.id,
+        tokenHash: hashToken('stale-token'),
+        previousTokenHash: null,
+        expiresAt: new Date(Date.now() - 60_000),
+        userAgentHash: null,
+        ipPrefix: null,
+      },
+      revokedAt: null,
+    });
+
+    const leaky = new FakeAuthStore();
+    leaky.users = auth.users;
+    leaky.sessions = auth.sessions;
+    // Deliberately drops the expiry predicate the contract requires.
+    leaky.findActiveSessionByTokenHash = async (tokenHash) => {
+      const entry = leaky.sessions.find((candidate) => candidate.session.tokenHash === tokenHash);
+      if (!entry) return undefined;
+
+      return {
+        id: entry.session.id,
+        userId: entry.session.userId,
+        tokenHash: entry.session.tokenHash,
+        previousTokenHash: entry.session.previousTokenHash,
+        expiresAt: entry.session.expiresAt,
+        revokedAt: entry.revokedAt,
+      };
+    };
+
+    const guarded = new SessionGuard(leaky, platformRoles);
+    const { context } = httpContext({ headers: cookie('stale-token') });
+
+    await expect(guarded.canActivate(context)).rejects.toMatchObject({
+      status: 401,
+      code: 'session_expired',
+    });
+  });
+
+  it('refuses a session whose user has been suspended', async () => {
+    const user = aUser({ status: 'SUSPENDED' });
+    withSession(user, new Date(Date.now() + 60_000));
+
+    const { context } = httpContext({ headers: cookie(RAW_TOKEN) });
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('refuses a revoked session', async () => {
+    const user = aUser();
+    withSession(user, new Date(Date.now() + 60_000));
+    auth.sessions[0]!.revokedAt = new Date();
+
+    const { context } = httpContext({ headers: cookie(RAW_TOKEN) });
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({
+      status: 401,
+      code: 'session_revoked',
+    });
+  });
+
+  it('reports a revoked platform role as no role at all', async () => {
+    const user = aUser();
+    withSession(user, new Date(Date.now() + 60_000));
+    platformRoles.setAssignment({
+      userId: user.id,
+      role: 'PLATFORM_OWNER',
+      revokedAt: new Date(),
+    });
+
+    const { context, request } = httpContext({ headers: cookie(RAW_TOKEN) });
+
+    await guard.canActivate(context);
+
+    expect(request[PRINCIPAL]).toMatchObject({ platformRole: null });
+  });
+
+  it('refuses a non-HTTP context', async () => {
+    const context = {
+      getType: () => 'rpc',
+      switchToHttp: () => ({ getRequest: () => ({}) }),
+    } as never;
+
+    await expect(guard.canActivate(context)).resolves.toBe(false);
+  });
+});
+
+describe('CsrfGuard', () => {
+  const guard = new CsrfGuard();
+
+  it('allows a GET without a token', () => {
+    const { context } = httpContext({ method: 'GET' });
+
+    expect(guard.canActivate(context)).toBe(true);
+  });
+
+  it('refuses a mutation with no CSRF header', () => {
+    const { context } = httpContext({ method: 'POST' });
+
+    expect(() => guard.canActivate(context)).toThrowError();
+  });
+
+  it('refuses a mutation whose header does not match the cookie', () => {
+    const token = generateCsrfToken();
+    const { context } = httpContext({
+      method: 'POST',
+      headers: { cookie: `${CSRF_COOKIE}=${token}`, [CSRF_HEADER]: 'a-different-token' },
+    });
+
+    expect(() => guard.canActivate(context)).toThrowError();
+  });
+
+  it('allows a mutation whose header matches the cookie', () => {
+    const token = generateCsrfToken();
+    const { context } = httpContext({
+      method: 'POST',
+      headers: { cookie: `${CSRF_COOKIE}=${token}`, [CSRF_HEADER]: token },
+    });
+
+    expect(guard.canActivate(context)).toBe(true);
+  });
+
+  it('issues tokens that differ every time', () => {
+    expect(generateCsrfToken()).not.toBe(generateCsrfToken());
+  });
+});

@@ -21,6 +21,22 @@ import { PrismaClient } from './generated/prisma/client.js';
 export { PrismaPg };
 export type { PrismaClient };
 
+/**
+ * The database's enum vocabularies, as types only.
+ *
+ * Re-exported so an application can name `MembershipRole` without reaching into
+ * the generated client directory, which is an implementation detail of this
+ * package. Type-only on purpose: importing the runtime enum objects would drag
+ * the generated client into any consumer, including a browser bundle.
+ */
+export type {
+  AuditOutcome,
+  AuditScope,
+  MembershipRole,
+  PlatformRole,
+  UserStatus,
+} from './generated/prisma/client.js';
+
 /** Default per-probe timeout for infrastructure health checks. */
 export const DEFAULT_DATABASE_PROBE_TIMEOUT_MS = 2_000;
 

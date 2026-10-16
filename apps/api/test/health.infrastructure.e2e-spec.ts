@@ -41,7 +41,7 @@ function composePublishedPort(service: string, containerPort: string): number {
   if (!Number.isSafeInteger(port) || port <= 0) {
     throw new Error(
       `Unexpected output from "docker compose port ${service} ${containerPort}": ${JSON.stringify(output)}. ` +
-        'Is this project\'s Compose stack running (npm run infra:up)?',
+        "Is this project's Compose stack running (npm run infra:up)?",
     );
   }
   return port;

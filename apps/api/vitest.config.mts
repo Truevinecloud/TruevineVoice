@@ -16,7 +16,12 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['src/**/*.spec.ts'],
+    // `test/**/*.spec.ts` is included deliberately. Those files are unit tests
+    // that happen to need the shared fakes in `test/fakes/`, not end-to-end
+    // tests: they inject in-memory stores and never touch PostgreSQL, Redis or
+    // the HTTP layer. End-to-end tests are `*.e2e-spec.ts` and run under
+    // `vitest.e2e.config.mts` against real infrastructure.
+    include: ['src/**/*.spec.ts', 'test/**/*.spec.ts'],
     setupFiles: ['./test/setup.ts'],
   },
 });

@@ -139,6 +139,7 @@ model User {
   invitationsSent      Invitation[]                @relation("InvitationInviter")
   invitationsAccepted  Invitation[]                @relation("InvitationAcceptedBy")
   auditEvents          SecurityAuditEvent[]
+  identityAuditEvents  IdentityAuditEvent[]
 
   @@map("users")
 }
@@ -263,7 +264,51 @@ model Invitation {
   @@map("invitations")
 }
 
-/// TENANT-OWNED. Append-only audit trail of security-relevant actions.
+/// The identity half of the security audit trail: sign-in, sign-out, password
+/// reset, terms acceptance and session revocation.
+///
+/// A SEPARATE TABLE, and that is the whole point of it. Those events are about a
+/// person, not a tenant: "Alice signed in at 09:14" does not belong to any
+/// organization, and attributing it to one would be a fabrication. Forcing it
+/// into the organization-scoped table would have meant either a nullable
+/// `organization_id` - which breaks ADR 0006's composite-key rule for every
+/// tenant-owned table - or duplicating the event once per membership, which
+/// invents a tenant association that never existed.
+///
+/// Neither was acceptable, so identity events get their own append-only table.
+/// ADR 0006's rule is intact because this table is not tenant-owned, for the
+/// same reason `users` is not.
+model IdentityAuditEvent {
+  id          String       @default(uuid()) @db.Uuid
+  actorUserId String       @map("actor_user_id") @db.Uuid
+  action      String       @db.VarChar(64)
+  outcome     AuditOutcome
+  /// Never a credential, never a password, never key material. Enforced by the
+  /// writer against a forbidden-key list, and asserted for each known writer.
+  metadata    Json         @default("{}")
+  occurredAt  DateTime     @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  /// `RESTRICT`, not `CASCADE`.
+  ///
+  /// The append-only trigger would block a cascading delete anyway - a user with
+  /// an audit trail cannot be deleted either way - so declaring `CASCADE` here
+  /// would document an action that can never happen. `RESTRICT` states the real
+  /// intent and fails with a clear constraint error.
+  ///
+  /// CONSEQUENCE, which the team must decide on: there is no user-deletion path
+  /// at all. A right-to-erasure request therefore needs a reviewed procedure -
+  /// most likely anonymising the user rather than deleting it - and RBAC-001 does
+  /// not implement one. Flagged in ADR 0009 rather than left to be discovered.
+  actor User @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@id([id])
+  @@index([actorUserId])
+  @@index([action])
+  @@index([occurredAt])
+  @@map("identity_audit_events")
+}
+
+/// TENANT-OWNED. Append-only audit trail of organization and authorization actions.
 ///
 /// IMMUTABILITY IS ENFORCED IN THE DATABASE, not by application discipline. The
 /// application connects as the table owner, and an owner bypasses GRANT, so a

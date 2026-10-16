@@ -193,18 +193,21 @@ describe('tenancy schema against live PostgreSQL', () => {
     expect(Number(remaining[0]?.count)).toBe(0);
   });
 
-  it('leaves no rows behind after the suite', async () => {
-    // Written out per table rather than interpolating a table name into SQL:
-    // building a query from a variable is the habit this whole suite exists to
-    // distrust, and it must not be introduced by the test that guards it.
+  it('leaves no rows of its own behind after the suite', async () => {
+    // Scoped to this file's own identifiers rather than counting the whole
+    // table. Other end-to-end suites run against the same database and create
+    // organizations and users legitimately; a global count would fail for their
+    // rows and would hide a real leak of this suite's own.
     const memberships = await database.$queryRaw<Array<{ count: bigint }>>`
       SELECT count(*) AS count FROM memberships
+      WHERE user_id = ${USER}::uuid
     `;
     const organizations = await database.$queryRaw<Array<{ count: bigint }>>`
       SELECT count(*) AS count FROM organizations
+      WHERE id IN (${ORG_A}::uuid, ${ORG_B}::uuid)
     `;
     const users = await database.$queryRaw<Array<{ count: bigint }>>`
-      SELECT count(*) AS count FROM users
+      SELECT count(*) AS count FROM users WHERE id = ${USER}::uuid
     `;
 
     expect(Number(memberships[0]?.count)).toBe(0);
