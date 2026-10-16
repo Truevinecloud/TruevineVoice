@@ -47,8 +47,9 @@
     "prisma:migrate:deploy": "npm run prisma:migrate:deploy --workspace @truevine/database",
     "prisma:studio": "npm run prisma:studio --workspace @truevine/database",
     "ci:setup-npm": "node infrastructure/scripts/setup-npm.mjs",
-    "test:deployment": "vitest run --config infrastructure/vitest.config.mts && npm run test:db-verify",
+    "test:deployment": "vitest run --config infrastructure/vitest.config.mts && npm run test:db-verify && npm run test:backup",
     "test:db-verify": "node infrastructure/scripts/run-db-verify-tests.mjs",
+    "test:backup": "node infrastructure/scripts/run-backup-tests.mjs",
     "deploy:release": "bash infrastructure/scripts/deploy.sh",
     "deploy:rollback": "bash infrastructure/scripts/deploy.sh --rollback",
     "deploy:verify": "node infrastructure/scripts/verify-deployment.mjs"

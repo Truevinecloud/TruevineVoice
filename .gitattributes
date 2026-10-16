@@ -1,1 +1,11 @@
-infrastructure/scripts/*.sh text eol=lf
+# Shell scripts must be LF-only.
+#
+# CRLF breaks them on Linux in a way that fails silently rather than loudly:
+# bash reads `set -euo pipefail\r` as the option "pipefail\r", rejects it with
+# "invalid option name", and the script then continues with errexit DISABLED.
+# Every "check this command's exit status" guarantee in these scripts silently
+# evaporates while the script appears to work.
+#
+# The pattern has no slash, so it matches shell scripts at any depth and
+# supersedes the narrower infrastructure/scripts/*.sh rule it replaces.
+*.sh text eol=lf
