@@ -102,6 +102,14 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # The backup runtime suite (infrastructure/backup/backup.test.sh) needs
+      # `age` and a container runtime. Without this flag a runner that has lost
+      # one of them SKIPS those sections and the job still reports success, which
+      # is how this repository ended up with a green tick while encryption,
+      # restore and tamper detection were never executed. Here a skip is a
+      # failure.
+      BACKUP_TESTS_REQUIRED: '1'
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,6 +121,17 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+
+      # The ubuntu-latest image ships Docker and a running daemon, so the suite
+      # only needs the encryption tool. The `age` package provides both `age` and
+      # `age-keygen`. Pinned to the distribution package rather than a
+      # downloaded binary so the runner needs no extra trust decision.
+      - name: Install age for the backup runtime suite
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes age
+          age --version
+          age-keygen --version
 
       - name: Set up the pinned npm version
         run: npm run ci:setup-npm

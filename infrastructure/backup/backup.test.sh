@@ -9,6 +9,14 @@
 # cases that need it say so loudly when they are skipped rather than passing
 # quietly.
 #
+# Requires: bash, `age` (which provides `age-keygen`), node, coreutils, and a
+# working container runtime for the database-backed sections.
+#
+# BACKUP_TESTS_REQUIRED=1 converts every skip into a failure. Set it in CI so a
+# runner that has lost a dependency reports red instead of quietly verifying
+# nothing. Locally it is unset, so a developer without `age` still gets skips
+# with a reason rather than a wall of failures.
+#
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 BACKUP="$HERE/backup.sh"
@@ -22,6 +30,26 @@ bad()  { printf '  FAIL  %s\n' "$*"; fails=$((fails + 1)); }
 warn() { printf '  !!    %s\n' "$*"; }
 # A skip must always say why. A silent skip reads as a pass.
 skip() { local reason=${1:-unspecified}; printf '  SKIP  %s -- reason: %s\n' "${2:-tests}" "$reason"; skipped=$((skipped + 1)); }
+
+# Locally, a missing `age` or an absent Docker daemon means the developer cannot
+# run the runtime suite; skipping with a reason is right.
+#
+# In CI it is not right. A green tick that silently omits encryption, restore and
+# tamper detection is a lie about what is verified, and it is exactly the state
+# this repository was in: CI reported "Unit tests: pass" while sections 3-14
+# never executed because `age` was not installed.
+#
+# BACKUP_TESTS_REQUIRED=1 turns every skip into a failure, so a CI runner that
+# has lost a dependency goes red instead of quietly testing nothing.
+BACKUP_TESTS_REQUIRED="${BACKUP_TESTS_REQUIRED:-0}"
+skip_or_fail() {
+  local reason=$1 tests=${2:-tests}
+  if [ "$BACKUP_TESTS_REQUIRED" = "1" ]; then
+    bad "$tests could not run: $reason (BACKUP_TESTS_REQUIRED=1, a skip is a failure in CI)"
+  else
+    skip "$reason" "$tests"
+  fi
+}
 
 # Test containers and volumes are removed on every exit path, including failure.
 # A leftover volume carries a stale postmaster.pid, and the next run would
@@ -120,7 +148,7 @@ if make_key "$WORK/key.txt"; then
   case "$out" in *"must not be readable"*) ok "refusal explains why" ;; *) bad "no explanation given" ;; esac
   chmod 600 "$WORK/key.txt"
 else
-  skip "key permission checks" "age-keygen unavailable"
+  skip_or_fail "age-keygen unavailable" "key permission checks"
 fi
 
 echo
@@ -245,7 +273,7 @@ if [ -z "$skip_reason" ]; then
     [ "$rc" = "6" ] && ok "wrong key exits 6 (verify)" || bad "expected exit 6, got $rc"
     case "$out" in *"decryption failed"*) ok "reports decryption failure explicitly" ;; *) bad "no explicit failure reason" ;; esac
   else
-    skip "wrong-key test" "age-keygen not installed"
+    skip_or_fail "age-keygen not installed" "wrong-key test"
   fi
 
   echo
@@ -392,7 +420,7 @@ printf '{\n  "webUrl": "https://voice.truevinecloud.online/",\n  "region": "eu-w
   docker rm -fv truevine-backup-src >/dev/null 2>&1 || true
   docker volume rm truevine-backup-src-vol >/dev/null 2>&1 || true
 else
-  skip "$skip_reason" "database-backed tests"
+  skip_or_fail "$skip_reason" "database-backed tests"
 fi
 
 echo

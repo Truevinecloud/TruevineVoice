@@ -316,13 +316,29 @@ present; they never pass silently.
 
 ### How the runtime suite is run
 
-`backup.test.sh` needs Linux, `age`, and a container runtime. On Linux CI it runs
-directly. On a workstation where those are unavailable the wrapper skips **with
-an explanation**, and the static suite (`backup.spec.ts`) still enforces the
-invariants — including the ones fixed below.
+`backup.test.sh` needs Linux, `age` (which provides `age-keygen`), Node,
+coreutils, and a working container runtime.
+
+| Where                         | `BACKUP_TESTS_REQUIRED` | Missing dependency          |
+| ----------------------------- | ----------------------- | --------------------------- |
+| Developer workstation         | unset                   | skips with a printed reason |
+| GitHub Actions unit-tests job | `1`                     | **fails the job**           |
+
+This distinction exists because of a real defect. CI originally reported
+`Unit tests: pass` while sections 3–14 — encryption, upload/download, isolated
+restore, wrong key, tampering, mismatched manifest, secret gate, staging
+hygiene, status file and metadata — never ran, because `age` was not installed on
+the runner. The skip was printed, but the job still succeeded, so nothing
+noticed.
+
+The CI job now installs `age` **and** sets `BACKUP_TESTS_REQUIRED=1`, so a runner
+that has lost the toolchain goes red instead of quietly verifying nothing.
+
+Verified locally: with `age` present the suite reports **0 skipped**; with `age`
+removed and `BACKUP_TESTS_REQUIRED=1` it **fails**, so the guard is not vacuous.
 
 The suite has been executed against a real Linux environment with `age` 1.3.2,
-Node 24 and a live container runtime: **14 sections, 0 skipped.**
+Node 24 and a live container runtime: **15 sections, 0 skipped.**
 
 ---
 
