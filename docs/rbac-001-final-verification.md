@@ -114,10 +114,10 @@ read-only. Raw logs are local, ignored files in `.deployment-validation/`.
 20. Elevated `npm test` after extending deactivation CSRF guard coverage ? 451 passed, same existing skips.
 21. `npm run lint` and `git diff --check` after edits ? passed.
 22. Waited for the real limiter window without clearing counters; elevated `npm run verify:boundaries` ? 29/29 passed.
-23. Set credentials for the disposable current Owner; `npm run verify:frontend` ? 43/43 passed.
+23. Set credentials for the disposable current Owner; `npm run verify:frontend` - 41/41 passed.
 24. A diagnostic Node log counter initially read PowerShell UTF-16 logs as UTF-8 and printed zero; PowerShell Select-String confirmed 43 journey, 29 boundary and 41 frontend PASS lines.
 25. Report generation/git staging initially hit sandbox EPERM/index.lock permissions; elevated retry succeeded.
-26. Final `git diff --check`, staged-file review and secret-path checks ? passed; local commit requested by user.
+26. Final `git diff --check`, staged-file review and secret-path checks ? passed; local commit 638d7c7 created as requested. A documentation-only follow-up corrects the repeated frontend count to 41; no history rewrite.
 
 ## Deferred work and readiness
 
