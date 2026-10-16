@@ -25,6 +25,7 @@ export const AUDIT_ACTIONS = [
   'auth.password_reset_completed',
   'auth.password_reset_token_reused',
   'auth.account_locked',
+  'auth.account_deactivated',
   'auth.session_revoked',
 
   // Terms.

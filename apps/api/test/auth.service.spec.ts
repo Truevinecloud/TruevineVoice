@@ -21,6 +21,7 @@ import {
   FakeOrganizationStore,
   anInvitation,
   aMembership,
+  aSession,
   aUser,
   seedOwner,
 } from './fakes/auth.fakes.js';
@@ -251,6 +252,83 @@ function plantResetToken(auth: FakeAuthStore, userId: string, raw: string): stri
 
   return raw;
 }
+
+describe('AuthService.deactivateAccount', () => {
+  /** A signed-in owner, with a live session to revoke. */
+  async function activeOwner() {
+    const { auth, audit, service } = buildAuthService();
+    seedOwner(auth, new FakeOrganizationStore());
+
+    await auth.setPasswordHash(
+      'user-1',
+      await hashPassword(GOOD_PASSWORD),
+      new Date('2026-01-01T00:00:00Z'),
+    );
+    await auth.createSession(aSession({ userId: 'user-1' }));
+
+    return { auth, audit, service };
+  }
+
+  it('suspends the account rather than deleting it', async () => {
+    const { auth, service } = await activeOwner();
+
+    await service.deactivateAccount('user-1');
+
+    const user = await auth.findUserByEmail('owner@example.invalid');
+    expect(user?.status).toBe('SUSPENDED');
+    // The row is still there. Deleting it would break every audit reference and
+    // the append-only trigger would refuse the delete anyway.
+    expect(await auth.findUserByEmail('owner@example.invalid')).toBeDefined();
+  });
+
+  it('revokes every live session, not just the current one', async () => {
+    const { auth, service } = await activeOwner();
+    await auth.createSession(aSession({ userId: 'user-1' }));
+
+    await service.deactivateAccount('user-1');
+
+    // Two sessions existed and neither may survive. A suspension that left a
+    // token standing would be reversible by whoever stole it.
+    expect(auth.sessions).toHaveLength(2);
+    expect(auth.sessions.every((entry) => entry.revokedAt !== null)).toBe(true);
+  });
+
+  it('leaves the account recoverable, with no stale lockout', async () => {
+    const { auth, service } = await activeOwner();
+    await auth.setUserSuspended('user-1', true);
+
+    await service.deactivateAccount('user-1');
+
+    const user = await auth.findUserByEmail('owner@example.invalid');
+    // A reactivation must not be blocked by the lockout that preceded it.
+    expect(user?.failedLoginCount).toBe(0);
+    expect(user?.lockedUntil).toBeNull();
+  });
+
+  it('records the deactivation as reversible', async () => {
+    const { audit, service } = await activeOwner();
+
+    await service.deactivateAccount('user-1');
+
+    expect(audit.identityEvents).toContainEqual(
+      expect.objectContaining({
+        action: 'auth.account_deactivated',
+        outcome: 'SUCCESS',
+        metadata: expect.objectContaining({ reversible: true }),
+      }),
+    );
+  });
+
+  it('prevents a suspended account signing in again', async () => {
+    const { service } = await activeOwner();
+
+    await service.deactivateAccount('user-1');
+
+    await expect(
+      service.signIn('owner@example.invalid', GOOD_PASSWORD, CONTEXT),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+});
 
 describe('AuthService password reset', () => {
   let auth: FakeAuthStore;

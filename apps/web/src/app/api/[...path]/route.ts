@@ -141,6 +141,20 @@ async function proxy(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  return buildUpstreamResponse(upstream);
+}
+
+/**
+ * Translates an upstream API response into one this proxy can return.
+ *
+ * Split out from `proxy` so it can be tested directly. The 204 case below is a
+ * genuine defect this function exists to prevent: the proxy's own allowlist
+ * covers five operations that answer 204, and every one of them returned 500
+ * through the browser until this was fixed. An allowlist test cannot see that,
+ * because the failure is in how the response is *constructed*, not in what was
+ * permitted.
+ */
+export async function buildUpstreamResponse(upstream: Response): Promise<NextResponse> {
   const responseHeaders = new Headers();
   for (const name of FORWARDED_RESPONSE_HEADERS) {
     const value = upstream.headers.get(name);
@@ -150,7 +164,12 @@ async function proxy(request: NextRequest): Promise<NextResponse> {
   // Never cache an authenticated response.
   responseHeaders.set('cache-control', 'no-store');
 
-  const payload = await upstream.text();
+  // 204 and 304 must be constructed with a null body. Passing even an empty
+  // string throws `Invalid response status code 204`, which surfaces as a 500
+  // from the proxy for every sign-out, terms acceptance, member removal and
+  // invitation revocation - the whole write side of the application.
+  const bodiless = upstream.status === 204 || upstream.status === 304;
+  const payload = bodiless ? null : await upstream.text();
 
   return new NextResponse(payload, {
     status: upstream.status,

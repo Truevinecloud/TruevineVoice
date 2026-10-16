@@ -268,6 +268,28 @@ with `SELECT 1` and Redis with `PING`.
 | `npm run test:e2e`  | End-to-end tests. **Requires PostgreSQL and Redis** |
 | `npm run build`     | Builds packages, then all apps                      |
 
+### RBAC-001 development verification
+
+RBAC-001 is implemented on this feature branch. Foundation descriptions above
+are historical; see [final verification](docs/rbac-001-final-verification.md).
+
+With the isolated local API/web servers running, development email capture
+enabled, and the development schema already prepared:
+
+- `npm run verify:journey`: disposable accounts, activation, test terms, dashboard,
+  settings, team/invitations, ownership transfer, token reuse, session revocation
+  and action-specific audit records through the real frontend proxy.
+- `npm run verify:boundaries`: two independent tenants, forged IDs, CSRF,
+  delegation and audit immutability against local API/Docker infrastructure.
+- `npm run verify:frontend`: rendered HTML and HTTP checks. Requires
+  `OWNER_EMAIL` and `OWNER_PASSWORD` for a disposable development Owner; missing
+  credentials fail rather than silently skipping authenticated verification.
+
+These commands do not automate a browser. They retain the real rate limiter;
+HTTP 429 requires waiting for its window. Test rows with immutable audit
+references remain in development. No command applies migrations.
+`DEPLOYMENT_READY=false`; see [release blockers](docs/release-blockers.md).
+
 ### Continuous integration
 
 GitHub Actions runs these gates on every pull request targeting `main` and on

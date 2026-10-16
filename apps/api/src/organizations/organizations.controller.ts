@@ -32,6 +32,7 @@ import {
 } from '../auth/permission.decorators.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { OrganizationGuard } from '../auth/organization.guard.js';
+import { CsrfGuard } from '../auth/csrf.guard.js';
 import {
   ORGANIZATION_ROLES,
   ORGANIZATION_ROLE_PERMISSIONS,
@@ -55,8 +56,16 @@ function parseRole(value: unknown): OrganizationRole {
   return value as OrganizationRole;
 }
 
-/** Guards applied to every organization-scoped route. */
-const Protected = [SessionGuard, OrganizationGuard];
+/**
+ * Guards applied to every organization-scoped route.
+ *
+ * `CsrfGuard` is part of this list, not an afterthought. Without it every
+ * mutation below - rename, role change, member removal, invitation, ownership
+ * transfer - is forgeable from a same-site context, because the session cookie
+ * alone is the credential. `SameSite=Lax` blocks most cross-site POSTs but not
+ * all of them, and it is not a control this codebase relies on alone.
+ */
+const Protected = [SessionGuard, OrganizationGuard, CsrfGuard];
 
 @Controller()
 export class OrganizationsController {
@@ -209,7 +218,10 @@ export class OrganizationsController {
    */
   @Post('invitations/accept')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(SessionGuard)
+  // Needs a session but no membership: the caller is by definition not yet a
+  // member, which is the only reason this route exists. `CsrfGuard` is still
+  // required - a cookie-authenticated mutation needs it wherever it lives.
+  @UseGuards(SessionGuard, CsrfGuard)
   async acceptInvitation(
     @CurrentPrincipal() principal: { userId: string },
     @Body() body: { readonly token?: unknown },

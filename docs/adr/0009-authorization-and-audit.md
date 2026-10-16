@@ -306,11 +306,58 @@ recorded at all.** There is no row to write it into, and inventing one would
 either violate the `NOT NULL` constraint or fabricate a tenant association.
 Closing this requires a platform-scoped audit table, which is RBAC-002 work.
 
-**Audit failure is swallowed.** If the audit sink is unavailable the request
-still receives its correct 403 or 401, and the failure is surfaced in the
-application error log. The alternative — failing closed on audit unavailability —
-would turn an observability outage into a total outage. This is a deliberate
-trade with a known cost: a refusal can occur with no corresponding row.
+**Audit failure never changes the response, but is no longer silent.** If the
+audit sink is unavailable the request still receives its correct 403 or 401, and
+the failure is written to stderr with the organization and the underlying error.
+The alternative - failing closed on audit unavailability - would turn an
+observability outage into a total outage. This is a deliberate trade with a
+known cost: a refusal can occur with no corresponding row.
+
+The most common cause of that failure is worth naming, because it is a design
+consequence rather than a fault. A denial against an organization id that **does
+not exist** cannot be filed: `security_audit_events.organization_id` is `NOT
+NULL` with a foreign key, and there is no tenant to file it under. Skipping such
+a row is semantically correct - nobody was targeted, so nobody needs telling -
+but it means a flood of probes against non-existent ids writes no rows at all.
+The stderr line is what distinguishes this normal outcome from a genuine audit
+outage.
+
+## Account and organization lifecycle
+
+Both are **suspension, never deletion**. The reason is the append-only rule rather
+than a preference: `security_audit_events` cascades from `organizations` and
+restricts on `users`, so deleting either is refused by the database once it has
+audit history. A destructive "close" would therefore fail for exactly the
+organizations most likely to need closing.
+
+**Account deactivation** sets `status = SUSPENDED`, destroys every live session,
+and records `auth.account_deactivated` with `reversible: true`. It also clears
+the failure counter and lockout, so a reactivation is not blocked by the lockout
+that preceded it. There is deliberately **no "reactivate me" button**: an account
+a user could switch off and on at will would make suspension meaningless as a
+response to abuse. Reactivation goes through the password-reset flow, which
+requires proof of control of the address.
+
+**Organization suspension** sets `organizations.suspended_at`, checked by
+`OrganizationGuard` *before* the permission lookup. Order matters: an Owner holds
+every organization permission that exists, so a check placed after the permission
+lookup would wave a suspended tenant straight through. The denial is audited with
+`reason: 'organization_suspended'`, so an operator can tell a suspension from a
+permission mistake. Reversibility is covered by a test: an Owner is refused while
+suspended and served normally once the column is cleared.
+
+**Who may suspend an organization is deliberately not implemented.** Suspending a
+tenant is a platform-authority action, and RBAC-001 has no platform role. Adding
+an HTTP route would mean inventing an authority model that belongs to RBAC-002.
+The mechanism and its enforcement exist; the caller identity is deferred.
+
+**Personal-data erasure needs a policy decision before it can be implemented.**
+Deletion is blocked by design, so erasure must be **anonymisation**: overwrite the
+identifying fields, keep the row, keep the audit trail. That raises questions this
+ADR cannot answer — what "identifying" covers for a user who was both a member
+and an audit actor; whether audit rows containing their user id must themselves be
+scrubbed or retained under a legitimate-interest basis; and what retention period
+applies to each. Fabricating an answer here would be worse than leaving it open.
 
 ## Consequences
 

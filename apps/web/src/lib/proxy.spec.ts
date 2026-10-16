@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { allowedRoutes, isAllowed } from '../app/api/[...path]/route';
+import { allowedRoutes, buildUpstreamResponse, isAllowed } from '../app/api/[...path]/route';
 
 describe('proxy allowlist', () => {
   describe('forwards the operations the application actually calls', () => {
@@ -98,6 +98,85 @@ describe('proxy allowlist', () => {
 
     it('refuses an empty organization segment', () => {
       expect(isAllowed('GET', '/organizations/')).toBe(false);
+    });
+  });
+
+  describe('building the response the browser receives', () => {
+    /**
+     * Every operation the browser calls that answers 204.
+     *
+     * These are the ones that broke. `new Response('', { status: 204 })` throws
+     * `Invalid response status code 204`, so a proxy that passed the upstream
+     * text through unconditionally returned 500 for all of them — which is the
+     * entire write side of the application, including sign-out.
+     */
+    const BODILESS = [
+      'POST /auth/sign-out',
+      'POST /auth/terms/accept',
+      'DELETE /organizations/:organizationId/members/:userId',
+      'DELETE /organizations/:organizationId/invitations/:invitationId',
+    ];
+
+    for (const entry of BODILESS) {
+      const [method, path] = entry.split(' ');
+
+      it(`returns ${method} ${path} as a 204, not a 500`, async () => {
+        // With a header set, because the API's 204s clear the session and CSRF
+        // cookies on the way out and those must survive the proxy.
+        const upstream = new Response(null, {
+          status: 204,
+          headers: { 'set-cookie': 'tv_session=; Max-Age=0; Path=/; HttpOnly' },
+        });
+
+        const proxied = await buildUpstreamResponse(upstream);
+
+        expect(proxied.status).toBe(204);
+        expect(proxied.headers.get('set-cookie')).toContain('tv_session=');
+      });
+    }
+
+    it('never caches an authenticated response', async () => {
+      for (const status of [200, 204, 401, 403, 404, 500]) {
+        const proxied = await buildUpstreamResponse(new Response(null, { status }));
+
+        expect(proxied.headers.get('cache-control')).toBe('no-store');
+      }
+    });
+
+    it('preserves the upstream status and body on an ordinary response', async () => {
+      const upstream = new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+
+      const proxied = await buildUpstreamResponse(upstream);
+
+      expect(proxied.status).toBe(200);
+      expect(await proxied.text()).toBe('{"ok":true}');
+      expect(proxied.headers.get('content-type')).toContain('application/json');
+    });
+
+    it('passes a 401 through rather than converting it', async () => {
+      // A proxy that turned 401 into 500 would make an expired session look like
+      // a server fault, and the browser would show the wrong message.
+      const proxied = await buildUpstreamResponse(
+        new Response('{"error":{"code":"unauthenticated"}}', { status: 401 }),
+      );
+
+      expect(proxied.status).toBe(401);
+    });
+
+    it('does not forward a hop-by-hop or body-bearing response header', async () => {
+      const proxied = await buildUpstreamResponse(
+        new Response('x', {
+          status: 200,
+          headers: { 'content-length': '999', 'transfer-encoding': 'chunked' },
+        }),
+      );
+
+      // `content-length: 999` on a one-byte body is how a proxy breaks framing.
+      expect(proxied.headers.get('content-length')).toBeNull();
+      expect(proxied.headers.get('transfer-encoding')).toBeNull();
     });
   });
 

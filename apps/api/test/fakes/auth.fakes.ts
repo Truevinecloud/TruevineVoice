@@ -56,6 +56,22 @@ export function aUser(overrides: Partial<UserRecord> = {}): Mutable<UserRecord> 
   };
 }
 
+/** A session record with every field filled in. */
+export function aSession(overrides: Partial<NewSession> = {}): NewSession {
+  return {
+    id: `session-${sessionsCreated++}`,
+    userId: 'user-1',
+    tokenHash: 'a-token-hash-nobody-can-replay',
+    previousTokenHash: null,
+    expiresAt: new Date('2999-01-01T00:00:00Z'),
+    userAgentHash: null,
+    ipPrefix: '203.0.113.0/24',
+    ...overrides,
+  };
+}
+
+let sessionsCreated = 0;
+
 export function aMembership(overrides: Partial<MembershipRecord> = {}): Mutable<MembershipRecord> {
   return {
     organizationId: 'org-1',
@@ -210,6 +226,13 @@ export class FakeAuthStore implements AuthStore {
     this.terms.push({ userId, termsVersion });
   }
 
+  async setUserSuspended(userId: string, suspended: boolean): Promise<void> {
+    const user = this.requireUser(userId);
+    user.status = suspended ? 'SUSPENDED' : 'ACTIVE';
+    user.failedLoginCount = 0;
+    user.lockedUntil = null;
+  }
+
   private requireUser(userId: string): Mutable<UserRecord> {
     const user = this.users.find((candidate) => candidate.id === userId);
     if (!user) throw new Error(`No such user in the fake: ${userId}`);
@@ -219,7 +242,9 @@ export class FakeAuthStore implements AuthStore {
 
 /** An {@link OrganizationStore} backed by arrays. */
 export class FakeOrganizationStore implements OrganizationStore {
-  organizations: Mutable<OrganizationRecord>[] = [{ id: 'org-1', slug: 'acme', name: 'Acme' }];
+  organizations: Mutable<OrganizationRecord>[] = [
+    { id: 'org-1', slug: 'acme', name: 'Acme', suspendedAt: null },
+  ];
   memberships: Mutable<MembershipRecord>[] = [];
   invitations: Mutable<InvitationRecord>[] = [];
   /** Every organization id passed to a method, for "was it scoped?" assertions. */
@@ -227,6 +252,15 @@ export class FakeOrganizationStore implements OrganizationStore {
 
   async findOrganizationById(organizationId: string) {
     return this.organizations.find((organization) => organization.id === organizationId);
+  }
+
+  async setOrganizationSuspended(organizationId: string, suspended: boolean): Promise<boolean> {
+    const organization = this.organizations.find((entry) => entry.id === organizationId);
+    if (!organization) return false;
+
+    organization.suspendedAt = suspended ? new Date('2026-06-01T00:00:00Z') : null;
+
+    return true;
   }
 
   async updateName(organizationId: string, name: string): Promise<OrganizationRecord> {

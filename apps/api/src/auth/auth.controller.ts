@@ -109,12 +109,17 @@ export class AuthController {
   /**
    * `POST /auth/sign-out`
    *
-   * Always 204, whether or not a session existed. Reporting "you were not signed
-   * in" would confirm which cookies are live.
+   * 204 on success. Requires a session: without one there is nothing to revoke,
+   * and answering 204 anyway would let a caller probe which cookies are live by
+   * comparing responses.
    */
   @Post('sign-out')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @UseGuards(CsrfGuard)
+  // `SessionGuard` is required, not optional. `@CurrentPrincipal` throws without
+  // it, and the handler needs `principal.sessionId` to revoke the session - a
+  // sign-out that only cleared the cookie would leave a valid token in the
+  // database that a stolen copy could still use.
+  @UseGuards(SessionGuard, CsrfGuard)
   async signOut(
     @CurrentPrincipal() principal: Principal,
     @Res({ passthrough: true }) response: Response,
@@ -198,6 +203,30 @@ export class AuthController {
       // honest; inventing a link to a page that is not there is not.
       url: '',
     };
+  }
+
+  /**
+   * `POST /auth/deactivate`
+   *
+   * Suspends the caller's own account. Reversible, and the response says so
+   * rather than leaving the user to guess whether their account survived.
+   *
+   * Reactivation goes through the password-reset flow, which requires proof of
+   * control of the address. There is deliberately no "reactivate me" button.
+   */
+  @Post('deactivate')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(SessionGuard, CsrfGuard)
+  async deactivate(
+    @CurrentPrincipal() principal: Principal,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<void> {
+    await this.authService.deactivateAccount(principal.userId);
+
+    // The server has already revoked every session; clear the browser's cookies
+    // so it is not left holding a credential that no longer works.
+    response.clearCookie(SESSION_COOKIE, clearedCookieOptions(SESSION_COOKIE_OPTIONS));
+    response.clearCookie(CSRF_COOKIE, clearedCookieOptions(CSRF_COOKIE_OPTIONS));
   }
 }
 

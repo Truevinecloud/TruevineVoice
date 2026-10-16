@@ -86,6 +86,11 @@ const SLUG_B = `e2e-b-${RUN}`;
  */
 const EMAIL_A = `e2e-a-${RUN}@example.invalid`;
 const EMAIL_B = `e2e-b-${RUN}@example.invalid`;
+/** A third owner, suspended mid-suite, so deactivation has its own account. */
+const USER_DEACTIVATE = randomUUID();
+const ORG_DEACTIVATE = randomUUID();
+const SLUG_DEACTIVATE = `e2e-d-${RUN}`;
+const EMAIL_DEACTIVATE = `e2e-d-${RUN}@example.invalid`;
 
 /**
  * Deletes the rows this suite is able to delete.
@@ -97,8 +102,8 @@ const EMAIL_B = `e2e-b-${RUN}@example.invalid`;
  * rows in a development database.
  */
 async function removeFixtures(client: PrismaClient): Promise<void> {
-  await client.$executeRaw`DELETE FROM sessions WHERE user_id IN (${USER_A}::uuid, ${USER_B}::uuid)`;
-  await client.$executeRaw`DELETE FROM terms_acceptances WHERE user_id IN (${USER_A}::uuid, ${USER_B}::uuid)`;
+  await client.$executeRaw`DELETE FROM sessions WHERE user_id IN (${USER_A}::uuid, ${USER_B}::uuid, ${USER_DEACTIVATE}::uuid)`;
+  await client.$executeRaw`DELETE FROM terms_acceptances WHERE user_id IN (${USER_A}::uuid, ${USER_B}::uuid, ${USER_DEACTIVATE}::uuid)`;
   await client.$executeRaw`DELETE FROM invitations WHERE organization_id IN (${ORG_A}::uuid, ${ORG_B}::uuid)`;
 }
 
@@ -117,7 +122,8 @@ beforeAll(async () => {
   await database.$executeRaw`
     INSERT INTO organizations (id, slug, name, updated_at) VALUES
       (${ORG_A}::uuid, ${SLUG_A}, 'E2E Org A', now()),
-      (${ORG_B}::uuid, ${SLUG_B}, 'E2E Org B', now())
+      (${ORG_B}::uuid, ${SLUG_B}, 'E2E Org B', now()),
+      (${ORG_DEACTIVATE}::uuid, ${SLUG_DEACTIVATE}, 'E2E Org D', now())
   `;
 
   const passwordHash = await hashPassword(PASSWORD);
@@ -125,18 +131,20 @@ beforeAll(async () => {
   await database.$executeRaw`
     INSERT INTO users (id, email, password_hash, updated_at) VALUES
       (${USER_A}::uuid, ${EMAIL_A}, ${passwordHash}, now()),
-      (${USER_B}::uuid, ${EMAIL_B}, ${passwordHash}, now())
+      (${USER_B}::uuid, ${EMAIL_B}, ${passwordHash}, now()),
+      (${USER_DEACTIVATE}::uuid, ${EMAIL_DEACTIVATE}, ${passwordHash}, now())
   `;
 
   await database.$executeRaw`
     INSERT INTO memberships (organization_id, user_id, role, updated_at) VALUES
       (${ORG_A}::uuid, ${USER_A}::uuid, 'OWNER', now()),
-      (${ORG_B}::uuid, ${USER_B}::uuid, 'OWNER', now())
+      (${ORG_B}::uuid, ${USER_B}::uuid, 'OWNER', now()),
+      (${ORG_DEACTIVATE}::uuid, ${USER_DEACTIVATE}::uuid, 'OWNER', now())
   `;
 
   // The identities the suite exists to keep apart: same platform, different
   // organizations. Nothing may let one reach the other's data.
-  void [ORG_A, ORG_B, USER_A, USER_B, EMAIL_A, EMAIL_B];
+  void [ORG_A, ORG_B, USER_A, USER_B, EMAIL_A, EMAIL_B, ORG_DEACTIVATE, USER_DEACTIVATE, SLUG_DEACTIVATE];
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(APP_CONFIG)
@@ -170,11 +178,29 @@ afterAll(async () => {
 
 /** Signs in and returns the cookies plus a matching CSRF header. */
 async function signIn(email: string): Promise<{ cookie: string; csrf: string }> {
+  const response = await signInExpecting(email, 200);
+
+  expect(response.status, `sign-in for ${email}`).toBe(200);
+
+  const session = extractCookie(response.headers['set-cookie'], SESSION_COOKIE);
+
+  return { cookie: `${SESSION_COOKIE}=${session}`, csrf: response.csrf };
+}
+
+/** Performs a sign-in without asserting success, for refusal cases. */
+/** The error envelope every refusal uses. */
+interface ErrorEnvelope {
+  readonly error?: { readonly code?: string; readonly message?: string };
+}
+
+async function signInExpecting(
+  email: string,
+  status: number,
+): Promise<{ status: number; body: ErrorEnvelope | undefined; csrf: string; headers: Record<string, unknown> }> {
   const agent = request(server);
 
   const probe = await agent.get('/auth/terms');
-  const csrfCookie = extractCookie(probe.headers['set-cookie'], CSRF_COOKIE);
-  const csrf = decodeURIComponent(csrfCookie);
+  const csrf = decodeURIComponent(extractCookie(probe.headers['set-cookie'], CSRF_COOKIE));
 
   const response = await agent
     .post('/auth/sign-in')
@@ -182,11 +208,9 @@ async function signIn(email: string): Promise<{ cookie: string; csrf: string }> 
     .set('cookie', `${CSRF_COOKIE}=${encodeURIComponent(csrf)}`)
     .send({ email, password: PASSWORD });
 
-  expect(response.status, `sign-in for ${email}`).toBe(200);
+  expect(response.status, `sign-in for ${email}`).toBe(status);
 
-  const session = extractCookie(response.headers['set-cookie'], SESSION_COOKIE);
-
-  return { cookie: `${SESSION_COOKIE}=${session}`, csrf };
+  return { status: response.status, body: response.body, csrf, headers: response.headers };
 }
 
 function extractCookie(header: unknown, name: string): string {
@@ -353,6 +377,72 @@ describe('tenant isolation over HTTP', () => {
 
     expect(response.status).toBe(404);
     expect(await database.membership.count({ where: { userId: USER_B } })).toBe(1);
+  });
+
+  it('signs out, revokes the session and clears both cookies', async () => {
+    const { cookie, csrf } = await signIn(EMAIL_A);
+
+    const before = await request(server).get('/me').set('cookie', cookie);
+    expect(before.status).toBe(200);
+
+    const response = await request(server)
+      .post('/auth/sign-out')
+      .set('cookie', `${cookie}; ${CSRF_COOKIE}=${csrf}`)
+      .set(CSRF_HEADER, csrf);
+
+    expect(response.status).toBe(204);
+
+    // Revocation, not just a cookie wipe: a copy of the token taken before
+    // sign-out must stop working. This route was missing SessionGuard, which made
+    // it 500 and left the session live; the regression is covered.
+    const after = await request(server).get('/me').set('cookie', cookie);
+    expect(after.status).toBe(401);
+
+    const cleared = setCookieHeaders(response.headers['set-cookie']);
+    expect(cleared.some((value) => value.startsWith(`${SESSION_COOKIE}=`))).toBe(true);
+    expect(cleared.some((value) => value.startsWith(`${CSRF_COOKIE}=`))).toBe(true);
+  });
+
+  it('deactivates an account reversibly and blocks it signing in again', async () => {
+    // Runs against its own user: deactivation is destructive to access, so
+    // sharing an account with the rest of the suite would make the other tests
+    // depend on execution order.
+    const { cookie, csrf } = await signIn(EMAIL_DEACTIVATE);
+
+    const response = await request(server)
+      .post('/auth/deactivate')
+      .set('cookie', `${cookie}; ${CSRF_COOKIE}=${encodeURIComponent(csrf)}`)
+      .set(CSRF_HEADER, csrf);
+
+    expect(response.status).toBe(204);
+
+    const suspended = await database.user.findUnique({
+      where: { email: EMAIL_DEACTIVATE },
+      select: { status: true },
+    });
+    const status = suspended?.status;
+    // SUSPENDED, not deleted. Deleting would break every audit reference and the
+    // append-only trigger would refuse the delete anyway.
+    expect(status).toBe('SUSPENDED');
+
+    const retry = await signInExpecting(EMAIL_DEACTIVATE, 403);
+    expect(retry.body?.error?.code).toBe('account_suspended');
+
+    // The revoked session must not survive the suspension.
+    const after = await request(server).get('/me').set('cookie', cookie);
+    expect(after.status).toBe(401);
+  });
+
+  it('refuses sign-out without a session', async () => {
+    const probe = await request(server).get('/auth/terms');
+    const csrf = decodeURIComponent(extractCookie(probe.headers['set-cookie'], CSRF_COOKIE));
+
+    const response = await request(server)
+      .post('/auth/sign-out')
+      .set(CSRF_HEADER, csrf)
+      .set('cookie', `${CSRF_COOKIE}=${encodeURIComponent(csrf)}`);
+
+    expect(response.status).toBe(401);
   });
 
   it('refuses every organization route with no session', async () => {

@@ -210,6 +210,19 @@ export class PrismaAuthStore implements AuthStore {
     });
   }
 
+  async setUserSuspended(userId: string, suspended: boolean): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        status: suspended ? 'SUSPENDED' : 'ACTIVE',
+        // A suspended account's lock state is meaningless; clearing it means a
+        // reactivation is not blocked by a stale lockout.
+        failedLoginCount: 0,
+        lockedUntil: null,
+      },
+    });
+  }
+
   private toUserRecord(user: {
     id: string;
     email: string;
@@ -241,6 +254,16 @@ export class PrismaOrganizationStore implements OrganizationStore {
     );
   }
 
+  async setOrganizationSuspended(organizationId: string, suspended: boolean): Promise<boolean> {
+    const result = await this.prisma.organization.updateMany({
+      where: { id: organizationId },
+      // Reversible by construction: the column is set or cleared, never deleted.
+      data: { suspendedAt: suspended ? new Date() : null },
+    });
+
+    return result.count === 1;
+  }
+
   async updateName(organizationId: string, name: string): Promise<OrganizationRecord> {
     // `id` comes from the validated guard context, never from a body field.
     return this.prisma.organization.update({ where: { id: organizationId }, data: { name } });
@@ -249,7 +272,12 @@ export class PrismaOrganizationStore implements OrganizationStore {
   async listMembershipsForUser(userId: string) {
     return this.prisma.membership.findMany({
       where: { userId },
-      include: { organization: { select: { id: true, slug: true, name: true } } },
+      // `suspendedAt` travels with the record so `/me` can tell a user their
+      // organization is suspended, instead of leaving them to discover it as a
+      // sequence of unexplained 403s.
+      include: {
+        organization: { select: { id: true, slug: true, name: true, suspendedAt: true } },
+      },
     });
   }
 
@@ -513,6 +541,8 @@ export class PrismaProvisioningStore {
           id: createdOrganization.id,
           slug: createdOrganization.slug,
           name: createdOrganization.name,
+          // A freshly created organization is never born suspended.
+          suspendedAt: createdOrganization.suspendedAt,
         },
       };
     });

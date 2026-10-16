@@ -178,6 +178,24 @@ export interface EmailConfig {
 export function createEmailSender(config: EmailConfig): EmailSender {
   switch (config.transport) {
     case 'development':
+      // Refuses in production rather than writing password-reset tokens to disk.
+      //
+      // This is the one transport that cannot accidentally be *too* safe: it
+      // succeeds at sending, so a deployment that set it would report healthy
+      // while quietly mailing every reset link to a file on its own disk. The
+      // `http` transport's failure to start is the model here.
+      //
+      // Note that `mode: 0o600` is not enforced on Windows, where the
+      // directory ACL governs instead. This refusal is not about permissions -
+      // it is about not having a capture sink at all in production.
+      if (process.env['NODE_ENV'] === 'production') {
+        throw new Error(
+          'EMAIL_TRANSPORT=development is refused when NODE_ENV=production. It writes ' +
+            'password-reset and invitation tokens to disk instead of sending them, and a ' +
+            'deployment that believes it is sending email is worse than one that will not start.',
+        );
+      }
+
       return new DevelopmentCaptureEmailSender(
         config.captureDirectory ?? join(process.cwd(), '.email-capture'),
       );

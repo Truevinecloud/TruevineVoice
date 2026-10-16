@@ -115,6 +115,16 @@ export class OrganizationGuard implements CanActivate {
       throw permissionDenied();
     }
 
+    // Suspension is checked after membership and before the permission, so a
+    // suspended organization reports the same 403 as anything else it refuses.
+    // The lookup already fetched the row, so this costs nothing extra.
+    const organization = await this.organizationStore.findOrganizationById(organizationId);
+
+    if (organization?.suspendedAt) {
+      await this.deny(principal.userId, organizationId, permission, 'organization_suspended');
+      throw permissionDenied('This organization is suspended.');
+    }
+
     if (requiresTerms) {
       const accepted = await this.authStore.hasAcceptedTerms(principal.userId, this.termsVersion);
 
@@ -164,10 +174,20 @@ export class OrganizationGuard implements CanActivate {
         outcome: 'DENIED',
         metadata: { permission, reason },
       });
-    } catch {
-      // An audit failure must not become a 500 in place of a correct 403. The
-      // refusal stands either way; losing the audit row is the lesser problem
-      // and is visible in the application's error log.
+    } catch (error) {
+      // An audit failure must not become a 500 in place of a correct 403: the
+      // refusal stands either way, and turning an observability problem into an
+      // availability problem helps nobody.
+      //
+      // Logged rather than swallowed. The common case is a probe against an
+      // organization id that does not exist, where `organization_id` carries a
+      // foreign key and there is no tenant to file the row under. Skipping that
+      // is semantically right - no tenant was targeted - but doing it silently
+      // would make a genuine audit outage indistinguishable from normal operation.
+      process.stderr.write(
+        `[authorization] could not record a denial for organization ${organizationId}: ` +
+          `${error instanceof Error ? error.message : String(error)}\n`,
+      );
     }
   }
 }

@@ -212,6 +212,32 @@ describe('createEmailSender', () => {
     ).toThrow(/EMAIL_AUTHORIZATION_HEADER/);
   });
 
+  it('refuses the development capture transport in production', () => {
+    // The dangerous misconfiguration. Unlike the `http` cases above this one
+    // *succeeds* at sending, so a deployment set to it reports healthy while
+    // quietly writing every password-reset token to a file on its own disk.
+    const previous = process.env['NODE_ENV'];
+
+    try {
+      process.env['NODE_ENV'] = 'production';
+
+      expect(() =>
+        createEmailSender({ transport: 'development', captureDirectory: tempDirectory() }),
+      ).toThrow(/NODE_ENV=production/);
+    } finally {
+      if (previous === undefined) delete process.env['NODE_ENV'];
+      else process.env['NODE_ENV'] = previous;
+    }
+  });
+
+  it('still allows the development capture transport outside production', () => {
+    // Guards against the refusal above being written so broadly it breaks the
+    // development workflow it exists for.
+    expect(
+      createEmailSender({ transport: 'development', captureDirectory: tempDirectory() }),
+    ).toBeInstanceOf(DevelopmentCaptureEmailSender);
+  });
+
   it('builds an http sender when fully configured', () => {
     expect(
       createEmailSender({

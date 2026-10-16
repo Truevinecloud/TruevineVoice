@@ -406,6 +406,13 @@ model Organization {
   id        String   @id @default(uuid()) @db.Uuid
   slug      String   @unique @db.VarChar(63)
   name      String   @db.VarChar(200)
+  /// When the organization was suspended, or null while it is active.
+  ///
+  /// Reversible by clearing the column. A destructive closure is not available:
+  /// once an organization has audit events the append-only trigger refuses to
+  /// delete it (ADR 0009), so "delete" would fail for exactly the organizations
+  /// most likely to need closing.
+  suspendedAt DateTime? @map("suspended_at") @db.Timestamptz(3)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

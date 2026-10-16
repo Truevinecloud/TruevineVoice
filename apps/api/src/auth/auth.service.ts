@@ -285,6 +285,32 @@ export class AuthService {
     await this.auditIdentity(userId, 'terms.accepted', 'SUCCESS', { termsVersion });
   }
 
+  /**
+   * Deactivates the caller's own account.
+   *
+   * REVERSIBLE. This sets `status = SUSPENDED`; it never deletes a row. Deleting
+   * would break every audit reference to the user, and the append-only trigger
+   * would refuse it anyway (ADR 0009).
+   *
+   * Every live session is destroyed. A suspension that left the sessions standing
+   * would be reversible by the user rather than by us, which is the opposite of
+   * the point.
+   *
+   * Reactivation goes through the password-reset flow, which requires proof of
+   * control of the address. There is deliberately no "reactivate me" button: an
+   * account a user could switch off and on at will would make suspension
+   * meaningless as a response to abuse.
+   */
+  async deactivateAccount(userId: string): Promise<void> {
+    await this.authStore.setUserSuspended(userId, true);
+    await this.authStore.revokeAllSessionsForUser(userId, 'account_deactivated', new Date());
+
+    await this.auditIdentity(userId, 'auth.account_deactivated', 'SUCCESS', {
+      // Reversible, so the reason is recorded for whoever reviews it later.
+      reversible: true,
+    });
+  }
+
   /** Issues a session and returns the raw token exactly once. */
   async issueSession(userId: string, context: RequestContext): Promise<SignInResult> {
     const raw = generateToken();

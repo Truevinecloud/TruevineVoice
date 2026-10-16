@@ -81,6 +81,15 @@ describe('OrganizationGuard', () => {
   let audit: FakeAuditStore;
   let guard: OrganizationGuard;
 
+  /** Marks an organization suspended, the way the guard will read it. */
+  const suspend = (organizationId: string) => {
+    const organization = organizations.organizations.find((entry) => entry.id === organizationId);
+
+    if (!organization) throw new Error(`No such organization in the fake: ${organizationId}`);
+
+    organization.suspendedAt = new Date('2026-06-01T00:00:00Z');
+  };
+
   beforeEach(() => {
     auth = new FakeAuthStore();
     organizations = new FakeOrganizationStore();
@@ -104,7 +113,7 @@ describe('OrganizationGuard', () => {
     it('refuses Customer A reading Customer B', async () => {
       // The membership exists for org-a. org-b is somebody else's tenant.
       organizations.memberships.push(aMembership({ organizationId: 'org-a', userId: 'user-a' }));
-      organizations.organizations.push({ id: 'org-b', slug: 'beta', name: 'Beta' });
+      organizations.organizations.push({ id: 'org-b', slug: 'beta', name: 'Beta', suspendedAt: null });
 
       const { context } = httpContext({
         handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
@@ -113,6 +122,59 @@ describe('OrganizationGuard', () => {
       });
 
       await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('refuses every request to a suspended organization, including its own Owner', async () => {
+      // Suspension must not be a permission question. An Owner holds every
+      // organization permission there is, so a check placed after the permission
+      // lookup would wave a suspended tenant straight through.
+      seedOwner(auth, organizations);
+      suspend('org-1');
+
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('allows an Owner again once the suspension is lifted', async () => {
+      // The reversibility the column exists for. If this fails, "suspend" is a
+      // one-way door dressed up as a reversible action.
+      seedOwner(auth, organizations);
+      suspend('org-1');
+
+      await organizations.setOrganizationSuspended('org-1', false);
+
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+    });
+
+    it('records the suspension denial with a reason that names the cause', async () => {
+      seedOwner(auth, organizations);
+      suspend('org-1');
+
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+      // A generic `authorization.denied` row would leave an operator unable to
+      // tell a suspension apart from a permission mistake.
+      expect(audit.events[0]).toMatchObject({
+        action: 'authorization.denied',
+        outcome: 'DENIED',
+        metadata: { reason: 'organization_suspended' },
+      });
     });
 
     it('gives the same 403 for a tenant that does not exist', async () => {

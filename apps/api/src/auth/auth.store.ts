@@ -39,6 +39,13 @@ export interface OrganizationRecord {
   readonly id: string;
   readonly slug: string;
   readonly name: string;
+  /**
+   * When the organization was suspended, or `null` while active.
+   *
+   * `OrganizationGuard` reads this on the same lookup that resolves the caller's
+   * membership, so a suspended tenant costs no extra round trip.
+   */
+  readonly suspendedAt: Date | null;
 }
 
 /** A principal's standing in one organization. */
@@ -175,11 +182,29 @@ export interface AuthStore {
     termsVersion: string,
     ipPrefix: string | null,
   ): Promise<void>;
+
+  /**
+   * Suspends or reactivates an account.
+   *
+   * Reversible by design: this sets a status, it never removes a row. A deleted
+   * user would break every audit reference to them, and the append-only trigger
+   * would refuse the delete anyway (ADR 0009).
+   */
+  setUserSuspended(userId: string, suspended: boolean): Promise<void>;
 }
 
 /** Persistence for organization profiles, memberships and invitations. */
 export interface OrganizationStore {
   findOrganizationById(organizationId: string): Promise<OrganizationRecord | undefined>;
+
+  /**
+   * Suspends or reactivates an organization.
+   *
+   * Reversible: sets or clears `suspended_at`. Nothing is deleted, because
+   * deleting an organization with audit events is refused by the append-only
+   * trigger, and because a removed tenant cannot be brought back.
+   */
+  setOrganizationSuspended(organizationId: string, suspended: boolean): Promise<boolean>;
 
   /**
    * Renames an organization.
