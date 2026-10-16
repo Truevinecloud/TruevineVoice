@@ -10,7 +10,14 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { activate, assertReviewedMigrations, assertManagedProcessesAuditable, ECOSYSTEM, releaseEnv, switchRelease } from './deploy.mjs';
+import {
+  activate,
+  assertReviewedMigrations,
+  assertManagedProcessesAuditable,
+  ECOSYSTEM,
+  releaseEnv,
+  switchRelease,
+} from './deploy.mjs';
 import {
   assertCiJobs,
   assertProcessesRunRelease,
@@ -710,9 +717,7 @@ describe('release switching', () => {
       const scope =
         onlyIndex === -1
           ? [...state.keys()]
-          : (rest[onlyIndex + 1] ?? '')
-              .split(',')
-              .filter(Boolean);
+          : (rest[onlyIndex + 1] ?? '').split(',').filter(Boolean);
       for (const name of scope) {
         const existing = state.get(name);
         if (subcommand === 'startOrReload' && existing) {
@@ -954,7 +959,10 @@ describe('release switching', () => {
 
     it('reports the name of the process that is not auditable', () => {
       const processes = [
-        { name: 'truevine-web', pm2_env: { pm_cwd: '/var/www/TruevineVoice/releases/v-1/apps/web' } },
+        {
+          name: 'truevine-web',
+          pm2_env: { pm_cwd: '/var/www/TruevineVoice/releases/v-1/apps/web' },
+        },
         { name: 'truevine-worker', pm2_env: { pm_cwd: '/opt/stale/worker' } },
       ];
 
@@ -1082,6 +1090,132 @@ describe('release switching', () => {
       // Cleanup reached only our own four.
       expect(fake.state.get(UNRELATED)?.pm2_env.pm_cwd).toBe(foreignPath);
     });
+  });
+});
+
+describe('datastore recovery script safety rails', () => {
+  // Static assertions over the script's own text, not its runtime behaviour.
+  // They need no Docker daemon and no PostgreSQL, so they run in CI and on a
+  // developer machine alike. The properties checked here are the ones whose
+  // removal would be silent and dangerous.
+  const script = readFileSync(resolve(__dirname, 'db-verify.sh'), 'utf8');
+
+  it('fails immediately on any command error', () => {
+    // `set -e` alone still lets a failing command inside a pipeline or a `&&`
+    // chain slip through, which is how a hand-run verification produced a false
+    // pass: both sides of a comparison returned the same error text.
+    expect(script).toMatch(/^#!\/usr\/bin\/env bash/m);
+    expect(script).toContain('set -euo pipefail');
+  });
+
+  it('fails immediately on SQL errors rather than comparing them as results', () => {
+    expect(script).toContain('ON_ERROR_STOP=1');
+    expect(script).toMatch(/refusing to compare errors as results/);
+  });
+
+  it('keeps the constraint-type cast that PostgreSQL requires', () => {
+    // Regression: `contype` is the "char" type, so `text || "char"` is an
+    // ambiguous-operator error. Without the cast the fingerprint query aborts.
+    expect(script).toContain('contype::text');
+    expect(script).not.toMatch(/\|\| contype \|\|/);
+  });
+
+  it('runs every verification container with no network and no published ports', () => {
+    const runs = script.match(/docker run[^\n]*/g) ?? [];
+    expect(runs.length).toBeGreaterThan(0);
+    for (const run of runs) expect(run).toContain('--network none');
+    expect(script).not.toMatch(/--publish/);
+    expect(script).not.toMatch(/docker run[^\n]*\s-p\s/);
+  });
+
+  it('destroys nothing without proving this run created it', () => {
+    // Identity, not name. A renamed production container has no such label, so
+    // it can never be a candidate however it is called.
+    expect(script).toContain('readonly LABEL_KEY="truevine.verify.run"');
+    expect(script).toContain('assert_owned()');
+    expect(script).toMatch(/refusing to remove .* it carries no/);
+    expect(script).toMatch(/refusing to remove .* it belongs to run/);
+    // The raw destructive commands are confined to the two gated helpers.
+    // `safe_remove_*` call assert_owned first; `cleanup_owned` re-checks the
+    // label inline. Nothing else may destroy anything.
+    expect(script).toMatch(
+      /safe_remove_container\(\) \{[\s\S]*?assert_owned container "\$1"[\s\S]*?docker rm -fv "\$1"/,
+    );
+    expect(script).toMatch(
+      /safe_remove_volume\(\) \{[\s\S]*?assert_owned volume "\$1"[\s\S]*?docker volume rm "\$1"/,
+    );
+    expect(script).toMatch(/cleanup_owned\(\)[\s\S]*?label_of container "\$name"\)" = "\$RUN_ID"/);
+    // The destructive surface is pinned: exactly six call sites, each inside a
+    // gated helper, each naming a variable that helper has already proven is
+    // owned. Any new `docker rm` or `docker volume rm` fails this test.
+    const destructive = [
+      ...script.matchAll(/docker (?:volume )?rm (?:-fv )?"\$[A-Za-z0-9_]+"/g),
+    ].map(([line]) => line);
+    expect(destructive.sort()).toEqual(
+      [
+        'docker rm -fv "$1"', // safe_remove_container
+        'docker rm -fv "$c"', // cmd_cleanup, after a label filter
+        'docker rm -fv "$name"', // cleanup_owned, after an inline label check
+        'docker volume rm "$1"', // safe_remove_volume
+        'docker volume rm "$name"', // cleanup_owned, after an inline label check
+        'docker volume rm "$v"', // cmd_cleanup, after a label filter
+      ].sort(),
+    );
+  });
+
+  it('never sweeps resources by name', () => {
+    // A name sweep would delete an unrelated container that merely resembles a
+    // test resource; a label filter cannot.
+    expect(script).toMatch(/docker ps -aq --filter "label=\$\{LABEL_PREFIX\}run"/);
+    expect(script).toMatch(/docker volume ls -q --filter "label=\$\{LABEL_PREFIX\}run"/);
+    expect(script).not.toMatch(/--filter "name=\$\{TEST_PREFIX\}"/);
+  });
+
+  it('refuses production by captured identity as well as by name', () => {
+    // Names can change; ids cannot be reused by a new container.
+    expect(script).toContain('capture_production_identity()');
+    expect(script).toContain('assert_not_production_id()');
+    expect(script).toMatch(/refusing: \$\{id\} is a production container id/);
+    expect(script).toMatch(/is the production mountpoint/);
+  });
+
+  it('cleans up after itself on failure and on interrupt', () => {
+    expect(script).toContain('trap on_exit EXIT');
+    expect(script).toContain("trap 'exit 130' INT");
+    expect(script).toContain("trap 'exit 143' TERM");
+    expect(script).toContain("trap 'exit 129' HUP");
+    // Cleanup is scoped to the run and never touches backups.
+    expect(script).toContain('cleanup_owned()');
+    expect(script).toMatch(/backups in .* are never touched/);
+  });
+
+  it('validates its assumptions before restoring anything', () => {
+    expect(script).toContain('validate_restore_assumptions()');
+    expect(script).toContain('assert_restored_schema()');
+    expect(script).toMatch(/refusing to interpret an empty listing/);
+    expect(script).toMatch(/archive contains no TABLE entries/);
+  });
+
+  it('declares no unused configuration knobs', () => {
+    // APP_ROOT was declared but never read, which misleads an operator into
+    // thinking it changes where the script looks.
+    expect(script).not.toContain('APP_ROOT');
+    expect(script).toMatch(/BACKUP_DIR="\$\{BACKUP_DIR:-\/var\/backups\/truevinevoice\}"/);
+    expect(script).toContain('$BACKUP_DIR');
+  });
+
+  it('exposes every documented subcommand', () => {
+    for (const sub of [
+      'preflight',
+      'backup',
+      'verify-restore',
+      'verify-volume',
+      'verify-redis',
+      'cleanup',
+    ]) {
+      expect(script).toContain(`${sub})`);
+    }
+    expect(script).toContain('--all-runs');
   });
 });
 
