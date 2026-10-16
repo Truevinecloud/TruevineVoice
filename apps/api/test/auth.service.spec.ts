@@ -17,6 +17,7 @@ import { OrganizationsService } from '../src/organizations/organizations.service
 import type { RateLimiter } from '../src/auth/rate-limiter.js';
 import {
   FakeAuditStore,
+  FakeSecurityTransaction,
   FakeAuthStore,
   FakeOrganizationStore,
   anInvitation,
@@ -58,6 +59,7 @@ function buildAuthService(limiter: RateLimiter = permissiveLimiter) {
     3,
     60_000,
     30_000,
+    new FakeSecurityTransaction(auth, new FakeOrganizationStore(), audit),
   );
 
   return { auth, audit, service };
@@ -156,7 +158,7 @@ describe('AuthService.signIn', () => {
 
     await expect(
       service.signIn('owner@example.invalid', GOOD_PASSWORD, CONTEXT),
-    ).rejects.toMatchObject({ code: 'account_locked' });
+    ).rejects.toMatchObject({ code: 'invalid_credentials', status: 401 });
   });
 
   it('clears the failure counter after a successful sign-in', async () => {
@@ -174,7 +176,7 @@ describe('AuthService.signIn', () => {
 
     await expect(
       service.signIn('owner@example.invalid', GOOD_PASSWORD, CONTEXT),
-    ).rejects.toMatchObject({ code: 'account_suspended', status: 403 });
+    ).rejects.toMatchObject({ code: 'invalid_credentials', status: 401 });
   });
 
   it('records the refusal as well as the success', async () => {
@@ -326,7 +328,7 @@ describe('AuthService.deactivateAccount', () => {
 
     await expect(
       service.signIn('owner@example.invalid', GOOD_PASSWORD, CONTEXT),
-    ).rejects.toMatchObject({ status: 403 });
+    ).rejects.toMatchObject({ status: 401 });
   });
 });
 
@@ -399,7 +401,7 @@ describe('AuthService password reset', () => {
     expect(auth.sessions.every((entry) => entry.revokedAt !== null)).toBe(true);
   });
 
-  it('refuses a reused reset token and destroys every session', async () => {
+  it('refuses a reused reset token and preserves prior session revocations', async () => {
     const user = await register();
     const token = plantResetToken(auth, user.id, 'reset-token-reuse');
     await service.signIn('owner@example.invalid', GOOD_PASSWORD, CONTEXT);
@@ -482,6 +484,7 @@ describe('OrganizationsService delegation', () => {
       new NullEmailSender(),
       WEB_BASE,
       TERMS,
+      new FakeSecurityTransaction(auth, organizations, audit),
     );
   });
 
@@ -645,8 +648,9 @@ describe('OrganizationsService invitations', () => {
       new NullEmailSender(),
       WEB_BASE,
       TERMS,
+      new FakeSecurityTransaction(auth, organizations, audit),
     );
-    seedOwner(auth, organizations);
+    seedOwner(auth, organizations, { role: 'ADMIN' });
   });
 
   const actor = { userId: 'user-1', role: 'ADMIN' as const };
@@ -741,6 +745,7 @@ describe('OrganizationsService ownership transfer', () => {
       new NullEmailSender(),
       WEB_BASE,
       TERMS,
+      new FakeSecurityTransaction(auth, organizations, audit),
     );
     seedOwner(auth, organizations);
     organizations.memberships.push(aMembership({ userId: 'user-2', role: 'ADMIN' }));

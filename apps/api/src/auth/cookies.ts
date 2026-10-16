@@ -12,7 +12,7 @@
  * because SameSite alone does not cover every cross-site vector.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { CookieSerializeOptions } from '@nestjs/common';
 
 /** Name of the cookie carrying the session token. */
@@ -27,7 +27,8 @@ export const SESSION_COOKIE_OPTIONS = {
   secure: true,
   sameSite: 'lax',
   path: '/',
-  maxAge: 12 * 60 * 60,
+  // Express response.cookie() accepts milliseconds (wire Max-Age is seconds).
+  maxAge: 12 * 60 * 60 * 1_000,
 } as const satisfies CookieSerializeOptions;
 
 /**
@@ -42,7 +43,8 @@ export const CSRF_COOKIE_OPTIONS = {
   secure: true,
   sameSite: 'lax',
   path: '/',
-  maxAge: 12 * 60 * 60,
+  // Express response.cookie() accepts milliseconds (wire Max-Age is seconds).
+  maxAge: 12 * 60 * 60 * 1_000,
 } as const satisfies CookieSerializeOptions;
 
 /**
@@ -77,7 +79,12 @@ function readCookie(request: CookieCarrier, name: string): string | undefined {
     if (separator === -1) continue;
 
     if (part.slice(0, separator).trim() === name) {
-      return decodeURIComponent(part.slice(separator + 1).trim());
+      try {
+        return decodeURIComponent(part.slice(separator + 1).trim());
+      } catch {
+        // Malformed input is an absent credential, not a server error.
+        return undefined;
+      }
     }
   }
 
@@ -122,10 +129,10 @@ export function csrfTokensMatch(
 
   if (left.length !== right.length) return false;
 
-  return createHash('sha256')
-    .update(left)
-    .digest()
-    .equals(createHash('sha256').update(right).digest());
+  return timingSafeEqual(
+    createHash('sha256').update(left).digest(),
+    createHash('sha256').update(right).digest(),
+  );
 }
 
 /** Truncates an IP to its /24 network for storage. IPv6 falls back to /48. */

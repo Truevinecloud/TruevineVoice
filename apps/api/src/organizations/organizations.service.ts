@@ -1,3 +1,4 @@
+import { SECURITY_TRANSACTION, type SecurityTransaction } from '../auth/security-transaction.js';
 /**
  * Organization profile, membership, invitations and ownership.
  *
@@ -20,6 +21,7 @@ import {
   INVITATION_TTL_MS,
   assertKnownAuditAction,
   canDelegate,
+  can,
   cannotDelegate,
   cannotRemoveLastOwner,
   checkEmail,
@@ -106,6 +108,7 @@ export class OrganizationsService {
     @Inject(EMAIL_SENDER) private readonly emailSender: EmailSender,
     @Inject(WEB_PUBLIC_URL) private readonly webPublicUrl: string,
     @Inject(TERMS_VERSION) private readonly termsVersion: string,
+    @Inject(SECURITY_TRANSACTION) private readonly transactions: SecurityTransaction,
   ) {}
 
   /** Reads the organization profile. */
@@ -134,19 +137,53 @@ export class OrganizationsService {
     actorUserId: string,
     name: string,
   ): Promise<OrganizationView> {
-    const trimmed = name.trim();
+    return this.transactions
+      .run(async (stores) => {
+        const scoped = new OrganizationsService(
+          stores.organizations,
+          stores.auth,
+          stores.audit,
+          this.emailSender,
+          this.webPublicUrl,
+          this.termsVersion,
+          this.transactions,
+        );
+        await stores.lockOrganization(organizationId);
+        const freshActor = await stores.organizations.findMembership(organizationId, actorUserId);
+        const freshOrg = await stores.organizations.findOrganizationById(organizationId);
+        if (
+          !freshActor ||
+          !freshOrg ||
+          freshOrg.suspendedAt ||
+          !can(freshActor.role, 'organization:update')
+        )
+          throw cannotDelegate();
 
-    if (trimmed.length === 0 || trimmed.length > 200) {
-      throw new AuthError('invalid_email', 'Organization name must be 1 to 200 characters.', 400);
-    }
+        const trimmed = name.trim();
 
-    const updated = await this.organizationStore.updateName(organizationId, trimmed);
+        if (trimmed.length === 0 || trimmed.length > 200) {
+          throw new AuthError(
+            'invalid_email',
+            'Organization name must be 1 to 200 characters.',
+            400,
+          );
+        }
 
-    await this.audit(organizationId, actorUserId, 'organization.profile_updated', 'SUCCESS', {
-      organizationId,
-    });
+        const updated = await stores.organizations.updateName(organizationId, trimmed);
 
-    return updated;
+        await scoped.audit(organizationId, actorUserId, 'organization.profile_updated', 'SUCCESS', {
+          organizationId,
+        });
+
+        return updated;
+      })
+      .catch(async (error) => {
+        if (error instanceof AuthError)
+          await this.audit(organizationId, actorUserId, 'authorization.denied', 'DENIED', {
+            reason: error.code,
+          });
+        throw error;
+      });
   }
 
   /** Lists members, with their emails resolved from the user table. */
@@ -183,32 +220,69 @@ export class OrganizationsService {
     targetUserId: string,
     nextRole: OrganizationRole,
   ): Promise<void> {
-    if (!canDelegate(actor.role, nextRole)) throw cannotDelegate();
+    return this.transactions
+      .run(async (stores) => {
+        const scoped = new OrganizationsService(
+          stores.organizations,
+          stores.auth,
+          stores.audit,
+          this.emailSender,
+          this.webPublicUrl,
+          this.termsVersion,
+          this.transactions,
+        );
+        await stores.lockOrganization(organizationId);
+        const freshActor = await stores.organizations.findMembership(organizationId, actor.userId);
+        const freshOrg = await stores.organizations.findOrganizationById(organizationId);
+        if (
+          !freshActor ||
+          !freshOrg ||
+          freshOrg.suspendedAt ||
+          !can(freshActor.role, 'member:update')
+        )
+          throw cannotDelegate();
+        if (actor.role !== freshActor.role) throw cannotDelegate();
 
-    // Removing your own administrative authority while keeping your membership
-    // would leave an account that can sign in and see a dashboard it can do
-    // nothing with, and nobody would have invited them back.
-    if (targetUserId === actor.userId && actor.role !== nextRole) {
-      throw new AuthError(
-        'cannot_delegate_beyond_own_authority',
-        'You cannot change your own role.',
-        409,
-      );
-    }
+        if (!canDelegate(actor.role, nextRole)) throw cannotDelegate();
 
-    const result = await this.organizationStore.changeMembershipRole(
-      organizationId,
-      targetUserId,
-      nextRole as MembershipRole,
-    );
+        // Removing your own administrative authority while keeping your membership
+        // would leave an account that can sign in and see a dashboard it can do
+        // nothing with, and nobody would have invited them back.
+        if (targetUserId === actor.userId && actor.role !== nextRole) {
+          throw new AuthError(
+            'cannot_delegate_beyond_own_authority',
+            'You cannot change your own role.',
+            409,
+          );
+        }
 
-    if (!result.ok) this.throwForMembershipFailure(result.reason);
+        const result = await stores.organizations.changeMembershipRole(
+          organizationId,
+          targetUserId,
+          nextRole as MembershipRole,
+        );
 
-    await this.audit(organizationId, actor.userId, 'organization.member.role_changed', 'SUCCESS', {
-      organizationId,
-      targetUserId,
-      role: nextRole,
-    });
+        if (!result.ok) this.throwForMembershipFailure(result.reason);
+
+        await scoped.audit(
+          organizationId,
+          actor.userId,
+          'organization.member.role_changed',
+          'SUCCESS',
+          {
+            organizationId,
+            targetUserId,
+            role: nextRole,
+          },
+        );
+      })
+      .catch(async (error) => {
+        if (error instanceof AuthError)
+          await this.audit(organizationId, actor.userId, 'authorization.denied', 'DENIED', {
+            reason: error.code,
+          });
+        throw error;
+      });
   }
 
   /** Removes a member, refusing to remove the last owner. */
@@ -217,29 +291,60 @@ export class OrganizationsService {
     actor: { readonly userId: string; readonly role: OrganizationRole },
     targetUserId: string,
   ): Promise<void> {
-    if (targetUserId === actor.userId) {
-      throw new AuthError(
-        'cannot_delegate_beyond_own_authority',
-        'You cannot remove yourself.',
-        409,
-      );
-    }
+    return this.transactions
+      .run(async (stores) => {
+        const scoped = new OrganizationsService(
+          stores.organizations,
+          stores.auth,
+          stores.audit,
+          this.emailSender,
+          this.webPublicUrl,
+          this.termsVersion,
+          this.transactions,
+        );
+        await stores.lockOrganization(organizationId);
+        const freshActor = await stores.organizations.findMembership(organizationId, actor.userId);
+        const freshOrg = await stores.organizations.findOrganizationById(organizationId);
+        if (
+          !freshActor ||
+          !freshOrg ||
+          freshOrg.suspendedAt ||
+          !can(freshActor.role, 'member:remove')
+        )
+          throw cannotDelegate();
+        if (actor.role !== freshActor.role) throw cannotDelegate();
 
-    // Only a role that can administer membership may remove one, and a role that
-    // can remove a member can also name the roles that are delegable - so the
-    // target cannot be someone whose authority exceeds the actor's.
-    if (!canDelegate(actor.role, 'ADMIN') && actor.role !== 'OWNER') {
-      throw cannotDelegate();
-    }
+        if (targetUserId === actor.userId) {
+          throw new AuthError(
+            'cannot_delegate_beyond_own_authority',
+            'You cannot remove yourself.',
+            409,
+          );
+        }
 
-    const result = await this.organizationStore.removeMembership(organizationId, targetUserId);
+        // Only a role that can administer membership may remove one, and a role that
+        // can remove a member can also name the roles that are delegable - so the
+        // target cannot be someone whose authority exceeds the actor's.
+        if (!canDelegate(actor.role, 'ADMIN') && actor.role !== 'OWNER') {
+          throw cannotDelegate();
+        }
 
-    if (!result.ok) this.throwForMembershipFailure(result.reason);
+        const result = await stores.organizations.removeMembership(organizationId, targetUserId);
 
-    await this.audit(organizationId, actor.userId, 'organization.member.removed', 'SUCCESS', {
-      organizationId,
-      targetUserId,
-    });
+        if (!result.ok) this.throwForMembershipFailure(result.reason);
+
+        await scoped.audit(organizationId, actor.userId, 'organization.member.removed', 'SUCCESS', {
+          organizationId,
+          targetUserId,
+        });
+      })
+      .catch(async (error) => {
+        if (error instanceof AuthError)
+          await this.audit(organizationId, actor.userId, 'authorization.denied', 'DENIED', {
+            reason: error.code,
+          });
+        throw error;
+      });
   }
 
   /**
@@ -255,45 +360,81 @@ export class OrganizationsService {
     email: string,
     role: OrganizationRole,
   ): Promise<InvitationView> {
-    if (role === 'OWNER') throw cannotDelegate();
-    if (!canDelegate(actor.role, role)) throw cannotDelegate();
+    const issued = await this.transactions
+      .run(async (stores) => {
+        const scoped = new OrganizationsService(
+          stores.organizations,
+          stores.auth,
+          stores.audit,
+          this.emailSender,
+          this.webPublicUrl,
+          this.termsVersion,
+          this.transactions,
+        );
+        await stores.lockOrganization(organizationId);
+        const freshActor = await stores.organizations.findMembership(organizationId, actor.userId);
+        const freshOrg = await stores.organizations.findOrganizationById(organizationId);
+        if (
+          !freshActor ||
+          !freshOrg ||
+          freshOrg.suspendedAt ||
+          !can(freshActor.role, 'member:invite')
+        )
+          throw cannotDelegate();
+        if (actor.role !== freshActor.role) throw cannotDelegate();
 
-    const normalized = checkEmail(email);
+        if (role === 'OWNER') throw cannotDelegate();
+        if (!canDelegate(actor.role, role)) throw cannotDelegate();
 
-    if (!normalized.ok) {
-      throw new AuthError('invalid_email', 'That email address is not valid.', 400);
-    }
+        const normalized = checkEmail(email);
 
-    const outstanding = await this.organizationStore.findOutstandingInvitationByEmail(
-      normalized.value,
-    );
+        if (!normalized.ok) {
+          throw new AuthError('invalid_email', 'That email address is not valid.', 400);
+        }
 
-    if (outstanding.some((invitation) => invitation.organizationId === organizationId)) {
-      throw new AuthError('email_already_registered', 'An invitation is already outstanding.', 409);
-    }
+        const outstanding = await stores.organizations.findOutstandingInvitationByEmail(
+          organizationId,
+          normalized.value,
+        );
 
-    const raw = generateToken();
-    const created = await this.organizationStore.createInvitation({
-      organizationId,
-      id: randomUUID(),
-      email: normalized.value,
-      role: role as MembershipRole,
-      // Only the digest is stored. The emailed link is the sole copy of the raw
-      // token, so a database disclosure cannot be used to join an organization.
-      tokenHash: hashToken(raw),
-      invitedByUserId: actor.userId,
-      expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
-    });
+        if (outstanding.some((invitation) => invitation.organizationId === organizationId)) {
+          throw new AuthError(
+            'email_already_registered',
+            'An invitation is already outstanding.',
+            409,
+          );
+        }
 
-    await this.audit(organizationId, actor.userId, 'organization.member.invited', 'SUCCESS', {
-      organizationId,
-      email: normalized.value,
-      role,
-    });
+        const raw = generateToken();
+        const created = await stores.organizations.createInvitation({
+          organizationId,
+          id: randomUUID(),
+          email: normalized.value,
+          role: role as MembershipRole,
+          // Only the digest is stored. The emailed link is the sole copy of the raw
+          // token, so a database disclosure cannot be used to join an organization.
+          tokenHash: hashToken(raw),
+          invitedByUserId: actor.userId,
+          expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
+        });
 
-    await this.sendInvitationEmail(created, normalized.value, role, raw);
+        await scoped.audit(organizationId, actor.userId, 'organization.member.invited', 'SUCCESS', {
+          organizationId,
+          email: normalized.value,
+          role,
+        });
 
-    return this.toInvitationView(created);
+        return { created, raw, email: normalized.value };
+      })
+      .catch(async (error) => {
+        if (error instanceof AuthError)
+          await this.audit(organizationId, actor.userId, 'authorization.denied', 'DENIED', {
+            reason: error.code,
+          });
+        throw error;
+      });
+    await this.sendInvitationEmail(issued.created, issued.email, role, issued.raw);
+    return this.toInvitationView(issued.created);
   }
 
   /**
@@ -314,11 +455,10 @@ export class OrganizationsService {
     role: OrganizationRole,
     rawToken: string,
   ): Promise<void> {
-    const organization = await this.organizationStore.findOrganizationById(
-      invitation.organizationId,
-    );
-
     try {
+      const organization = await this.organizationStore.findOrganizationById(
+        invitation.organizationId,
+      );
       await this.emailSender.send(
         invitationMessage({
           to: email,
@@ -329,7 +469,8 @@ export class OrganizationsService {
         }),
       );
     } catch {
-      // Already recorded by the audit event written above.
+      // Creation is already committed; do not report it as absent.
+      process.stderr.write('[email] Invitation delivery failed; invitation remains recorded.\n');
     }
   }
 
@@ -346,20 +487,56 @@ export class OrganizationsService {
     actorUserId: string,
     invitationId: string,
   ): Promise<void> {
-    const revoked = await this.organizationStore.revokeInvitation(
-      organizationId,
-      invitationId,
-      new Date(),
-    );
+    return this.transactions
+      .run(async (stores) => {
+        const scoped = new OrganizationsService(
+          stores.organizations,
+          stores.auth,
+          stores.audit,
+          this.emailSender,
+          this.webPublicUrl,
+          this.termsVersion,
+          this.transactions,
+        );
+        await stores.lockOrganization(organizationId);
+        const freshActor = await stores.organizations.findMembership(organizationId, actorUserId);
+        const freshOrg = await stores.organizations.findOrganizationById(organizationId);
+        if (
+          !freshActor ||
+          !freshOrg ||
+          freshOrg.suspendedAt ||
+          !can(freshActor.role, 'invitation:revoke')
+        )
+          throw cannotDelegate();
 
-    if (!revoked) {
-      throw new AuthError('invitation_not_found', 'No such outstanding invitation.', 404);
-    }
+        const revoked = await stores.organizations.revokeInvitation(
+          organizationId,
+          invitationId,
+          new Date(),
+        );
 
-    await this.audit(organizationId, actorUserId, 'organization.invitation.revoked', 'SUCCESS', {
-      organizationId,
-      invitationId,
-    });
+        if (!revoked) {
+          throw new AuthError('invitation_not_found', 'No such outstanding invitation.', 404);
+        }
+
+        await scoped.audit(
+          organizationId,
+          actorUserId,
+          'organization.invitation.revoked',
+          'SUCCESS',
+          {
+            organizationId,
+            invitationId,
+          },
+        );
+      })
+      .catch(async (error) => {
+        if (error instanceof AuthError)
+          await this.audit(organizationId, actorUserId, 'authorization.denied', 'DENIED', {
+            reason: error.code,
+          });
+        throw error;
+      });
   }
 
   /**
@@ -374,31 +551,75 @@ export class OrganizationsService {
     userId: string,
     rawToken: string,
   ): Promise<{ readonly organizationId: string }> {
-    const invitation = await this.organizationStore.findInvitationByTokenHash(hashToken(rawToken));
+    const result = await this.transactions.run(async (stores) => {
+      const scoped = new OrganizationsService(
+        stores.organizations,
+        stores.auth,
+        stores.audit,
+        this.emailSender,
+        this.webPublicUrl,
+        this.termsVersion,
+        this.transactions,
+      );
 
-    if (!invitation) {
-      throw new AuthError('invalid_or_expired_token', 'This invitation link is not valid.', 400);
-    }
+      const invitation = await stores.organizations.findInvitationByTokenHash(hashToken(rawToken));
 
-    const accepted = await this.organizationStore.acceptInvitation(
-      invitation.tokenHash,
-      userId,
-      new Date(),
-    );
+      if (!invitation) {
+        throw new AuthError('invalid_or_expired_token', 'This invitation link is not valid.', 400);
+      }
 
-    if (!accepted.ok) {
-      throw new AuthError('invalid_or_expired_token', 'This invitation is no longer valid.', 400);
-    }
+      await stores.lockOrganization(invitation.organizationId);
+      const identity = await stores.auth.findUserById(userId);
+      if (
+        !identity ||
+        identity.status !== 'ACTIVE' ||
+        identity.email.toLowerCase() !== invitation.email.toLowerCase()
+      ) {
+        await stores.audit.record({
+          organizationId: invitation.organizationId,
+          actorUserId: userId,
+          action: 'authorization.denied',
+          scope: 'ORGANIZATION',
+          outcome: 'DENIED',
+          metadata: { reason: 'invitation_identity_mismatch' },
+        });
+        return { organizationId: '' };
+      }
+      const accepted = await stores.organizations.acceptInvitation(
+        invitation.tokenHash,
+        userId,
+        new Date(),
+      );
 
-    await this.audit(
-      invitation.organizationId,
-      userId,
-      'organization.invitation.accepted',
-      'SUCCESS',
-      { organizationId: invitation.organizationId, invitationId: invitation.id },
-    );
+      if (!accepted.ok) {
+        await stores.audit.record({
+          organizationId: invitation.organizationId,
+          actorUserId: userId,
+          action: 'authorization.denied',
+          scope: 'ORGANIZATION',
+          outcome: 'DENIED',
+          metadata: { reason: 'invitation_not_available' },
+        });
+        return { organizationId: '' };
+      }
 
-    return { organizationId: invitation.organizationId };
+      await scoped.audit(
+        invitation.organizationId,
+        userId,
+        'organization.invitation.accepted',
+        'SUCCESS',
+        { organizationId: invitation.organizationId, invitationId: invitation.id },
+      );
+
+      return { organizationId: invitation.organizationId };
+    });
+    if (!result.organizationId)
+      throw new AuthError(
+        'invalid_or_expired_token',
+        'This invitation is not valid for this account.',
+        400,
+      );
+    return result;
   }
 
   /**
@@ -413,27 +634,63 @@ export class OrganizationsService {
     actorUserId: string,
     newOwnerId: string,
   ): Promise<void> {
-    if (actorUserId === newOwnerId) {
-      throw new AuthError(
-        'cannot_delegate_beyond_own_authority',
-        'You already own this organization.',
-        409,
-      );
-    }
+    return this.transactions
+      .run(async (stores) => {
+        const scoped = new OrganizationsService(
+          stores.organizations,
+          stores.auth,
+          stores.audit,
+          this.emailSender,
+          this.webPublicUrl,
+          this.termsVersion,
+          this.transactions,
+        );
+        await stores.lockOrganization(organizationId);
+        const freshActor = await stores.organizations.findMembership(organizationId, actorUserId);
+        const freshOrg = await stores.organizations.findOrganizationById(organizationId);
+        if (
+          !freshActor ||
+          !freshOrg ||
+          freshOrg.suspendedAt ||
+          !can(freshActor.role, 'ownership:transfer')
+        )
+          throw new AuthError('organization_membership_required', 'No such member.', 404);
 
-    const result = await this.organizationStore.transferOwnership(
-      organizationId,
-      actorUserId,
-      newOwnerId,
-    );
+        if (actorUserId === newOwnerId) {
+          throw new AuthError(
+            'cannot_delegate_beyond_own_authority',
+            'You already own this organization.',
+            409,
+          );
+        }
 
-    if (!result.ok) this.throwForMembershipFailure(result.reason);
+        const result = await stores.organizations.transferOwnership(
+          organizationId,
+          actorUserId,
+          newOwnerId,
+        );
 
-    await this.audit(organizationId, actorUserId, 'organization.ownership.transferred', 'SUCCESS', {
-      organizationId,
-      previousOwnerId: actorUserId,
-      newOwnerId,
-    });
+        if (!result.ok) this.throwForMembershipFailure(result.reason);
+
+        await scoped.audit(
+          organizationId,
+          actorUserId,
+          'organization.ownership.transferred',
+          'SUCCESS',
+          {
+            organizationId,
+            previousOwnerId: actorUserId,
+            newOwnerId,
+          },
+        );
+      })
+      .catch(async (error) => {
+        if (error instanceof AuthError)
+          await this.audit(organizationId, actorUserId, 'authorization.denied', 'DENIED', {
+            reason: error.code,
+          });
+        throw error;
+      });
   }
 
   /** Builds the `GET /me` payload, including what the caller may do. */

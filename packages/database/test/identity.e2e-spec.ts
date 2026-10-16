@@ -182,6 +182,7 @@ describe('identity constraints against live PostgreSQL', () => {
       await insertUser(tx, INVITER, `inviter-${INVITER}@example.invalid`);
       await insertOrganization(tx, ORG_A, 'acme');
       await insertOrganization(tx, ORG_B, 'beta');
+      await tx.$executeRaw`INSERT INTO memberships(organization_id,user_id,role,updated_at) VALUES (${ORG_A}::uuid,${INVITER}::uuid,'OWNER',now()),(${ORG_B}::uuid,${INVITER}::uuid,'OWNER',now())`;
 
       await tx.$executeRaw`
         INSERT INTO invitations
@@ -195,7 +196,7 @@ describe('identity constraints against live PostgreSQL', () => {
       // Resolving invitations by email must not cross into another tenant.
       return tx.$queryRaw<Array<{ organizationId: string }>>`
         SELECT organization_id AS "organizationId" FROM invitations
-        WHERE email = 'invitee@example.invalid'
+        WHERE organization_id = ${ORG_A}::uuid AND email = 'invitee@example.invalid'
       `;
     });
 

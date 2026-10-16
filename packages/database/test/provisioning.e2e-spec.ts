@@ -276,22 +276,12 @@ describe('provisioning refusals', () => {
     });
   });
 
-  it('joins an existing organization that has no members', async () => {
+  it('rejects creating an ownerless organization before provisioning can join it', async () => {
+    // Superseded contract: RBAC-001 now requires exactly one Owner at every
+    // commit. An existing empty organization is invalid, not a provisioning path.
     const slug = slugFor('empty');
-
-    await database.organization.create({ data: { slug, name: 'Empty Org' } });
-
-    const outcome = await provisionOwner(
-      {
-        email: emailFor('joiner'),
-        organizationSlug: slug,
-        activationDirectory,
-        applicationBaseUrl: 'http://localhost:3000',
-      },
-      { databaseUrl: requireEnv('DATABASE_URL') },
-    );
-
-    expect(outcome).toMatchObject({ ok: true, organizationCreated: false, organizationSlug: slug });
+    await expect(database.organization.create({ data: { slug, name: 'Empty Org' } })).rejects.toThrow(/exactly one OWNER/i);
+    expect(await database.organization.findUnique({ where: { slug } })).toBeNull();
   });
 
   it('refuses an invalid email address', async () => {

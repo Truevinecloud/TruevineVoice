@@ -116,7 +116,9 @@ describe('GET /health against live infrastructure', () => {
       SELECT current_database() AS db, current_user AS usr
     `;
 
-    expect(row?.db).toBe('truevine_voice');
+    const isolated = process.env['SECURITY_TEST_DATABASE'];
+    if (isolated !== undefined) expect(isolated).toMatch(/^rbac_security_\d+_\d+_empty$/);
+    expect(row?.db).toBe(isolated ?? 'truevine_voice');
     expect(row?.usr).toBe('truevine');
   });
 });

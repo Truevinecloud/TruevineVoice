@@ -1,3 +1,5 @@
+import { ACCEPTED_TERMS } from './permission.decorators.js';
+import { termsAcceptanceRequired } from '@truevine/auth';
 /**
  * Session validation.
  *
@@ -18,8 +20,8 @@ import { hashToken, sessionInvalid, unauthenticated } from '@truevine/auth';
 
 import { readSessionToken } from './cookies.js';
 import { PRINCIPAL, type AuthenticatedRequest, type Principal } from './principal.js';
-import { AUTH_STORE, PLATFORM_ROLE_STORE } from './tokens.js';
-import type { AuthStore, PlatformRoleStore } from './auth.store.js';
+import { AUTH_STORE, PLATFORM_ROLE_STORE, TERMS_VERSION, AUDIT_STORE } from './tokens.js';
+import type { AuthStore, PlatformRoleStore, AuditStore } from './auth.store.js';
 
 /** Validates the session cookie and attaches a {@link Principal}. */
 @Injectable()
@@ -27,6 +29,8 @@ export class SessionGuard implements CanActivate {
   constructor(
     @Inject(AUTH_STORE) private readonly authStore: AuthStore,
     @Inject(PLATFORM_ROLE_STORE) private readonly platformRoleStore: PlatformRoleStore,
+    @Inject(TERMS_VERSION) private readonly termsVersion: string,
+    @Inject(AUDIT_STORE) private readonly audit: AuditStore,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -63,6 +67,18 @@ export class SessionGuard implements CanActivate {
       platformRole: assignment && !assignment.revokedAt ? assignment.role : null,
     };
 
+    if (
+      Reflect.getMetadata(ACCEPTED_TERMS, context.getHandler()) === true &&
+      !(await this.authStore.hasAcceptedTerms(user.id, this.termsVersion))
+    ) {
+      await this.audit.recordIdentity({
+        actorUserId: user.id,
+        action: 'authorization.denied',
+        outcome: 'DENIED',
+        metadata: { reason: 'terms_not_accepted' },
+      });
+      throw termsAcceptanceRequired();
+    }
     request[PRINCIPAL] = principal;
 
     // Best effort. Recording usage must never turn a valid sign-in into a 401.

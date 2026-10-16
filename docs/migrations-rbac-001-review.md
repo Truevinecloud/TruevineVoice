@@ -1,5 +1,8 @@
 # RBAC-001 migration safety review
 
+> Security-remediation update: see [ADR 0010](adr/0010-rbac-001-security-transactions.md) and the [remediation report](rbac-001-security-remediation.md). Earlier defect findings are historical; migration production approval and release dependencies remain withheld.
+
+
 Reviewed against a live PostgreSQL instance on 2026-10-16. **Not approved for
 production.** The review gate (`infrastructure/migrations-reviewed.json`) is
 deliberately unchanged, so `deploy:release` still refuses this tree.
@@ -8,6 +11,11 @@ The execution claims below are inherited from the previous session and were not
 repeated during final verification. The current development container is
 PostgreSQL 18; the earlier PostgreSQL 16 claim is not independently confirmed.
 No migrations were applied in the final-verification session.
+
+The [merge-readiness review](rbac-001-merge-readiness-review.md) supersedes broad
+safety/rollback/locking claims below. In particular, the first migration is not
+an unconditional expand and its documented rollback is incomplete. Applied SQL
+was not edited.
 
 Four migrations remain unapproved for production:
 
@@ -68,24 +76,19 @@ must be re-verified against a staging database seeded to the target data volume
 immediately before any production run**, because the safety condition is a
 property of the data, not of the script.
 
-## 3. Extension requirement
+## 3. Extension requirement (corrected during merge review)
 
 `citext` must exist before the `CITEXT` columns on `users.email` and
 `invitations.email` are created. The migration runs
 `CREATE EXTENSION IF NOT EXISTS citext` before them.
 
-**The migration role must be able to create extensions.** Verified that a
-non-superuser role cannot:
-
-```
-ERROR:  permission denied to create extension "citext"
-HINT:  Must have CREATE privilege on current database to create this extension.
-```
-
-It succeeds here only because the development connection is a superuser. In an
-environment where the migration role lacks this privilege, either pre-install
-`citext` as a database owner or grant the privilege before deploying. This must
-be settled **before** the migration is scheduled, not during it.
+`citext` is a trusted extension: a non-superuser with CREATE on the current
+database can install it. The earlier permission-denied experiment established
+only that the tested role lacked CREATE, not that superuser is required.
+See [PostgreSQL citext documentation](https://www.postgresql.org/docs/current/citext.html).
+The operator must verify extension availability and the actual migration role
+privileges in staging; otherwise request DBA pre-installation. No production
+privileges or extensions were changed during review.
 
 ## 4. Execution order
 
@@ -111,8 +114,8 @@ generated SQL was emitted.
   the referenced one. Reads and writes continue; concurrent writes **block**.
   On `memberships` — currently small, expected to stay modest — this is
   milliseconds.
-- **Creating indexes without `CONCURRENTLY`** takes a `SHARE` lock, which permits
-  reads and writes but blocks schema changes. Fine on empty or small tables; on
+- **Creating indexes without `CONCURRENTLY`** takes a `SHARE` lock, which allows
+  reads but blocks concurrent writes until the index build finishes. Fine on empty or small tables; on
   a large populated `memberships` table, consider
   `CREATE INDEX CONCURRENTLY` in a separate migration, run outside a transaction.
 - **`CREATE EXTENSION`** takes a brief exclusive lock.

@@ -186,8 +186,8 @@ jobs:
 
       # `test:e2e` has no `pretest:e2e` hook, so the packages have to be built
       # explicitly: apps resolve `@truevine/*` through their `dist` output.
-      - name: Build packages
-        run: npm run build:packages
+      - name: Build packages and API for process-restart integration tests
+        run: npm run build:packages && npm run build:api
 
       # The infrastructure E2E tests assert that *this project's* Compose stack
       # owns the configured host ports, via `docker compose port`. A GitHub

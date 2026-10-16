@@ -119,32 +119,43 @@ beforeAll(async () => {
   // cascade of "duplicate key" noise that hides the original cause.
   await removeFixtures(database);
 
-  await database.$executeRaw`
+  await database.$transaction(async (tx) => {
+    await tx.$executeRaw`
     INSERT INTO organizations (id, slug, name, updated_at) VALUES
       (${ORG_A}::uuid, ${SLUG_A}, 'E2E Org A', now()),
       (${ORG_B}::uuid, ${SLUG_B}, 'E2E Org B', now()),
       (${ORG_DEACTIVATE}::uuid, ${SLUG_DEACTIVATE}, 'E2E Org D', now())
   `;
 
-  const passwordHash = await hashPassword(PASSWORD);
+    const passwordHash = await hashPassword(PASSWORD);
 
-  await database.$executeRaw`
+    await tx.$executeRaw`
     INSERT INTO users (id, email, password_hash, updated_at) VALUES
       (${USER_A}::uuid, ${EMAIL_A}, ${passwordHash}, now()),
       (${USER_B}::uuid, ${EMAIL_B}, ${passwordHash}, now()),
       (${USER_DEACTIVATE}::uuid, ${EMAIL_DEACTIVATE}, ${passwordHash}, now())
   `;
 
-  await database.$executeRaw`
+    await tx.$executeRaw`
     INSERT INTO memberships (organization_id, user_id, role, updated_at) VALUES
       (${ORG_A}::uuid, ${USER_A}::uuid, 'OWNER', now()),
       (${ORG_B}::uuid, ${USER_B}::uuid, 'OWNER', now()),
       (${ORG_DEACTIVATE}::uuid, ${USER_DEACTIVATE}::uuid, 'OWNER', now())
   `;
-
+  });
   // The identities the suite exists to keep apart: same platform, different
   // organizations. Nothing may let one reach the other's data.
-  void [ORG_A, ORG_B, USER_A, USER_B, EMAIL_A, EMAIL_B, ORG_DEACTIVATE, USER_DEACTIVATE, SLUG_DEACTIVATE];
+  void [
+    ORG_A,
+    ORG_B,
+    USER_A,
+    USER_B,
+    EMAIL_A,
+    EMAIL_B,
+    ORG_DEACTIVATE,
+    USER_DEACTIVATE,
+    SLUG_DEACTIVATE,
+  ];
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(APP_CONFIG)
@@ -184,6 +195,11 @@ async function signIn(email: string): Promise<{ cookie: string; csrf: string }> 
 
   const session = extractCookie(response.headers['set-cookie'], SESSION_COOKIE);
 
+  const accepted = await request(server)
+    .post('/auth/terms/accept')
+    .set('cookie', `${SESSION_COOKIE}=${session}; ${CSRF_COOKIE}=${response.csrf}`)
+    .set(CSRF_HEADER, response.csrf);
+  expect(accepted.status).toBe(204);
   return { cookie: `${SESSION_COOKIE}=${session}`, csrf: response.csrf };
 }
 
@@ -196,7 +212,12 @@ interface ErrorEnvelope {
 async function signInExpecting(
   email: string,
   status: number,
-): Promise<{ status: number; body: ErrorEnvelope | undefined; csrf: string; headers: Record<string, unknown> }> {
+): Promise<{
+  status: number;
+  body: ErrorEnvelope | undefined;
+  csrf: string;
+  headers: Record<string, unknown>;
+}> {
   const agent = request(server);
 
   const probe = await agent.get('/auth/terms');
@@ -425,8 +446,8 @@ describe('tenant isolation over HTTP', () => {
     // append-only trigger would refuse the delete anyway.
     expect(status).toBe('SUSPENDED');
 
-    const retry = await signInExpecting(EMAIL_DEACTIVATE, 403);
-    expect(retry.body?.error?.code).toBe('account_suspended');
+    const retry = await signInExpecting(EMAIL_DEACTIVATE, 401);
+    expect(retry.body?.error?.code).toBe('invalid_credentials');
 
     // The revoked session must not survive the suspension.
     const after = await request(server).get('/me').set('cookie', cookie);

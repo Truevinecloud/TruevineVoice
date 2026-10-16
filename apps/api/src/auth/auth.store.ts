@@ -134,7 +134,12 @@ export interface AuthStore {
   findUserById(id: string): Promise<UserRecord | undefined>;
 
   /** Records a failed sign-in and returns the user with its updated counters. */
-  recordFailedSignIn(userId: string): Promise<UserRecord>;
+  recordFailedSignIn(
+    userId: string,
+    limit: number,
+    lockoutMs: number,
+    now: Date,
+  ): Promise<UserRecord>;
   /** Clears the failure counter and lock after a successful sign-in. */
   recordSuccessfulSignIn(userId: string): Promise<UserRecord>;
 
@@ -154,7 +159,7 @@ export interface AuthStore {
     previousTokenHash: string,
     expiresAt: Date,
   ): Promise<void>;
-  revokeSession(sessionId: string, reason: string, now: Date): Promise<void>;
+  revokeSession(sessionId: string, reason: string, now: Date): Promise<boolean>;
   /** Revokes every live session for a user, for example after a password change. */
   revokeAllSessionsForUser(userId: string, reason: string, now: Date): Promise<void>;
   touchSession(sessionId: string, now: Date): Promise<void>;
@@ -267,7 +272,10 @@ export interface OrganizationStore {
   ): Promise<MembershipChangeResult>;
 
   listInvitations(organizationId: string): Promise<readonly InvitationRecord[]>;
-  findOutstandingInvitationByEmail(email: string): Promise<readonly InvitationRecord[]>;
+  findOutstandingInvitationByEmail(
+    organizationId: string,
+    email: string,
+  ): Promise<readonly InvitationRecord[]>;
   findInvitationByTokenHash(tokenHash: string): Promise<InvitationRecord | undefined>;
   createInvitation(invitation: NewInvitation): Promise<InvitationRecord>;
   revokeInvitation(organizationId: string, invitationId: string, now: Date): Promise<boolean>;

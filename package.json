@@ -21,6 +21,7 @@
                     "dev:admin":  "npm run dev --workspace @truevine/admin",
                     "build":  "npm run build:packages \u0026\u0026 npm run build:apps",
                     "build:packages":  "npm run build --workspace @truevine/shared \u0026\u0026 npm run build --workspace @truevine/auth \u0026\u0026 npm run build --workspace @truevine/messaging \u0026\u0026 npm run build --workspace @truevine/database \u0026\u0026 npm run build --workspace @truevine/queue",
+                    "build:api": "npm run build --workspace @truevine/api",
                     "build:apps":  "npm run build --workspace @truevine/api \u0026\u0026 npm run build --workspace @truevine/worker \u0026\u0026 npm run build --workspace @truevine/web \u0026\u0026 npm run build --workspace @truevine/admin",
                     "start:api":  "npm run start --workspace @truevine/api",
                     "start:worker":  "npm run start --workspace @truevine/worker",
@@ -33,6 +34,8 @@
                     "typecheck":  "npm run build:packages \u0026\u0026 npm run typecheck --workspaces --if-present",
                     "pretest":  "npm run build:packages",
                     "test":  "npm run test --workspaces --if-present \u0026\u0026 npm run test:deployment",
+                    "test:security:baseline": "npm run build:packages && npm run build:api && node infrastructure/scripts/run-security-tests.mjs --baseline",
+                    "test:security": "npm run build:packages && npm run build:api && node infrastructure/scripts/run-security-tests.mjs",
                     "test:e2e":  "npm run test:e2e --workspaces --if-present",
                     "infra:up":  "docker compose up -d --wait",
                     "infra:down":  "docker compose down",
@@ -72,8 +75,8 @@
                             "vitest":  "5.0.3"
                         },
     "allowScripts":  {
-                         "prisma@7.10.0":  true,
-                         "@prisma/engines@7.10.0":  true,
+                         "prisma@7.10.1":  true,
+                         "@prisma/engines@7.10.1":  true,
                          "unrs-resolver@1.12.2":  true,
                          "msgpackr-extract@3.0.4":  true
                      },

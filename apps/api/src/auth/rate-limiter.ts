@@ -49,7 +49,7 @@ export class RedisRateLimiter implements RateLimiter {
     // resolves against a different provider than the one `InfrastructureModule`
     // exports, and Nest reports it as an unresolvable dependency with no hint
     // that the mismatch is a token rather than a missing module.
-    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    @Inject(REDIS_CLIENT) private readonly redis: Pick<Redis, 'incr' | 'expire'>,
   ) {}
 
   async consume(key: string, limit: number, windowMs: number): Promise<RateLimitOutcome> {

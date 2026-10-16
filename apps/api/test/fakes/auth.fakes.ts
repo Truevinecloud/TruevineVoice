@@ -1,3 +1,4 @@
+import type { SecurityTransaction, SecurityStores } from '../../src/auth/security-transaction.js';
 /**
  * In-memory fakes for the authentication stores.
  *
@@ -114,9 +115,16 @@ export class FakeAuthStore implements AuthStore {
     return this.users.find((user) => user.id === id);
   }
 
-  async recordFailedSignIn(userId: string): Promise<UserRecord> {
+  async recordFailedSignIn(
+    userId: string,
+    limit: number,
+    lockoutMs: number,
+    now: Date,
+  ): Promise<UserRecord> {
     const user = this.requireUser(userId);
-    user.failedLoginCount += 1;
+    if (user.lockedUntil && user.lockedUntil > now) return user;
+    user.failedLoginCount = user.lockedUntil ? 1 : user.failedLoginCount + 1;
+    user.lockedUntil = user.failedLoginCount >= limit ? new Date(now.getTime() + lockoutMs) : null;
     return user;
   }
 
@@ -170,9 +178,11 @@ export class FakeAuthStore implements AuthStore {
     throw new Error('rotateSession is not exercised by the unit suite.');
   }
 
-  async revokeSession(sessionId: string, _reason: string, now: Date): Promise<void> {
+  async revokeSession(sessionId: string, _reason: string, now: Date): Promise<boolean> {
     const entry = this.sessions.find((candidate) => candidate.session.id === sessionId);
-    if (entry) entry.revokedAt = now;
+    if (!entry || entry.revokedAt !== null) return false;
+    entry.revokedAt = now;
+    return true;
   }
 
   async revokeAllSessionsForUser(userId: string, _reason: string, now: Date): Promise<void> {
@@ -351,9 +361,10 @@ export class FakeOrganizationStore implements OrganizationStore {
     return this.invitations.filter((invitation) => invitation.organizationId === organizationId);
   }
 
-  async findOutstandingInvitationByEmail(email: string) {
+  async findOutstandingInvitationByEmail(organizationId: string, email: string) {
     return this.invitations.filter(
       (invitation) =>
+        invitation.organizationId === organizationId &&
         invitation.email === email &&
         invitation.acceptedAt === null &&
         invitation.revokedAt === null,
@@ -493,4 +504,31 @@ export function seedOwner(
   );
 
   return user;
+}
+
+export class FakeSecurityTransaction implements SecurityTransaction {
+  constructor(
+    private readonly auth: FakeAuthStore,
+    private readonly organizations: FakeOrganizationStore,
+    private readonly audit: FakeAuditStore,
+  ) {}
+  async run<T>(work: (stores: SecurityStores) => Promise<T>): Promise<T> {
+    const snapshots = [this.auth, this.organizations, this.audit].map((store) =>
+      structuredClone({ ...store }),
+    );
+    try {
+      return await work({
+        auth: this.auth,
+        organizations: this.organizations,
+        audit: this.audit,
+        lockUser: async () => {},
+        lockOrganization: async () => {},
+      });
+    } catch (error) {
+      [this.auth, this.organizations, this.audit].forEach((store, i) =>
+        Object.assign(store, snapshots[i]),
+      );
+      throw error;
+    }
+  }
 }

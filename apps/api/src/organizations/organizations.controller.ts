@@ -29,6 +29,7 @@ import {
   CurrentOrganization,
   CurrentPrincipal,
   RequireOrganizationPermission,
+  RequireAcceptedTerms,
 } from '../auth/permission.decorators.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { OrganizationGuard } from '../auth/organization.guard.js';
@@ -89,6 +90,7 @@ export class OrganizationsController {
   /** `GET /organizations/:organizationId` */
   @Get('organizations/:organizationId')
   @UseGuards(...Protected)
+  @RequireAcceptedTerms()
   @RequireOrganizationPermission('organization:read')
   async getProfile(
     @CurrentOrganization() context: { organizationId: string },
@@ -99,6 +101,7 @@ export class OrganizationsController {
   /** `PATCH /organizations/:organizationId` */
   @Patch('organizations/:organizationId')
   @UseGuards(...Protected)
+  @RequireAcceptedTerms()
   @RequireOrganizationPermission('organization:update')
   async updateProfile(
     @CurrentOrganization() context: { organizationId: string },
@@ -115,6 +118,7 @@ export class OrganizationsController {
   /** `GET /organizations/:organizationId/members` */
   @Get('organizations/:organizationId/members')
   @UseGuards(...Protected)
+  @RequireAcceptedTerms()
   @RequireOrganizationPermission('member:read')
   async listMembers(
     @CurrentOrganization() context: { organizationId: string },
@@ -132,6 +136,7 @@ export class OrganizationsController {
    */
   @Patch('organizations/:organizationId/members/:userId')
   @UseGuards(...Protected)
+  @RequireAcceptedTerms()
   @RequireOrganizationPermission('member:update')
   async changeMemberRole(
     @CurrentOrganization() context: { organizationId: string; role: OrganizationRole },
@@ -153,6 +158,7 @@ export class OrganizationsController {
   @Delete('organizations/:organizationId/members/:userId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(...Protected)
+  @RequireAcceptedTerms()
   @RequireOrganizationPermission('member:remove')
   async removeMember(
     @CurrentOrganization() context: { organizationId: string; role: OrganizationRole },
@@ -169,6 +175,7 @@ export class OrganizationsController {
   /** `GET /organizations/:organizationId/invitations` */
   @Get('organizations/:organizationId/invitations')
   @UseGuards(...Protected)
+  @RequireAcceptedTerms()
   @RequireOrganizationPermission('invitation:read')
   async listInvitations(
     @CurrentOrganization() context: { organizationId: string },
@@ -179,6 +186,7 @@ export class OrganizationsController {
   /** `POST /organizations/:organizationId/invitations` */
   @Post('organizations/:organizationId/invitations')
   @UseGuards(...Protected)
+  @RequireAcceptedTerms()
   @RequireOrganizationPermission('member:invite')
   async invite(
     @CurrentOrganization() context: { organizationId: string; role: OrganizationRole },
@@ -197,6 +205,7 @@ export class OrganizationsController {
   @Delete('organizations/:organizationId/invitations/:invitationId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(...Protected)
+  @RequireAcceptedTerms()
   @RequireOrganizationPermission('invitation:revoke')
   async revokeInvitation(
     @CurrentOrganization() context: { organizationId: string },
@@ -216,6 +225,7 @@ export class OrganizationsController {
    * Needs a session but no membership: the caller is by definition not yet a
    * member, which is the only reason this route exists.
    */
+  @RequireAcceptedTerms()
   @Post('invitations/accept')
   @HttpCode(HttpStatus.OK)
   // Needs a session but no membership: the caller is by definition not yet a
@@ -236,6 +246,7 @@ export class OrganizationsController {
   @Post('organizations/:organizationId/ownership/transfer')
   @HttpCode(HttpStatus.OK)
   @UseGuards(...Protected)
+  @RequireAcceptedTerms()
   @RequireOrganizationPermission('ownership:transfer')
   async transferOwnership(
     @CurrentOrganization() context: { organizationId: string },

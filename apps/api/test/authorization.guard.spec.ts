@@ -113,7 +113,12 @@ describe('OrganizationGuard', () => {
     it('refuses Customer A reading Customer B', async () => {
       // The membership exists for org-a. org-b is somebody else's tenant.
       organizations.memberships.push(aMembership({ organizationId: 'org-a', userId: 'user-a' }));
-      organizations.organizations.push({ id: 'org-b', slug: 'beta', name: 'Beta', suspendedAt: null });
+      organizations.organizations.push({
+        id: 'org-b',
+        slug: 'beta',
+        name: 'Beta',
+        suspendedAt: null,
+      });
 
       const { context } = httpContext({
         handler: handlerRequiring(ORGANIZATION_PERMISSION, 'organization:read'),
@@ -497,7 +502,7 @@ describe('SessionGuard', () => {
   beforeEach(() => {
     auth = new FakeAuthStore();
     platformRoles = new FakePlatformRoleStore();
-    guard = new SessionGuard(auth, platformRoles);
+    guard = new SessionGuard(auth, platformRoles, TERMS, new FakeAuditStore());
   });
 
   function withSession(user: ReturnType<typeof aUser>, expiresAt: Date) {
@@ -613,7 +618,7 @@ describe('SessionGuard', () => {
       };
     };
 
-    const guarded = new SessionGuard(leaky, platformRoles);
+    const guarded = new SessionGuard(leaky, platformRoles, TERMS, new FakeAuditStore());
     const { context } = httpContext({ headers: cookie('stale-token') });
 
     await expect(guarded.canActivate(context)).rejects.toMatchObject({

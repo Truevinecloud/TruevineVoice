@@ -1,3 +1,4 @@
+import { SECURITY_TRANSACTION } from './security-transaction.js';
 /**
  * Authentication and authorization module.
  *
@@ -24,6 +25,7 @@ import { CsrfTokenMiddleware } from './csrf-token.middleware.js';
 import { OrganizationGuard, PlatformGuard } from './organization.guard.js';
 import {
   PrismaAuditStore,
+  PrismaSecurityTransaction,
   PrismaAuthStore,
   PrismaOrganizationStore,
   PrismaPlatformRoleStore,
@@ -110,6 +112,7 @@ function emailSender(): EmailSender {
   imports: [InfrastructureModule],
   controllers: [AuthController],
   providers: [
+    { provide: SECURITY_TRANSACTION, useClass: PrismaSecurityTransaction },
     { provide: AUTH_STORE, useClass: PrismaAuthStore },
     { provide: ORGANIZATION_STORE, useClass: PrismaOrganizationStore },
     { provide: PLATFORM_ROLE_STORE, useClass: PrismaPlatformRoleStore },
@@ -136,6 +139,7 @@ function emailSender(): EmailSender {
     { provide: APP_FILTER, useClass: AuthExceptionFilter },
   ],
   exports: [
+    SECURITY_TRANSACTION,
     AuthService,
     SessionGuard,
     OrganizationGuard,

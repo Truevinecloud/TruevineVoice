@@ -1,3 +1,4 @@
+import { SECURITY_TRANSACTION, type SecurityTransaction } from './security-transaction.js';
 /**
  * Sign-in, sign-out, password reset and terms acceptance.
  *
@@ -89,6 +90,7 @@ export class AuthService {
     @Inject(SIGN_IN_FAILURE_LIMIT) private readonly failureLimit: number,
     @Inject(SIGN_IN_LOCKOUT_MS) private readonly lockoutMs: number,
     @Inject(PASSWORD_RESET_COOLDOWN_MS) private readonly resetCooldownMs: number,
+    @Inject(SECURITY_TRANSACTION) private readonly transactions: SecurityTransaction,
   ) {}
 
   /**
@@ -99,73 +101,95 @@ export class AuthService {
    * attacker which addresses are registered.
    */
   async signIn(email: string, password: string, context: RequestContext): Promise<SignInResult> {
-    const normalized = checkEmail(email);
-
     const limit = await this.rateLimiter.consume(
       `signin:${context.ipPrefix ?? 'unknown'}`,
       SIGN_IN_LIMIT,
       SIGN_IN_WINDOW_MS,
     );
-
-    if (!limit.allowed) {
+    if (!limit.allowed)
       throw new AuthError(
         'invalid_credentials',
         'Too many sign-in attempts. Try again later.',
         429,
       );
-    }
-
-    if (!normalized.ok) throw invalidCredentials();
-
-    const user = await this.authStore.findUserByEmail(normalized.value);
-
-    if (!user) {
-      // Burn the same CPU a real verification would, then refuse identically.
-      await verifyPassword(DUMMY_PASSWORD_HASH, password);
-      throw invalidCredentials();
-    }
-
-    if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
-      throw new AuthError(
-        'account_locked',
-        'This account is temporarily locked after too many failed sign-ins.',
-        429,
+    const normalized = checkEmail(email);
+    const user = normalized.ok ? await this.authStore.findUserByEmail(normalized.value) : undefined;
+    // Always do password work, including unknown, locked and suspended accounts.
+    const matches = await verifyPassword(user?.passwordHash ?? DUMMY_PASSWORD_HASH, password);
+    if (!user) throw invalidCredentials();
+    const verifiedHash = user.passwordHash;
+    const outcome = await this.transactions.run(async (stores) => {
+      await stores.lockUser(user.id);
+      const current = await stores.auth.findUserById(user.id);
+      if (!current) return { allowed: false as const };
+      const now = new Date();
+      const scoped = new AuthService(
+        stores.auth,
+        stores.audit,
+        this.rateLimiter,
+        this.emailSender,
+        this.webPublicUrl,
+        this.failureLimit,
+        this.lockoutMs,
+        this.resetCooldownMs,
+        this.transactions,
       );
-    }
-
-    if (!(await verifyPassword(user.passwordHash, password))) {
-      const updated = await this.authStore.recordFailedSignIn(user.id);
-      const nowLocked = updated.failedLoginCount >= this.failureLimit;
-
-      await this.auditIdentity(user.id, 'auth.sign_in.failed', 'DENIED', {
-        reason: 'bad_password',
-      });
-
-      if (nowLocked) {
-        await this.auditIdentity(user.id, 'auth.account_locked', 'DENIED', {
-          until: new Date(Date.now() + this.lockoutMs).toISOString(),
+      const locked = current.lockedUntil !== null && current.lockedUntil > now;
+      if (!matches || current.passwordHash !== verifiedHash || locked) {
+        if (!locked && current.passwordHash === verifiedHash) {
+          const updated = await stores.auth.recordFailedSignIn(
+            user.id,
+            this.failureLimit,
+            this.lockoutMs,
+            now,
+          );
+          if (updated.lockedUntil)
+            await scoped.auditIdentity(user.id, 'auth.account_locked', 'DENIED', {
+              until: updated.lockedUntil.toISOString(),
+            });
+        }
+        await scoped.auditIdentity(user.id, 'auth.sign_in.failed', 'DENIED', {
+          reason: 'invalid_credentials',
         });
+        return { allowed: false as const };
       }
-
-      throw invalidCredentials();
-    }
-
-    if (user.status !== 'ACTIVE') {
-      await this.auditIdentity(user.id, 'auth.sign_in.failed', 'DENIED', { reason: 'suspended' });
-      throw new AuthError('account_suspended', 'This account is not active.', 403);
-    }
-
-    await this.authStore.recordSuccessfulSignIn(user.id);
-
-    const session = await this.issueSession(user.id, context);
-    await this.auditIdentity(user.id, 'auth.sign_in.succeeded', 'SUCCESS', {});
-
-    return session;
+      if (current.status !== 'ACTIVE') {
+        await scoped.auditIdentity(user.id, 'auth.sign_in.failed', 'DENIED', {
+          reason: 'suspended',
+        });
+        return { allowed: false as const };
+      }
+      await stores.auth.recordSuccessfulSignIn(user.id);
+      const session = await scoped.issueSession(user.id, context);
+      await scoped.auditIdentity(user.id, 'auth.sign_in.succeeded', 'SUCCESS', {});
+      return { allowed: true as const, session };
+    });
+    // Throw outside the transaction so denial audit/counters are committed.
+    if (!outcome.allowed) throw invalidCredentials();
+    return outcome.session;
   }
 
   /** Ends a session. Idempotent: signing out twice is not an error. */
-  async signOut(sessionId: string): Promise<void> {
-    await this.authStore.revokeSession(sessionId, 'signed_out', new Date());
+  async signOut(sessionId: string, userId: string): Promise<void> {
+    return this.transactions.run(async (stores) => {
+      const scoped = new AuthService(
+        stores.auth,
+        stores.audit,
+        this.rateLimiter,
+        this.emailSender,
+        this.webPublicUrl,
+        this.failureLimit,
+        this.lockoutMs,
+        this.resetCooldownMs,
+        this.transactions,
+      );
+
+      const revoked = await stores.auth.revokeSession(sessionId, 'signed_out', new Date());
+      if (revoked)
+        await scoped.auditIdentity(userId, 'auth.session_revoked', 'SUCCESS', {
+          reason: 'signed_out',
+        });
+    });
   }
 
   /**
@@ -184,53 +208,45 @@ export class AuthService {
       RESET_LIMIT,
       RESET_WINDOW_MS,
     );
-
-    if (!limit.allowed) {
+    if (!limit.allowed)
       throw new AuthError(
         'invalid_credentials',
         'Too many password reset requests. Try again later.',
         429,
       );
-    }
-
     const normalized = checkEmail(email);
-
-    if (!normalized.ok) return;
-
-    const user = await this.authStore.findUserByEmail(normalized.value);
-
-    if (!user || user.status !== 'ACTIVE') return;
-
-    // Every previous token for this account is invalidated, so a link captured
-    // earlier stops working the moment a new one is requested.
-    await this.authStore.revokeAllPasswordResetTokens(user.id);
-
+    const user = normalized.ok ? await this.authStore.findUserByEmail(normalized.value) : undefined;
+    if (!user) return;
     const raw = generateToken();
-    const expiresInMinutes = Math.round(PASSWORD_RESET_TTL_MS / 60_000);
-
-    await this.authStore.createPasswordResetToken({
-      id: randomUUID(),
-      userId: user.id,
-      tokenHash: hashToken(raw),
-      expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS),
+    const issued = await this.transactions.run(async (stores) => {
+      await stores.lockUser(user.id);
+      const current = await stores.auth.findUserById(user.id);
+      if (!current || current.status !== 'ACTIVE') return false;
+      await stores.auth.revokeAllPasswordResetTokens(user.id);
+      await stores.auth.createPasswordResetToken({
+        id: randomUUID(),
+        userId: user.id,
+        tokenHash: hashToken(raw),
+        expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS),
+      });
+      await stores.audit.recordIdentity({
+        actorUserId: user.id,
+        action: 'auth.password_reset_requested',
+        outcome: 'SUCCESS',
+        metadata: {},
+      });
+      return true;
     });
-
-    await this.auditIdentity(user.id, 'auth.password_reset_requested', 'SUCCESS', {
-      cooldownMs: this.resetCooldownMs,
-    });
-
-    // A delivery failure must not tell the caller anything. The response is
-    // identical either way, and the audit row above already records that a reset
-    // was requested.
-    await this.emailSender
-      .send(
-        passwordResetMessage({
-          to: user.email,
-          resetUrl: this.resetUrl(raw),
-          expiresInMinutes,
-        }),
-      )
-      .catch(() => undefined);
+    if (issued)
+      await this.emailSender
+        .send(
+          passwordResetMessage({
+            to: user.email,
+            resetUrl: this.resetUrl(raw),
+            expiresInMinutes: Math.round(PASSWORD_RESET_TTL_MS / 60000),
+          }),
+        )
+        .catch(() => undefined);
   }
 
   /** Builds the reset link from configured public URLs. */
@@ -247,42 +263,76 @@ export class AuthService {
    */
   async completePasswordReset(rawToken: string, newPassword: string): Promise<void> {
     const problem = checkPassword(newPassword);
-
     if (problem) throw passwordTooWeak(this.passwordMessage(problem));
-
-    const token = await this.authStore.findPasswordResetTokenByHash(hashToken(rawToken));
-
-    if (!token) {
+    const found = await this.authStore.findPasswordResetTokenByHash(hashToken(rawToken));
+    if (!found)
       throw new AuthError('invalid_or_expired_token', 'This reset link is not valid.', 400);
-    }
-
-    if (token.usedAt !== null) {
-      await this.onResetTokenReuse(token.userId);
-    }
-
-    if (token.expiresAt.getTime() <= Date.now()) {
-      throw new AuthError('invalid_or_expired_token', 'This reset link has expired.', 400);
-    }
-
-    const claimed = await this.authStore.markPasswordResetTokenUsed(token.id, new Date());
-
-    // Lost the race against a concurrent completion of the same link.
-    if (!claimed) await this.onResetTokenReuse(token.userId);
-
-    await this.authStore.setPasswordHash(token.userId, await hashPassword(newPassword), new Date());
-
-    // Any session opened before the change is stale. Leaving one alive would mean
-    // a stolen cookie survives a password reset, which is the scenario a reset
-    // exists to end.
-    await this.authStore.revokeAllSessionsForUser(token.userId, 'password_changed', new Date());
-
-    await this.auditIdentity(token.userId, 'auth.password_reset_completed', 'SUCCESS', {});
+    const passwordHash = await hashPassword(newPassword);
+    const result = await this.transactions.run(async (stores) => {
+      await stores.lockUser(found.userId);
+      const token = await stores.auth.findPasswordResetTokenByHash(hashToken(rawToken));
+      if (!token) return 'invalid';
+      if (token.usedAt !== null) {
+        // Replays cannot mutate credentials or revoke sessions issued after reset.
+        // Otherwise a spent token becomes a permanent account-denial capability.
+        await stores.audit.recordIdentity({
+          actorUserId: token.userId,
+          action: 'auth.password_reset_token_reused',
+          outcome: 'DENIED',
+          metadata: {},
+        });
+        return 'used';
+      }
+      const now = new Date();
+      if (token.expiresAt <= now) return 'invalid';
+      if (!(await stores.auth.markPasswordResetTokenUsed(token.id, now))) {
+        await stores.audit.recordIdentity({
+          actorUserId: token.userId,
+          action: 'auth.password_reset_token_reused',
+          outcome: 'DENIED',
+          metadata: {},
+        });
+        return 'used';
+      }
+      await stores.auth.setPasswordHash(token.userId, passwordHash, now);
+      await stores.auth.revokeAllPasswordResetTokens(token.userId);
+      await stores.auth.revokeAllSessionsForUser(token.userId, 'password_changed', now);
+      await stores.audit.recordIdentity({
+        actorUserId: token.userId,
+        action: 'auth.password_reset_completed',
+        outcome: 'SUCCESS',
+        metadata: {},
+      });
+      return 'ok';
+    });
+    if (result === 'used')
+      throw new AuthError(
+        'token_already_used',
+        'This reset link has already been used. Request a new one.',
+        400,
+      );
+    if (result !== 'ok')
+      throw new AuthError('invalid_or_expired_token', 'This reset link is not valid.', 400);
   }
 
   /** Records acceptance of the current terms version. */
   async acceptTerms(userId: string, termsVersion: string, ipPrefix: string | null): Promise<void> {
-    await this.authStore.recordTermsAcceptance(userId, termsVersion, ipPrefix);
-    await this.auditIdentity(userId, 'terms.accepted', 'SUCCESS', { termsVersion });
+    return this.transactions.run(async (stores) => {
+      const scoped = new AuthService(
+        stores.auth,
+        stores.audit,
+        this.rateLimiter,
+        this.emailSender,
+        this.webPublicUrl,
+        this.failureLimit,
+        this.lockoutMs,
+        this.resetCooldownMs,
+        this.transactions,
+      );
+
+      await stores.auth.recordTermsAcceptance(userId, termsVersion, ipPrefix);
+      await scoped.auditIdentity(userId, 'terms.accepted', 'SUCCESS', { termsVersion });
+    });
   }
 
   /**
@@ -296,18 +346,33 @@ export class AuthService {
    * would be reversible by the user rather than by us, which is the opposite of
    * the point.
    *
-   * Reactivation goes through the password-reset flow, which requires proof of
-   * control of the address. There is deliberately no "reactivate me" button: an
+   * Reactivation requires an operator-reviewed recovery policy. Password reset
+   * must not automatically undo a security suspension. There is deliberately no "reactivate me" button: an
    * account a user could switch off and on at will would make suspension
    * meaningless as a response to abuse.
    */
   async deactivateAccount(userId: string): Promise<void> {
-    await this.authStore.setUserSuspended(userId, true);
-    await this.authStore.revokeAllSessionsForUser(userId, 'account_deactivated', new Date());
+    return this.transactions.run(async (stores) => {
+      const scoped = new AuthService(
+        stores.auth,
+        stores.audit,
+        this.rateLimiter,
+        this.emailSender,
+        this.webPublicUrl,
+        this.failureLimit,
+        this.lockoutMs,
+        this.resetCooldownMs,
+        this.transactions,
+      );
+      await stores.lockUser(userId);
 
-    await this.auditIdentity(userId, 'auth.account_deactivated', 'SUCCESS', {
-      // Reversible, so the reason is recorded for whoever reviews it later.
-      reversible: true,
+      await stores.auth.setUserSuspended(userId, true);
+      await stores.auth.revokeAllSessionsForUser(userId, 'account_deactivated', new Date());
+
+      await scoped.auditIdentity(userId, 'auth.account_deactivated', 'SUCCESS', {
+        // Reversible, so the reason is recorded for whoever reviews it later.
+        reversible: true,
+      });
     });
   }
 
@@ -327,18 +392,6 @@ export class AuthService {
     });
 
     return { sessionToken: raw, csrfToken: generateToken(), expiresAt };
-  }
-
-  /** A reset token was replayed: destroy every session for that account. */
-  private async onResetTokenReuse(userId: string): Promise<never> {
-    await this.authStore.revokeAllSessionsForUser(userId, 'reset_token_reused', new Date());
-    await this.auditIdentity(userId, 'auth.password_reset_token_reused', 'DENIED', {});
-
-    throw new AuthError(
-      'token_already_used',
-      'This reset link has already been used. Request a new one.',
-      400,
-    );
   }
 
   /** Human wording for a password policy failure. Never echoes the password. */

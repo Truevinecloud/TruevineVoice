@@ -1,3 +1,4 @@
+import { ACCEPTED_TERMS } from '../src/auth/permission.decorators.js';
 /**
  * Every route that needs a session must declare {@link SessionGuard}.
  *
@@ -151,5 +152,29 @@ describe('route guard coverage', () => {
     ).map((route) => route.name);
 
     expect(unguarded).toEqual([]);
+  });
+});
+
+describe('customer API terms coverage', () => {
+  it('requires current terms on every organization handler except caller discovery', () => {
+    const prototype = OrganizationsController.prototype;
+    const handlers = Object.getOwnPropertyNames(prototype).filter(
+      (name) =>
+        name !== 'me' &&
+        name !== 'constructor' &&
+        Reflect.getMetadata(
+          PATH_METADATA,
+          (prototype as unknown as Record<string, object>)[name]!,
+        ) !== undefined,
+    );
+    expect(handlers.length).toBeGreaterThan(8);
+    for (const name of handlers)
+      expect(
+        Reflect.getMetadata(
+          ACCEPTED_TERMS,
+          (prototype as unknown as Record<string, object>)[name]!,
+        ),
+        name,
+      ).toBe(true);
   });
 });

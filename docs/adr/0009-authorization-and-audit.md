@@ -1,5 +1,8 @@
 # ADR 0009: Authorization model, tenant isolation and the audit trail
 
+> Security-remediation update: see [ADR 0010](0010-rbac-001-security-transactions.md) and the [remediation report](../rbac-001-security-remediation.md). Earlier defect findings are historical; migration production approval and release dependencies remain withheld.
+
+
 - **Status:** Accepted
 - **Date:** 2026-10-16
 - **Supersedes:** the role-model section of [ADR 0006](0006-tenancy-core-schema.md)

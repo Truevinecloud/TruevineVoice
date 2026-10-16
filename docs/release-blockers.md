@@ -1,9 +1,16 @@
 # RBAC-001 release blockers
 
+> Security-remediation update: see [ADR 0010](adr/0010-rbac-001-security-transactions.md) and the [remediation report](rbac-001-security-remediation.md). Earlier defect findings are historical; migration production approval and release dependencies remain withheld.
+
+
 Release limitations and defects are listed below. Verification evidence is scoped
 to the local development environment; see [final verification](rbac-001-final-verification.md).
 
-`DEPLOYMENT_READY=false`. Nothing has been pushed, merged or deployed.
+`DEPLOYMENT_READY=false`. Draft PR #13 is published; nothing has been merged or deployed.
+
+The [merge-readiness review](rbac-001-merge-readiness-review.md) identifies code
+security blockers separately from the deployment prerequisites on this page.
+Recommendation: **NOT MERGE READY**.
 
 ---
 
@@ -101,8 +108,9 @@ approval:
    `invitations` are empty — verified by replaying the exact `USING` clause
    against an `OPERATOR` row and watching it fail. That is a property of the data,
    not of the script.
-2. Settle how `citext` is installed. A non-superuser role **cannot** create it
-   (verified); the development connection can only because it is a superuser.
+2. Settle how `citext` is installed. It is trusted and can be installed by a
+   non-superuser with CREATE on the current database; verify the migration role
+   privileges and extension availability in staging.
 3. Decide what rollback means for the two migrations whose rollback destroys audit
    history.
 

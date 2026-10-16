@@ -124,7 +124,7 @@ export class AuthController {
     @CurrentPrincipal() principal: Principal,
     @Res({ passthrough: true }) response: Response,
   ): Promise<void> {
-    await this.authService.signOut(principal.sessionId);
+    await this.authService.signOut(principal.sessionId, principal.userId);
 
     // Clear both cookies. A signed-out browser holding a valid-looking session
     // cookie is the state that produces confusing "am I logged in?" behaviour.

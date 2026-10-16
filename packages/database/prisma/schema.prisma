@@ -378,6 +378,10 @@ model SecurityAuditEvent {
 /// `userId` now carries a foreign key to `users`. Until 2026-10-16 it did not:
 /// the column existed but the database accepted a membership for a user that did
 /// not exist. The table was empty, so adding the constraint was free.
+/// Exactly one OWNER is enforced by the partial unique index and deferred
+/// constraint triggers in 20261016170000_security_atomicity. Retain that SQL
+/// when generating future migrations; a model-level unique would forbid all
+/// non-Owner memberships in the same organization.
 model Membership {
   // No `id`: the tenant scope and the principal together are the identity.
   organizationId String         @map("organization_id") @db.Uuid

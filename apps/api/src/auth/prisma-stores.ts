@@ -42,12 +42,64 @@ import type {
 import type { MembershipRole } from './prisma-types.js';
 import { DATABASE_CLIENT } from '../tokens.js';
 
+import type { SecurityStores, SecurityTransaction } from './security-transaction.js';
+type TransactionClient = Pick<
+  PrismaClient,
+  | 'user'
+  | 'session'
+  | 'passwordResetToken'
+  | 'termsAcceptance'
+  | 'organization'
+  | 'membership'
+  | 'invitation'
+  | 'platformRoleAssignment'
+  | 'securityAuditEvent'
+  | 'identityAuditEvent'
+  | '$queryRaw'
+>;
+export type SecurityDatabase = TransactionClient & {
+  $transaction<T>(work: (tx: TransactionClient) => Promise<T>): Promise<T>;
+};
+@Injectable()
+export class PrismaSecurityTransaction implements SecurityTransaction {
+  constructor(@Inject(DATABASE_CLIENT) private readonly database: SecurityDatabase) {}
+  run<T>(work: (stores: SecurityStores) => Promise<T>): Promise<T> {
+    return this.database.$transaction(async (tx) => {
+      const client: SecurityDatabase = {
+        user: tx.user,
+        session: tx.session,
+        passwordResetToken: tx.passwordResetToken,
+        termsAcceptance: tx.termsAcceptance,
+        organization: tx.organization,
+        membership: tx.membership,
+        invitation: tx.invitation,
+        platformRoleAssignment: tx.platformRoleAssignment,
+        securityAuditEvent: tx.securityAuditEvent,
+        identityAuditEvent: tx.identityAuditEvent,
+        $queryRaw: tx.$queryRaw.bind(tx),
+        $transaction: (callback) => callback(tx),
+      };
+      return work({
+        auth: new PrismaAuthStore(client),
+        organizations: new PrismaOrganizationStore(client),
+        audit: new PrismaAuditStore(client),
+        lockUser: async (id) => {
+          await tx.$queryRaw`SELECT id FROM users WHERE id = ${id}::uuid FOR UPDATE`;
+        },
+        lockOrganization: async (id) => {
+          await tx.$queryRaw`SELECT id FROM organizations WHERE id = ${id}::uuid FOR UPDATE`;
+        },
+      });
+    });
+  }
+}
+
 /** The roles that count as "the organization still has an owner". */
 const OWNER_ROLES: readonly MembershipRole[] = ['OWNER'];
 
 @Injectable()
 export class PrismaAuthStore implements AuthStore {
-  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: PrismaClient) {}
+  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: SecurityDatabase) {}
 
   async findUserByEmail(email: string): Promise<UserRecord | undefined> {
     const user = await this.prisma.user.findUnique({ where: { email } });
@@ -61,13 +113,26 @@ export class PrismaAuthStore implements AuthStore {
     return user ? this.toUserRecord(user) : undefined;
   }
 
-  async recordFailedSignIn(userId: string): Promise<UserRecord> {
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: { failedLoginCount: { increment: 1 } },
+  async recordFailedSignIn(
+    userId: string,
+    limit: number,
+    lockoutMs: number,
+    now: Date,
+  ): Promise<UserRecord> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
+      const existing = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+      if (existing.lockedUntil && existing.lockedUntil > now) return this.toUserRecord(existing);
+      const count = existing.lockedUntil ? 1 : existing.failedLoginCount + 1;
+      const user = await tx.user.update({
+        where: { id: userId },
+        data: {
+          failedLoginCount: count,
+          lockedUntil: count >= limit ? new Date(now.getTime() + lockoutMs) : null,
+        },
+      });
+      return this.toUserRecord(user);
     });
-
-    return this.toUserRecord(user);
   }
 
   async recordSuccessfulSignIn(userId: string): Promise<UserRecord> {
@@ -123,13 +188,14 @@ export class PrismaAuthStore implements AuthStore {
     });
   }
 
-  async revokeSession(sessionId: string, reason: string, now: Date): Promise<void> {
-    await this.prisma.session.updateMany({
+  async revokeSession(sessionId: string, reason: string, now: Date): Promise<boolean> {
+    const result = await this.prisma.session.updateMany({
       // `updateMany` rather than `update`: revoking an already-revoked session
       // must be a no-op, not a "record not found" error on a second sign-out.
       where: { id: sessionId, revokedAt: null },
       data: { revokedAt: now, revokedReason: reason },
     });
+    return result.count === 1;
   }
 
   async revokeAllSessionsForUser(userId: string, reason: string, now: Date): Promise<void> {
@@ -166,7 +232,7 @@ export class PrismaAuthStore implements AuthStore {
     // count is the single-use guarantee, enforced atomically by PostgreSQL rather
     // than by a read-then-write in the service.
     const result = await this.prisma.passwordResetToken.updateMany({
-      where: { id, usedAt: null },
+      where: { id, usedAt: null, expiresAt: { gt: now } },
       data: { usedAt: now },
     });
 
@@ -246,7 +312,7 @@ export class PrismaAuthStore implements AuthStore {
 
 @Injectable()
 export class PrismaOrganizationStore implements OrganizationStore {
-  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: PrismaClient) {}
+  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: SecurityDatabase) {}
 
   async findOrganizationById(organizationId: string): Promise<OrganizationRecord | undefined> {
     return (
@@ -302,6 +368,7 @@ export class PrismaOrganizationStore implements OrganizationStore {
     role: MembershipRole,
   ): Promise<MembershipChangeResult> {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM organizations WHERE id = ${organizationId}::uuid FOR UPDATE`;
       const existing = await tx.membership.findUnique({
         where: { organizationId_userId: { organizationId, userId } },
       });
@@ -324,6 +391,7 @@ export class PrismaOrganizationStore implements OrganizationStore {
 
   async removeMembership(organizationId: string, userId: string): Promise<MembershipChangeResult> {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM organizations WHERE id = ${organizationId}::uuid FOR UPDATE`;
       const existing = await tx.membership.findUnique({
         where: { organizationId_userId: { organizationId, userId } },
       });
@@ -349,6 +417,7 @@ export class PrismaOrganizationStore implements OrganizationStore {
     newOwnerId: string,
   ): Promise<MembershipChangeResult> {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM organizations WHERE id = ${organizationId}::uuid FOR UPDATE`;
       const current = await tx.membership.findUnique({
         where: { organizationId_userId: { organizationId, userId: expectedCurrentOwnerId } },
       });
@@ -364,13 +433,12 @@ export class PrismaOrganizationStore implements OrganizationStore {
       if (!target) return { ok: false, reason: 'not_found' };
 
       await tx.membership.update({
-        where: { organizationId_userId: { organizationId, userId: newOwnerId } },
-        data: { role: 'OWNER' },
-      });
-
-      await tx.membership.update({
         where: { organizationId_userId: { organizationId, userId: expectedCurrentOwnerId } },
         data: { role: 'ADMIN' },
+      });
+      await tx.membership.update({
+        where: { organizationId_userId: { organizationId, userId: newOwnerId } },
+        data: { role: 'OWNER' },
       });
 
       return { ok: true };
@@ -381,9 +449,12 @@ export class PrismaOrganizationStore implements OrganizationStore {
     return this.prisma.invitation.findMany({ where: { organizationId } });
   }
 
-  async findOutstandingInvitationByEmail(email: string): Promise<readonly InvitationRecord[]> {
+  async findOutstandingInvitationByEmail(
+    organizationId: string,
+    email: string,
+  ): Promise<readonly InvitationRecord[]> {
     return this.prisma.invitation.findMany({
-      where: { email, acceptedAt: null, revokedAt: null },
+      where: { organizationId, email, acceptedAt: null, revokedAt: null },
     });
   }
 
@@ -426,44 +497,46 @@ export class PrismaOrganizationStore implements OrganizationStore {
     now: Date,
   ): Promise<{ readonly ok: boolean }> {
     return this.prisma.$transaction(async (tx) => {
+      // Token lookup supplies scope; every subsequent write carries it.
       const invitation = await tx.invitation.findUnique({ where: { tokenHash } });
-
-      if (!invitation || invitation.acceptedAt !== null || invitation.revokedAt !== null) {
-        return { ok: false };
-      }
-
-      if (invitation.expiresAt.getTime() <= now.getTime()) return { ok: false };
-
-      // The membership is created first. If it fails the invitation is left
-      // unaccepted and the token still works, which is the recoverable outcome.
-      await tx.membership.upsert({
-        where: {
-          organizationId_userId: { organizationId: invitation.organizationId, userId },
-        },
-        // An existing membership is left at its existing role. Accepting an
-        // invitation must not silently grant a privilege the account already had
-        // restricted, nor silently demote one it had.
-        create: {
-          organizationId: invitation.organizationId,
-          userId,
-          role: invitation.role,
-        },
-        update: {},
+      if (!invitation) return { ok: false };
+      await tx.$queryRaw`SELECT id FROM organizations WHERE id = ${invitation.organizationId}::uuid FOR UPDATE`;
+      const user = await tx.user.findUnique({ where: { id: userId } });
+      const organization = await tx.organization.findUnique({
+        where: { id: invitation.organizationId },
       });
-
+      if (
+        !user ||
+        user.status !== 'ACTIVE' ||
+        user.email.toLowerCase() !== invitation.email.toLowerCase() ||
+        organization?.suspendedAt
+      )
+        return { ok: false };
       const claimed = await tx.invitation.updateMany({
-        where: { tokenHash, acceptedAt: null },
+        where: {
+          organizationId: invitation.organizationId,
+          id: invitation.id,
+          tokenHash,
+          acceptedAt: null,
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
         data: { acceptedAt: now, acceptedByUserId: userId },
       });
-
-      return { ok: claimed.count === 1 };
+      if (claimed.count !== 1) return { ok: false };
+      await tx.membership.upsert({
+        where: { organizationId_userId: { organizationId: invitation.organizationId, userId } },
+        create: { organizationId: invitation.organizationId, userId, role: invitation.role },
+        update: {},
+      });
+      return { ok: true };
     });
   }
 }
 
 @Injectable()
 export class PrismaPlatformRoleStore implements PlatformRoleStore {
-  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: PrismaClient) {}
+  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: SecurityDatabase) {}
 
   async findPlatformRole(userId: string): Promise<PlatformRoleRecord | undefined> {
     const assignment = await this.prisma.platformRoleAssignment.findUnique({ where: { userId } });
@@ -474,7 +547,7 @@ export class PrismaPlatformRoleStore implements PlatformRoleStore {
 
 @Injectable()
 export class PrismaAuditStore implements AuditStore {
-  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: PrismaClient) {}
+  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: SecurityDatabase) {}
 
   async record(event: AuditEventInput): Promise<void> {
     await this.prisma.securityAuditEvent.create({
@@ -506,7 +579,7 @@ export class PrismaAuditStore implements AuditStore {
 /** Creates a user and an organization, making the user its first owner. */
 @Injectable()
 export class PrismaProvisioningStore {
-  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: PrismaClient) {}
+  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: SecurityDatabase) {}
 
   async createUserWithOrganization(
     user: NewUser,
