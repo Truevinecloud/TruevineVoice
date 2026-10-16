@@ -12,6 +12,7 @@
 
 import { MiddlewareConsumer, Module, RequestMethod, type NestModule } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
+import { createEmailSender, type EmailSender } from '@truevine/messaging';
 
 import { InfrastructureModule } from '../infrastructure/infrastructure.module.js';
 
@@ -33,6 +34,7 @@ import { SessionGuard } from './session.guard.js';
 import {
   AUDIT_STORE,
   AUTH_STORE,
+  EMAIL_SENDER,
   ORGANIZATION_STORE,
   PASSWORD_RESET_COOLDOWN_MS,
   PLATFORM_ROLE_STORE,
@@ -41,6 +43,7 @@ import {
   SIGN_IN_FAILURE_LIMIT,
   SIGN_IN_LOCKOUT_MS,
   TERMS_VERSION,
+  WEB_PUBLIC_URL,
 } from './tokens.js';
 
 /**
@@ -63,6 +66,42 @@ const DEFAULT_PASSWORD_RESET_COOLDOWN_MS = 60 * 1_000;
  */
 const CURRENT_TERMS_VERSION = '2026-10-01';
 
+/**
+ * Public base URL of the customer web application.
+ *
+ * Required, and not defaulted to a plausible-looking value: a password-reset
+ * link pointing at the wrong host either 404s for the recipient or, worse, works
+ * on a host somebody else controls. Failing the boot is the correct response
+ * (AGENTS.md 11).
+ */
+function webPublicUrl(): string {
+  const configured = process.env['WEB_PUBLIC_URL'];
+
+  if (configured === undefined || configured.trim().length === 0) {
+    throw new Error(
+      'WEB_PUBLIC_URL is not set. Password-reset and invitation links cannot be built without it.',
+    );
+  }
+
+  return configured;
+}
+
+/**
+ * Builds the email sender from configuration.
+ *
+ * `EMAIL_TRANSPORT=http` without its endpoint throws inside `createEmailSender`
+ * rather than degrading to a no-op, because a deployment that believes it is
+ * sending password resets and is not is worse than one that refuses to start.
+ */
+function emailSender(): EmailSender {
+  return createEmailSender({
+    transport: (process.env['EMAIL_TRANSPORT'] ?? 'none') as 'development' | 'http' | 'none',
+    captureDirectory: process.env['EMAIL_CAPTURE_DIRECTORY'],
+    endpoint: process.env['EMAIL_ENDPOINT'],
+    authorizationHeader: process.env['EMAIL_AUTHORIZATION_HEADER'],
+  });
+}
+
 @Module({
   // Explicit, even though `InfrastructureModule` is `@Global()`. Relying on a
   // global provider being registered before this module is initialised is an
@@ -77,6 +116,8 @@ const CURRENT_TERMS_VERSION = '2026-10-01';
     { provide: AUDIT_STORE, useClass: PrismaAuditStore },
     { provide: PROVISIONING_STORE, useClass: PrismaProvisioningStore },
     { provide: RATE_LIMITER, useClass: RedisRateLimiter },
+    { provide: EMAIL_SENDER, useFactory: emailSender },
+    { provide: WEB_PUBLIC_URL, useFactory: webPublicUrl },
     { provide: SIGN_IN_FAILURE_LIMIT, useValue: DEFAULT_SIGN_IN_FAILURE_LIMIT },
     { provide: SIGN_IN_LOCKOUT_MS, useValue: DEFAULT_SIGN_IN_LOCKOUT_MS },
     { provide: PASSWORD_RESET_COOLDOWN_MS, useValue: DEFAULT_PASSWORD_RESET_COOLDOWN_MS },
@@ -106,6 +147,12 @@ const CURRENT_TERMS_VERSION = '2026-10-01';
     AUDIT_STORE,
     PROVISIONING_STORE,
     TERMS_VERSION,
+    // Exported because `OrganizationsService` needs them too. A feature module
+    // that has to reach into another module's providers is the thing AGENTS.md 3
+    // forbids, so these are exported deliberately rather than the service
+    // re-declaring its own copies.
+    EMAIL_SENDER,
+    WEB_PUBLIC_URL,
   ],
 })
 export class AuthModule implements NestModule {

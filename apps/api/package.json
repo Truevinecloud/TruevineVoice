@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",
-    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "clean": "node -e \"require(\u0027node:fs\u0027).rmSync(\u0027dist\u0027,{recursive:true,force:true})\"",
     "start": "node dist/main.js",
     "start:debug": "node --inspect dist/main.js",
     "lint": "eslint .",
@@ -24,6 +24,7 @@
     "@nestjs/platform-express": "12.1.2",
     "@truevine/auth": "0.1.0",
     "@truevine/database": "0.1.0",
+    "@truevine/messaging": "0.1.0",
     "@truevine/queue": "0.1.0",
     "@truevine/shared": "0.1.0",
     "express": "5.1.0",

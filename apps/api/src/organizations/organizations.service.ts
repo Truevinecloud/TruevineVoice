@@ -40,7 +40,16 @@ import type {
   OrganizationStore,
 } from '../auth/auth.store.js';
 import type { MembershipRole } from '../auth/prisma-types.js';
-import { AUDIT_STORE, AUTH_STORE, ORGANIZATION_STORE, TERMS_VERSION } from '../auth/tokens.js';
+import { invitationMessage, type EmailSender } from '@truevine/messaging';
+
+import {
+  AUDIT_STORE,
+  AUTH_STORE,
+  EMAIL_SENDER,
+  ORGANIZATION_STORE,
+  TERMS_VERSION,
+  WEB_PUBLIC_URL,
+} from '../auth/tokens.js';
 
 /** A member as returned to a client. Never includes the password hash. */
 export interface MemberView {
@@ -94,6 +103,8 @@ export class OrganizationsService {
     @Inject(ORGANIZATION_STORE) private readonly organizationStore: OrganizationStore,
     @Inject(AUTH_STORE) private readonly authStore: AuthStore,
     @Inject(AUDIT_STORE) private readonly auditStore: AuditStore,
+    @Inject(EMAIL_SENDER) private readonly emailSender: EmailSender,
+    @Inject(WEB_PUBLIC_URL) private readonly webPublicUrl: string,
     @Inject(TERMS_VERSION) private readonly termsVersion: string,
   ) {}
 
@@ -280,7 +291,46 @@ export class OrganizationsService {
       role,
     });
 
+    await this.sendInvitationEmail(created, normalized.value, role, raw);
+
     return this.toInvitationView(created);
+  }
+
+  /**
+   * Emails an invitation link containing the **raw** token.
+   *
+   * The raw token exists only here and in the email body; the database holds
+   * only its digest. That is what makes a database disclosure useless for
+   * joining an organization.
+   *
+   * A delivery failure is swallowed after the audit row is written. The
+   * invitation exists in the database and the inviter can revoke it; reporting a
+   * 500 would suggest nothing was created, which is untrue, and would leave them
+   * inviting the same person a second time.
+   */
+  private async sendInvitationEmail(
+    invitation: InvitationRecord,
+    email: string,
+    role: OrganizationRole,
+    rawToken: string,
+  ): Promise<void> {
+    const organization = await this.organizationStore.findOrganizationById(
+      invitation.organizationId,
+    );
+
+    try {
+      await this.emailSender.send(
+        invitationMessage({
+          to: email,
+          organizationName: organization?.name ?? 'your organization',
+          role: role.replace(/_/g, ' '),
+          expiresInDays: Math.round(INVITATION_TTL_MS / 86_400_000),
+          acceptUrl: `${this.webPublicUrl.replace(/\/$/, '')}/accept-invite?token=${encodeURIComponent(rawToken)}`,
+        }),
+      );
+    } catch {
+      // Already recorded by the audit event written above.
+    }
   }
 
   /** Lists an organization's invitations. */

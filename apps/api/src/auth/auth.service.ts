@@ -31,16 +31,19 @@ import {
   passwordTooWeak,
 } from '@truevine/auth';
 import { checkPassword, hashPassword, verifyPassword } from '@truevine/auth/passwords';
+import { passwordResetMessage, type EmailSender } from '@truevine/messaging';
 
 import type { AuthStore, AuditStore } from './auth.store.js';
 import type { RateLimiter } from './rate-limiter.js';
 import {
   AUDIT_STORE,
   AUTH_STORE,
+  EMAIL_SENDER,
   PASSWORD_RESET_COOLDOWN_MS,
   RATE_LIMITER,
   SIGN_IN_FAILURE_LIMIT,
   SIGN_IN_LOCKOUT_MS,
+  WEB_PUBLIC_URL,
 } from './tokens.js';
 
 /** Where a request came from, for rate limiting and audit. */
@@ -81,6 +84,8 @@ export class AuthService {
     @Inject(AUTH_STORE) private readonly authStore: AuthStore,
     @Inject(AUDIT_STORE) private readonly auditStore: AuditStore,
     @Inject(RATE_LIMITER) private readonly rateLimiter: RateLimiter,
+    @Inject(EMAIL_SENDER) private readonly emailSender: EmailSender,
+    @Inject(WEB_PUBLIC_URL) private readonly webPublicUrl: string,
     @Inject(SIGN_IN_FAILURE_LIMIT) private readonly failureLimit: number,
     @Inject(SIGN_IN_LOCKOUT_MS) private readonly lockoutMs: number,
     @Inject(PASSWORD_RESET_COOLDOWN_MS) private readonly resetCooldownMs: number,
@@ -166,13 +171,12 @@ export class AuthService {
   /**
    * Starts a password reset.
    *
-   * Always resolves, whether or not the address is registered, because a 404
-   * for an unknown address would make this endpoint an account-existence oracle.
-   * A token is only created when the user exists; the caller cannot tell.
+   * Always resolves, whether or not the address is registered, because a 404 for
+   * an unknown address would make this endpoint an account-existence oracle.
    *
-   * No email is sent: there is no mail provider in this codebase, and adding an
-   * SMTP credential to satisfy a "send a reset link" requirement would be worse
-   * than reporting the dependency. Delivery is a reported gap.
+   * When a token is created it is emailed. The raw token exists in exactly two
+   * places at this moment: this function's stack frame, and the email body. Only
+   * the digest reaches the database.
    */
   async requestPasswordReset(email: string, context: RequestContext): Promise<void> {
     const limit = await this.rateLimiter.consume(
@@ -202,6 +206,7 @@ export class AuthService {
     await this.authStore.revokeAllPasswordResetTokens(user.id);
 
     const raw = generateToken();
+    const expiresInMinutes = Math.round(PASSWORD_RESET_TTL_MS / 60_000);
 
     await this.authStore.createPasswordResetToken({
       id: randomUUID(),
@@ -213,6 +218,24 @@ export class AuthService {
     await this.auditIdentity(user.id, 'auth.password_reset_requested', 'SUCCESS', {
       cooldownMs: this.resetCooldownMs,
     });
+
+    // A delivery failure must not tell the caller anything. The response is
+    // identical either way, and the audit row above already records that a reset
+    // was requested.
+    await this.emailSender
+      .send(
+        passwordResetMessage({
+          to: user.email,
+          resetUrl: this.resetUrl(raw),
+          expiresInMinutes,
+        }),
+      )
+      .catch(() => undefined);
+  }
+
+  /** Builds the reset link from configured public URLs. */
+  private resetUrl(token: string): string {
+    return `${this.webPublicUrl.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(token)}`;
   }
 
   /**

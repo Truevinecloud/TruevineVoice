@@ -9,6 +9,7 @@
 
 import { AuthError, hashToken } from '@truevine/auth';
 import { hashPassword } from '@truevine/auth/passwords';
+import { NullEmailSender } from '@truevine/messaging';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { AuthService } from '../src/auth/auth.service.js';
@@ -25,6 +26,7 @@ import {
 } from './fakes/auth.fakes.js';
 
 const TERMS = '2026-10-01';
+const WEB_BASE = 'https://voice.example.invalid';
 const GOOD_PASSWORD = 'a-long-enough-passphrase';
 
 /** A limiter that always allows, so rate limiting is not what is under test. */
@@ -46,7 +48,16 @@ function buildAuthService(limiter: RateLimiter = permissiveLimiter) {
   // Constructed directly rather than through Nest. Injecting a fake *token*
   // would only prove the test's own wiring; the real module graph is resolved in
   // `authorization.e2e-spec.ts`, where a token mismatch would fail loudly.
-  const service = new AuthService(auth, audit, limiter, 3, 60_000, 30_000);
+  const service = new AuthService(
+    auth,
+    audit,
+    limiter,
+    new NullEmailSender(),
+    WEB_BASE,
+    3,
+    60_000,
+    30_000,
+  );
 
   return { auth, audit, service };
 }
@@ -386,7 +397,14 @@ describe('OrganizationsService delegation', () => {
     auth = new FakeAuthStore();
     organizations = new FakeOrganizationStore();
     audit = new FakeAuditStore();
-    service = new OrganizationsService(organizations, auth, audit, TERMS);
+    service = new OrganizationsService(
+      organizations,
+      auth,
+      audit,
+      new NullEmailSender(),
+      WEB_BASE,
+      TERMS,
+    );
   });
 
   const actor = (role: 'OWNER' | 'ADMIN' | 'CAMPAIGN_MANAGER' | 'BILLING' | 'VIEWER') => ({
@@ -542,7 +560,14 @@ describe('OrganizationsService invitations', () => {
     auth = new FakeAuthStore();
     organizations = new FakeOrganizationStore();
     audit = new FakeAuditStore();
-    service = new OrganizationsService(organizations, auth, audit, TERMS);
+    service = new OrganizationsService(
+      organizations,
+      auth,
+      audit,
+      new NullEmailSender(),
+      WEB_BASE,
+      TERMS,
+    );
     seedOwner(auth, organizations);
   });
 
@@ -631,7 +656,14 @@ describe('OrganizationsService ownership transfer', () => {
     auth = new FakeAuthStore();
     organizations = new FakeOrganizationStore();
     const audit = new FakeAuditStore();
-    service = new OrganizationsService(organizations, auth, audit, TERMS);
+    service = new OrganizationsService(
+      organizations,
+      auth,
+      audit,
+      new NullEmailSender(),
+      WEB_BASE,
+      TERMS,
+    );
     seedOwner(auth, organizations);
     organizations.memberships.push(aMembership({ userId: 'user-2', role: 'ADMIN' }));
   });

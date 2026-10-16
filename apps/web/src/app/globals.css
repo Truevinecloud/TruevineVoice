@@ -110,3 +110,268 @@ code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.9em;
 }
+
+/* ---------------------------------------------------------------------------
+   Organization Owner application (RBAC-001)
+
+   Hand-written, like the rest of this file. `packages/ui` is deliberately empty:
+   choosing a design system now would be speculative (AGENTS.md 4), so these are
+   the few primitives these screens actually need and nothing more.
+   --------------------------------------------------------------------------- */
+
+.auth-shell {
+  max-width: 26rem;
+  margin: 3rem auto;
+  padding: 0 1.25rem;
+}
+
+.auth-shell h1 {
+  margin-bottom: 0.25rem;
+}
+
+.auth-subtitle {
+  color: var(--muted, #5b6472);
+  margin-top: 0;
+  margin-bottom: 2rem;
+  line-height: 1.5;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1.1rem;
+}
+
+.field label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.field input,
+.field select {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid #c3cad6;
+  border-radius: 6px;
+  font: inherit;
+  background: #fff;
+  color: inherit;
+  /* 16px minimum stops iOS Safari zooming the viewport on focus. */
+  font-size: 1rem;
+}
+
+.field input:focus-visible,
+.field select:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid #1d4ed8;
+  outline-offset: 2px;
+}
+
+.field-hint {
+  font-size: 0.82rem;
+  color: var(--muted, #5b6472);
+}
+
+.button-primary {
+  width: 100%;
+  padding: 0.7rem 1rem;
+  border: 0;
+  border-radius: 6px;
+  background: #1d4ed8;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button-primary:disabled {
+  background: #93a4c4;
+  cursor: progress;
+}
+
+.button-secondary {
+  padding: 0.55rem 0.9rem;
+  border: 1px solid #c3cad6;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.button-danger {
+  border-color: #b91c1c;
+  color: #b91c1c;
+}
+
+.auth-links {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.notice {
+  padding: 0.7rem 0.85rem;
+  border-radius: 6px;
+  margin-bottom: 1.1rem;
+  line-height: 1.5;
+}
+
+.notice-error {
+  background: #fdeceb;
+  border: 1px solid #e6a6a1;
+  color: #8a1c15;
+}
+
+.notice-success {
+  background: #e8f5ec;
+  border: 1px solid #9fcfaf;
+  color: #17572f;
+}
+
+.notice-info {
+  background: #eef2fb;
+  border: 1px solid #b3c3e8;
+  color: #1e3a8a;
+}
+
+/* Application shell ------------------------------------------------------- */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.5rem;
+  border-bottom: 1px solid #dfe4ec;
+  background: #fff;
+}
+
+.app-brand {
+  font-weight: 700;
+  font-size: 1.05rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.app-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0 1.5rem;
+  border-bottom: 1px solid #dfe4ec;
+  background: #fff;
+}
+
+.app-nav a {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px 6px 0 0;
+  text-decoration: none;
+  color: #35404f;
+  font-size: 0.93rem;
+}
+
+.app-nav a[aria-current='page'] {
+  background: #eef2fb;
+  color: #1e3a8a;
+  font-weight: 600;
+}
+
+.app-main {
+  flex: 1;
+  padding: 1.75rem 1.5rem;
+  max-width: 62rem;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.app-user {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  color: #35404f;
+}
+
+.page-title {
+  margin-top: 0;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid #e4e8ef;
+  font-size: 0.93rem;
+  vertical-align: middle;
+}
+
+.table th {
+  color: #4a5566;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.tag {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: #eef2fb;
+  color: #1e3a8a;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.tag-owner {
+  background: #e8f5ec;
+  color: #17572f;
+}
+
+.card-section {
+  border: 1px solid #e0e5ee;
+  border-radius: 8px;
+  padding: 1.15rem 1.25rem;
+  margin-bottom: 1.5rem;
+  background: #fff;
+}
+
+.card-section h2 {
+  margin-top: 0;
+  font-size: 1.05rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: flex-end;
+}
+
+@media (max-width: 640px) {
+  .app-header,
+  .app-nav {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .app-main {
+    padding: 1.25rem 1rem;
+  }
+}

@@ -18,6 +18,9 @@ export type {
   ProvisioningStore,
 } from './auth.store.js';
 
+/** Re-exported so a consumer can build a fake sender with one import. */
+export type { EmailSender } from '@truevine/messaging';
+
 /** {@link AuthStore} implementation. */
 export const AUTH_STORE = Symbol('AUTH_STORE');
 
@@ -47,3 +50,15 @@ export const SIGN_IN_LOCKOUT_MS = Symbol('SIGN_IN_LOCKOUT_MS');
 
 /** The {@link RateLimiter} implementation. */
 export const RATE_LIMITER = Symbol('RATE_LIMITER');
+
+/** The {@link EmailSender} implementation. */
+export const EMAIL_SENDER = Symbol('EMAIL_SENDER');
+
+/**
+ * The public base URL of the customer web application, used to build the links
+ * inside password-reset and invitation emails.
+ *
+ * A link to the wrong host is worse than no link: the recipient either gets a
+ * 404 or, worse, a working link on a host an attacker controls.
+ */
+export const WEB_PUBLIC_URL = Symbol('WEB_PUBLIC_URL');
