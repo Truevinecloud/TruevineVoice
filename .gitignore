@@ -48,6 +48,10 @@ Thumbs.db
 /READY
 /.deployment-validation/
 
+# RBAC-001 rehearsal working directory (disposable; created and removed by the
+# rehearsal script, and never committed even if a run is interrupted).
+/.rbac-rehearsal/
+
 # Operator provisioning: holds single-use activation tokens (0600).
 .owner-activation/
 .email-capture/
