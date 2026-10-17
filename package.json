@@ -57,6 +57,7 @@
                     "test:deployment":  "vitest run --config infrastructure/vitest.config.mts \u0026\u0026 npm run test:db-verify \u0026\u0026 npm run test:backup",
                     "test:db-verify":  "node infrastructure/scripts/run-db-verify-tests.mjs",
                     "test:backup":  "node infrastructure/scripts/run-backup-tests.mjs",
+                    "test:rehearsal":  "node infrastructure/scripts/run-rbac-001-rehearsal.mjs",
                     "deploy:release":  "bash infrastructure/scripts/deploy.sh",
                     "deploy:rollback":  "bash infrastructure/scripts/deploy.sh --rollback",
                     "deploy:verify":  "node infrastructure/scripts/verify-deployment.mjs"

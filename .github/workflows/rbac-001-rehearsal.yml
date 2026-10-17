@@ -1,0 +1,81 @@
+# RBAC-001 migration rehearsal.
+#
+# What this is for
+# ----------------
+# The e2e job in ci.yml already runs `prisma migrate deploy` against a throwaway
+# database on every pull request, which covers the happy path on an EMPTY
+# database. This workflow adds what that does not: the migrations applied to a
+# POPULATED database, the adversarial data profiles the security migrations
+# refuse, and failure injection that measures whether a failed migration leaves
+# partial schema behind.
+#
+# Where it runs
+# -------------
+# `infrastructure/scripts/rbac-001-rehearsal.sh` starts its own
+# `postgres:18-alpine` container, named from a fresh run id and labelled
+# `truevine.rbac.rehearsal.run`. It is published on 127.0.0.1 only, mounts only
+# the volume it creates, inserts only synthetic rows, and removes every resource
+# it created on exit. It reads no production container, volume or data.
+#
+# Least privilege
+# ---------------
+# `permissions: contents: read` is the only token scope needed. The workflow
+# reads no repository or organisation secrets. Checkout credentials are not
+# persisted.
+#
+# Database safety
+# ---------------
+# `prisma migrate deploy` here targets only the disposable container this job
+# creates on a throwaway GitHub-hosted runner. It never reaches a real database:
+# no production connection string exists in this workflow, and no environment
+# secret is referenced. Production application stays a supervised operator step
+# (AGENTS.md 12).
+
+name: RBAC-001 rehearsal
+
+on:
+  pull_request:
+    paths:
+      - 'packages/database/prisma/**'
+      - 'infrastructure/scripts/rbac-001-*'
+      - 'infrastructure/scripts/run-rbac-001-rehearsal.mjs'
+      - '.github/workflows/rbac-001-rehearsal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rbac-001-rehearsal-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rehearsal:
+    name: Disposable-PostgreSQL migration rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # A skip is a failure here. ubuntu-latest ships Docker and a running
+      # daemon; if either the runtime or node_modules is missing, the job must
+      # fail rather than report a green tick for a rehearsal that never ran.
+      REHEARSAL_REQUIRED: '1'
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Set up the pinned npm version
+        run: npm run ci:setup-npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the RBAC-001 rehearsal
+        run: npm run test:rehearsal
