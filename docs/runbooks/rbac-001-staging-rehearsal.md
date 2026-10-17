@@ -57,9 +57,9 @@ The script starts PostgreSQL, runs every scenario below against it, prints a
 | --- | ------------------------------------------------------ | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | S1  | Fresh full deploy                                      | Empty                                                                              | All seven apply; `MembershipRole` becomes `OWNER,ADMIN,CAMPAIGN_MANAGER,BILLING,VIEWER`; every table, index, function and trigger exists; `users.email` is `citext`. |
 | S2  | Populated valid database                               | 2 orgs, 2 users, 3 memberships, 1 invitation after migrations 1–4                  | Migrations 5–7 apply; **no row is lost or changed**; the ledger records seven clean applications.                                                                    |
-| S3  | Adversarial: an `OPERATOR` membership                  | An org with a membership whose role is `OPERATOR`                                  | Migration 2 **fails** naming `OPERATOR`; the ledger records it failed; the enum swap does **not** apply.                                                             |
-| S4  | Adversarial: an ownerless organization                 | An org with no `OWNER`                                                             | Migration 6 **fails** with the "exactly one OWNER" refusal; `memberships_single_owner` is not created.                                                               |
-| S5  | Adversarial: an `OWNER` invitation                     | A valid owner plus an invitation with `role = 'OWNER'`                             | Migration 6 **fails** with the invitation refusal; the check constraint is not added.                                                                                |
+| S3  | Adversarial: an `OPERATOR` membership                  | An org with a membership whose role is `OPERATOR`                                  | Migration 2 **fails**; the ledger records it failed; the enum swap does **not** apply. The exact error is often masked (see below).                                  |
+| S4  | Adversarial: an ownerless organization                 | An org with no `OWNER`                                                             | Migration 6 **fails** with the owner-count refusal; `memberships_single_owner` is not created. The exact error is often masked (see below).                          |
+| S5  | Adversarial: an `OWNER` invitation                     | A valid owner plus an invitation with `role = 'OWNER'`                             | Migration 6 **fails** with the invitation refusal; the check constraint is not added. The exact error is often masked (see below).                                   |
 | S6  | Probe: failing 2-statement migration                   | Empty                                                                              | The migration fails; the harness **measures** whether its first statement survives, i.e. whether Prisma wraps a migration in a transaction on this version.          |
 | S7  | Probe: failure inside an explicit `BEGIN;…COMMIT;`     | Empty                                                                              | The migration fails; the table created before the failing statement **must be absent** (the aborted transaction rolls back).                                         |
 | S8  | Decisive: late failure in the real `identity_rbac_001` | Empty, then a statement **after** the file's mid-file `COMMIT` is injected to fail | The migration fails; the harness records whether the enum swap and tables survive — **the partial-application question**.                                            |
@@ -77,6 +77,35 @@ file. If a later statement fails, anything already committed by that block
 cannot be rolled back by the runner. If S8 reports that the enum swap and tables
 survive a late failure, then **partial application is possible** and the
 recovery step in section 4 is not optional.
+
+### Measured results
+
+The harness was run in CI (workflow `RBAC-001 rehearsal`, run `38995249708`).
+The results are the reason section 4 exists:
+
+- **S6 — Prisma does _not_ wrap a migration in a transaction.** A failed
+  two-statement migration left its first statement's table (`probe_multi_marker`)
+  behind. Prisma executes the file's statements without an enclosing transaction.
+- **S7 — an explicit `BEGIN;…COMMIT;` is honoured.** A failure inside the block
+  left the table it created absent: the aborted transaction rolled back cleanly.
+  So the only atomicity a migration has is the atomicity it writes itself.
+- **S8 — partial application is confirmed possible.** A late failure in the real
+  `identity_rbac_001`, after its mid-file `COMMIT`, left `MembershipRole` already
+  swapped to `OWNER,ADMIN,CAMPAIGN_MANAGER,BILLING,VIEWER` **and** the RBAC tables
+  created (`3/3`). The database was genuinely half-migrated.
+- **S3 — a failing `identity_rbac_001` also leaves work behind before it fails.**
+  The three tables created before the mid-file `COMMIT` persisted (`3/3`), while
+  the enum swap did not apply (it is inside the block, which rolled back).
+- **S4/S5 — the refusals hold.** `security_atomicity` failed and did **not**
+  create `memberships_single_owner` or add `invitation_acceptance_pair`. Earlier
+  migrations (including `organizations.suspended_at`) legitimately persisted.
+
+**Consequence.** A failed migration can leave the schema in a state that is not
+described by any single migration file, and the migration log does not always
+name the real cause: the runner often reports `current transaction is aborted`
+because a later statement in the same batch is rejected after the first one
+failed. The preflight in section 2 — not the migration log — is what establishes
+the true state. Never re-run a failed migration blindly.
 
 ## 2. Production preflight (read-only)
 
@@ -160,9 +189,9 @@ header comment; none of them are safe once identity data exists.
 
 ## 5. Remaining blockers
 
-- **The harness must be run and its findings recorded.** Until S8 has run in CI,
-  the partial-application behaviour is unverified. This runbook should be updated
-  with the measured result.
+- **Partial application is confirmed possible (S8).** The RBAC-001 migrations
+  are not atomic as a set, and `identity_rbac_001` is not atomic as a file. The
+  recovery step in section 4 is therefore mandatory if any migration fails.
 - **Direct production database state is unknown from outside the VPS.** The
   preflight in section 2 must be run by an operator with `docker exec` access
   before the migration is scheduled.
