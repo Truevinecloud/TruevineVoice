@@ -15,5 +15,13 @@
     "controlled environment, never by this pipeline. Listing a migration here",
     "permits the CODE to deploy; it does not apply the migration."
   ],
-  "migrations": ["20261014042915_tenancy_core"]
+  "migrations": [
+    "20261014042915_tenancy_core",
+    "20261016130500_identity_rbac_001",
+    "20261016141500_identity_audit_events",
+    "20261016142500_identity_audit_fk_restrict",
+    "20261016153000_organization_suspension",
+    "20261016170000_security_atomicity",
+    "20261016171000_invitation_origin"
+  ]
 }
