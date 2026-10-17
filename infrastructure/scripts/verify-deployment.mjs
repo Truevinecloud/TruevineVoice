@@ -245,13 +245,15 @@ export async function checkHttp(url, kind, sha, fetcher = fetch) {
       kind === 'web'
         ? [
             'Truevine Voice',
-            'Customer web application',
-            'Live web for voice',
-            'voice.truevinecloud.online',
-            // The honest scope statement. The platform is live; the voice
-            // product is not built. Removing this would let a page claiming
-            // calling works pass the gate.
-            'still under construction',
+            // Distinctive marketing homepage copy (TV-WEB-001).
+            'Reach thousands with',
+            'automated voice calls',
+            // The honest scope statement. The platform is in development and
+            // the carrier/AI capabilities are product plans; the calling
+            // product is not live. Removing this would let a page claiming
+            // calling works in production pass the gate.
+            'is in development',
+            'product plans',
           ]
         : // `Truevine Voice`, not `Truevine Voice Admin`: the heading is
           // `{product} Admin`, and React SSR inserts a comment separator between
