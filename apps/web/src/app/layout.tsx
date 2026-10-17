@@ -6,7 +6,8 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: WEB_APP_INFO.product,
-  description: `${WEB_APP_INFO.surface} - foundation placeholder`,
+  description:
+    'Automated voice calls for customer engagement in Uganda — reminders, announcements and customer updates in local languages.',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
