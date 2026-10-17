@@ -36,7 +36,7 @@ truevine-voice/
 ├── apps/
 │   ├── admin/          Platform-admin frontend (placeholder only)
 │   ├── api/            NestJS REST API  -> GET /health
-│   ├── web/            Customer web application (placeholder page)
+│   ├── web/            Customer web application (public marketing homepage)
 │   └── worker/         Background worker (no business queues yet)
 ├── packages/
 │   ├── auth/           [reserved] authentication, RBAC

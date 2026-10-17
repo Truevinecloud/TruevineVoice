@@ -132,11 +132,14 @@ const SSR_ADMIN_BODY =
   '<h2>No admin functionality yet</h2></main>';
 
 const SSR_WEB_BODY =
-  '<main><h1>Truevine Voice</h1>' +
-  '<p>Customer web application<!-- --> for Truevine Voice is live.</p>' +
-  '<h2>Live web for voice</h2>' +
-  '<p>Live at voice.truevinecloud.online</p>' +
-  '<p>The voice product is still under construction.</p></main>';
+  '<div class="mk-page"><header class="mk-header"><a class="mk-brand">' +
+  'Truevine <span class="mk-brand-voice">Voice</span></a></header>' +
+  '<main class="mk-main"><h1 id="mk-hero-heading">Reach thousands with ' +
+  '<span class="mk-gold">automated voice calls</span>.</h1>' +
+  '<p>Illustrative sample data - not real customer figures.</p></main>' +
+  '<footer class="mk-footer"><p>Truevine Voice<!-- --> is in development. ' +
+  'Carrier integrations and AI capabilities are product plans.</p>' +
+  '</footer></div>';
 
 function response(kind = 'api', body = healthy, status = 200) {
   return {
@@ -477,6 +480,18 @@ describe('deployment HTTP checks', () => {
         text: async () => 'Welcome to nginx!',
       })),
     ).rejects.toThrow('foundation');
+  });
+  it('rejects a web page missing the development-status statement', async () => {
+    // Guards the same contract as the admin case below: a page that drops the
+    // honest scope statement must not pass, or a page claiming the calling
+    // product works in production would deploy unchallenged.
+    await expect(
+      checkHttp('https://example.test/', 'web', sha, async () => ({
+        status: 200,
+        text: async () =>
+          '<main><h1>Reach thousands with <span>automated voice calls</span>.</h1></main>',
+      })),
+    ).rejects.toThrow('web foundation page check failed');
   });
   it('accepts the admin page as React SSR emits it', async () => {
     // The regression this guards: the marker used to be `Truevine Voice Admin`,
