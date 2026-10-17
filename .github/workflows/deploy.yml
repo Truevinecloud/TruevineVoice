@@ -5,6 +5,11 @@ on:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  # Lets an operator redeploy the current main commit from the Actions tab.
+  # This adds a trigger, not a way around the gates: the selected commit must
+  # still have completed the whole CI workflow successfully, and the workflow
+  # still refuses a commit that is not the tip of main.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,15 +22,20 @@ concurrency:
 jobs:
   deploy:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      vars.DEPLOYMENT_READY == 'true'
+      vars.DEPLOYMENT_READY == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: production
     env:
-      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+      # Automatic runs deploy the commit the CI run tested. A manual run has no
+      # `workflow_run` payload, so it deploys the commit behind the ref the
+      # operator selected (main gives the current main SHA).
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      EVENT_CI_RUN: ${{ github.event.workflow_run.id }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out tested source
@@ -35,11 +45,24 @@ jobs:
           persist-credentials: false
 
       - name: Verify CI gates and current main
-        env:
-          CI_RUN: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN/jobs?per_page=100" > "$RUNNER_TEMP/jobs.json"
+          # Automatic runs carry the CI run id. A manual run resolves the CI run
+          # for the selected commit, accepting only a completed successful push
+          # run from this repository, and then verifies the same four gates.
+          if [ -n "${EVENT_CI_RUN:-}" ]; then
+            ci_run="$EVENT_CI_RUN"
+          else
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$DEPLOY_SHA&per_page=100" \
+              > "$RUNNER_TEMP/ci-runs.json"
+            ci_run=$(node --input-type=module -e '
+              import fs from "node:fs";
+              import {selectSuccessfulCiRun} from "./infrastructure/scripts/verify-deployment.mjs";
+              const {workflow_runs} = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/ci-runs.json"));
+              process.stdout.write(String(selectSuccessfulCiRun(workflow_runs, process.env.GITHUB_REPOSITORY)));
+            ')
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run/jobs?per_page=100" > "$RUNNER_TEMP/jobs.json"
           node --input-type=module -e '
             import fs from "node:fs";
             import {assertCiJobs} from "./infrastructure/scripts/verify-deployment.mjs";

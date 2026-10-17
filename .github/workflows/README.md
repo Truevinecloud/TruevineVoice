@@ -79,6 +79,13 @@ this repository. Verifies all four CI jobs, checks the exact main SHA, and uses
 a protected production environment. Deployment uses OpenSSH, a non-root SSH
 account and independently verified known_hosts; no third-party SSH action.
 
+It can also be run manually from the Actions tab (`workflow_dispatch`) to
+redeploy the current main commit. A manual run has no `workflow_run` payload, so
+it resolves the CI run for the selected commit and accepts only a completed,
+successful `push` run from this repository before verifying the same four gates.
+A manual run still refuses a commit that is not the tip of main, so it cannot
+publish an unreviewed or superseded commit.
+
 The source archive is built on the VPS with `npm ci` and the repository scripts
 in an isolated release directory. Explicit PM2 processes cover both Next.js
 apps, API and worker. Activation verifies production SHA, dependencies, HTTP
