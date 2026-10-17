@@ -27,6 +27,7 @@ import {
   managedProcesses,
   parseVerifierArguments,
   PROCESS_NAMES,
+  selectSuccessfulCiRun,
   staleManagedProcesses,
   validateConfig,
   validateProcesses,
@@ -52,6 +53,49 @@ describe('deployment CI gates', () => {
       expect(() => assertCiJobs([...others, { ...job, conclusion }])).toThrow(job.name);
     }
     expect(() => assertCiJobs([...requiredJobs, job])).toThrow(job.name);
+  });
+});
+
+describe('manual deployment CI run selection', () => {
+  const repository = 'Truevinecloud/TruevineVoice';
+  const successfulPush = {
+    id: 38997192229,
+    event: 'push',
+    status: 'completed',
+    conclusion: 'success',
+    head_repository: { full_name: repository },
+  };
+
+  it('selects the completed successful push run for this repository', () => {
+    expect(selectSuccessfulCiRun([successfulPush], repository)).toBe(successfulPush.id);
+  });
+
+  it('returns the newest matching run', () => {
+    // The runs API returns newest first, so a newer match must win.
+    const runs = [
+      { ...successfulPush, id: 2 },
+      { ...successfulPush, id: 1 },
+    ];
+    expect(selectSuccessfulCiRun(runs, repository)).toBe(2);
+  });
+
+  it.each([
+    { label: 'a pull request run', patch: { event: 'pull_request' } },
+    { label: 'a fork run', patch: { head_repository: { full_name: 'someone/fork' } } },
+    { label: 'a failed run', patch: { conclusion: 'failure' } },
+    { label: 'a cancelled run', patch: { conclusion: 'cancelled' } },
+    { label: 'an unfinished run', patch: { status: 'in_progress', conclusion: null } },
+    { label: 'a run with no repository', patch: { head_repository: undefined } },
+  ])('refuses to authorise a deployment from $label', ({ patch }) => {
+    expect(() => selectSuccessfulCiRun([{ ...successfulPush, ...patch }], repository)).toThrow(
+      'No completed successful CI push run found',
+    );
+  });
+
+  it('refuses to authorise a deployment when there are no runs at all', () => {
+    expect(() => selectSuccessfulCiRun([], repository)).toThrow(
+      'No completed successful CI push run found',
+    );
   });
 });
 const config = {

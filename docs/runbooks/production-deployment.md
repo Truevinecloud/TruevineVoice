@@ -90,6 +90,25 @@ blocked until the owner supplies an approved access arrangement. The pipeline
 will not chmod/chown it, replace it, source it as shell code, upload it, or create
 one from `.env.example`. Do not paste it into GitHub or chat.
 
+### Variables the RBAC-001 release requires
+
+The RBAC-001 release makes the API refuse to boot without values the foundation
+`.env` never contained. `apps/api/src/auth/auth.module.ts` resolves
+`WEB_PUBLIC_URL` while Nest builds its providers, so a missing value exits the
+process immediately; PM2 restarts it to its limit, nothing listens on the API
+port, and HTTP verification fails with the bare message `fetch failed` before
+rolling back. Add these non-secret values to `/var/www/TruevineVoice/.env`
+through the same approved access arrangement as the rest of the file:
+
+- `WEB_PUBLIC_URL` — the customer URL a password-reset or invitation link must
+  point at, e.g. `https://voice.truevinecloud.online`.
+- `TRUEVINE_API_URL` — the server-side API origin the Next.js web app calls,
+  e.g. `http://127.0.0.1:<apiPort>`.
+
+`EMAIL_TRANSPORT` is optional and defaults to `none`, which records that a send
+was requested without delivering it. Set it only once a provider account exists.
+The pipeline still never reads, replaces or creates `.env`.
+
 Create `/var/www/TruevineVoice/deployment.json` privately on the VPS using this
 shape, replacing the API URL with the route found in the Nginx audit:
 
@@ -294,6 +313,18 @@ It verifies local web/admin/API, public web/API, any confirmed public admin,
 and PM2 uptime/cwd/version for all four processes. `current` switches atomically
 only after those checks pass, then PM2 state is saved. Both workflow concurrency
 and server-side `flock` serialize activation and rollback.
+
+### Manual redeploy
+
+When the automatic path did not run — for example a deploy failed and `main` has
+not moved since — an operator with repository write access can click **Run
+workflow** on the **Production deployment** workflow in the GitHub Actions tab.
+The manual run deploys the current tip of `main`. It resolves the CI run for that
+exact commit and requires a completed, successful `push` run from this repository,
+so it cannot publish an unreviewed commit, a pull-request result or a fork. It
+still refuses a commit that is not the tip of `main`, and uses the same
+`production` environment, secrets, concurrency group and server-side checks as
+the automatic path.
 
 The switch deletes and restarts only the four managed processes; unrelated PM2
 applications on the deployment account's daemon are never touched. Process

@@ -65,6 +65,42 @@ export function assertCiJobs(jobs) {
 }
 
 /**
+ * Selects the CI run a manually-triggered deployment is allowed to trust.
+ *
+ * An automatic deployment receives its CI run id from the `workflow_run` event.
+ * A manual `workflow_dispatch` has no such event, so the run is resolved from
+ * the commit the operator selected instead. Not every run counts. Only a
+ * completed, successful `push` run from this same repository may authorise a
+ * production release:
+ *
+ *  - a `pull_request` run tests a merge result, not the commit being deployed;
+ *  - a fork's run is not ours to trust;
+ *  - a failed or unfinished run has not proven the commit.
+ *
+ * The runs API returns newest first, so the first match is the run to use.
+ * Throwing, rather than returning `undefined`, keeps the caller from querying
+ * the jobs of an empty id and failing with a confusing GitHub error instead of
+ * naming the real problem.
+ *
+ * @param runs Parsed `workflow_runs` array from the Actions runs API.
+ * @param repository `owner/name` of the only repository whose runs count.
+ * @returns The id of the matching run.
+ */
+export function selectSuccessfulCiRun(runs, repository) {
+  const run = runs.find(
+    (candidate) =>
+      candidate.event === 'push' &&
+      candidate.status === 'completed' &&
+      candidate.conclusion === 'success' &&
+      candidate.head_repository?.full_name === repository,
+  );
+  if (!run) {
+    throw new Error(`No completed successful CI push run found for repository ${repository}`);
+  }
+  return run.id;
+}
+
+/**
  * Fails safely when a release cannot read the environment it needs.
  *
  * The API and worker call `loadEnvFiles()`, which walks up from the working
