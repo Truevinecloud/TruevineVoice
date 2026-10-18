@@ -105,8 +105,12 @@ through the same approved access arrangement as the rest of the file:
 
 - `WEB_PUBLIC_URL` — the customer URL a password-reset or invitation link must
   point at, e.g. `https://voice.truevinecloud.online`.
-- `TRUEVINE_API_URL` — the server-side API origin the Next.js web app calls,
-  e.g. `http://127.0.0.1:<apiPort>`.
+- `TRUEVINE_API_URL` — the server-side API origin the Next.js web app calls.
+  The web process never reads the shared `.env`: Next.js loads `.env` only from
+  its own directory. PM2 supplies this value to `truevine-web` itself, derived
+  from `apiPort` in `deployment.json` (see
+  `infrastructure/pm2/ecosystem.apps.js`). Keeping it in `.env` is harmless but
+  is not what the web app uses.
 
 `EMAIL_TRANSPORT` is optional and defaults to `none`, which records that a send
 was requested without delivering it. Set it only once a provider account exists.
