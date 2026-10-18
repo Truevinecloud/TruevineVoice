@@ -322,10 +322,19 @@ export class OrganizationsService {
           );
         }
 
-        // Only a role that can administer membership may remove one, and a role that
-        // can remove a member can also name the roles that are delegable - so the
-        // target cannot be someone whose authority exceeds the actor's.
-        if (!canDelegate(actor.role, 'ADMIN') && actor.role !== 'OWNER') {
+        // Removal follows the same ladder as granting a role: the target's
+        // authority must sit strictly below the actor's, so an ADMIN may remove
+        // a campaign manager or a viewer but never a peer ADMIN, an OWNER or a
+        // BILLING - exactly the roles `canDelegate` already refuses to hand
+        // out. The registry grants ADMIN `member:remove`; this is the check
+        // that keeps that permission inside the delegation ladder rather than
+        // making it a way to unseat an equal or a superior. An OWNER keeps an
+        // explicit exception, because ownership is not a delegable role and
+        // the store's last-owner rule is what protects it here.
+        const target = await stores.organizations.findMembership(organizationId, targetUserId);
+
+        if (!target) this.throwForMembershipFailure('not_found');
+        if (actor.role !== 'OWNER' && !canDelegate(actor.role, target.role)) {
           throw cannotDelegate();
         }
 

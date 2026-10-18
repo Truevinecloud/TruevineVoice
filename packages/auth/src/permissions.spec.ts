@@ -167,6 +167,40 @@ describe('ownership is not an administrative capability', () => {
   });
 });
 
+describe('the Organization Admin matrix is exactly as specified', () => {
+  // Written out independently of the registry. The per-permission `can` tests
+  // elsewhere prove single cells; this proves the whole row, so adding a
+  // permission to ADMIN - or removing one - fails here instead of quietly
+  // widening what an admin may do (RBAC-002 acceptance: allow/deny matrix).
+  it('grants precisely these thirteen permissions', () => {
+    const expected = [
+      'organization:read',
+      'organization:update',
+      'member:read',
+      'member:invite',
+      'member:update',
+      'member:remove',
+      'invitation:read',
+      'invitation:revoke',
+      'campaign:read',
+      'campaign:create',
+      'campaign:update',
+      'campaign:delete',
+      'reporting:read',
+    ];
+
+    expect([...ORGANIZATION_ROLE_PERMISSIONS.ADMIN].sort()).toEqual([...expected].sort());
+  });
+
+  it('withholds ownership, billing and the wallet by omission', () => {
+    // The same four permissions the ADMIN row above deliberately leaves out.
+    expect(can('ADMIN', 'ownership:transfer')).toBe(false);
+    expect(can('ADMIN', 'billing:read')).toBe(false);
+    expect(can('ADMIN', 'billing:update')).toBe(false);
+    expect(can('ADMIN', 'wallet:read')).toBe(false);
+  });
+});
+
 describe('delegation is capped by the delegator own authority', () => {
   it('lets an owner delegate every role strictly below them', () => {
     expect(delegableRoles('OWNER')).toEqual(['ADMIN', 'CAMPAIGN_MANAGER', 'BILLING', 'VIEWER']);

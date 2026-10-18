@@ -1,4 +1,8 @@
-import { ACCEPTED_TERMS } from '../src/auth/permission.decorators.js';
+import {
+  ACCEPTED_TERMS,
+  ORGANIZATION_PERMISSION,
+  PLATFORM_PERMISSION,
+} from '../src/auth/permission.decorators.js';
 /**
  * Every route that needs a session must declare {@link SessionGuard}.
  *
@@ -176,5 +180,85 @@ describe('customer API terms coverage', () => {
         ),
         name,
       ).toBe(true);
+  });
+});
+
+describe('organization route permission declarations', () => {
+  /**
+   * The permission each organization route must declare, written literally.
+   *
+   * `OrganizationGuard` reads this metadata at runtime, so this map is the
+   * route-level half of the RBAC-002 allow/deny matrix: an ADMIN reaches a
+   * route exactly when the registry grants the permission named here, and the
+   * guard suite decides every cell of that matrix. `null` means the route is
+   * deliberately reachable without an organization permission (session only).
+   */
+  const EXPECTED: Record<string, string | null> = {
+    me: null,
+    getProfile: 'organization:read',
+    updateProfile: 'organization:update',
+    listMembers: 'member:read',
+    changeMemberRole: 'member:update',
+    removeMember: 'member:remove',
+    listInvitations: 'invitation:read',
+    invite: 'member:invite',
+    revokeInvitation: 'invitation:revoke',
+    acceptInvitation: null,
+    transferOwnership: 'ownership:transfer',
+  };
+
+  function organizationHandlers(): string[] {
+    return Object.getOwnPropertyNames(OrganizationsController.prototype).filter(
+      (name) =>
+        name !== 'constructor' &&
+        Reflect.getMetadata(
+          PATH_METADATA,
+          (OrganizationsController.prototype as unknown as Record<string, object>)[name]!,
+        ) !== undefined,
+    );
+  }
+
+  it('finds handlers, so an empty map cannot pass vacuously', () => {
+    expect(organizationHandlers().length).toBeGreaterThan(8);
+  });
+
+  it('declares the expected permission on every organization route', () => {
+    const handlers = organizationHandlers();
+
+    // Both directions: a renamed or newly added route must be decided here
+    // rather than silently inheriting whatever the suite does not check.
+    expect([...handlers].sort()).toEqual(Object.keys(EXPECTED).sort());
+
+    for (const name of handlers) {
+      const declared =
+        Reflect.getMetadata(
+          ORGANIZATION_PERMISSION,
+          (OrganizationsController.prototype as unknown as Record<string, object>)[name]!,
+        ) ?? null;
+
+      expect(declared, name).toBe(EXPECTED[name]);
+    }
+  });
+
+  it('keeps ownership transfer behind the owner-only permission', () => {
+    // RBAC-002 acceptance: an Organization Admin must be refused. The route
+    // declares `ownership:transfer`; the registry grants that to OWNER alone;
+    // the guard suite asserts the ADMIN denial against exactly that pair.
+    const transfer = (OrganizationsController.prototype as unknown as Record<string, object>)
+      .transferOwnership!;
+
+    expect(Reflect.getMetadata(ORGANIZATION_PERMISSION, transfer)).toBe('ownership:transfer');
+  });
+
+  it('declares no platform permission on any organization route', () => {
+    for (const name of organizationHandlers()) {
+      expect(
+        Reflect.getMetadata(
+          PLATFORM_PERMISSION,
+          (OrganizationsController.prototype as unknown as Record<string, object>)[name]!,
+        ),
+        name,
+      ).toBeUndefined();
+    }
   });
 });

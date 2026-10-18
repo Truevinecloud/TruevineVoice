@@ -17,7 +17,7 @@ import { OrganizationGuard, PlatformGuard } from '../src/auth/organization.guard
 import { SessionGuard } from '../src/auth/session.guard.js';
 import { CsrfGuard } from '../src/auth/csrf.guard.js';
 import { ORGANIZATION_CONTEXT, PRINCIPAL } from '../src/auth/principal.js';
-import { ORGANIZATION_ROLE_PERMISSIONS } from '@truevine/auth';
+import { ORGANIZATION_PERMISSIONS, ORGANIZATION_ROLE_PERMISSIONS } from '@truevine/auth';
 import {
   CSRF_COOKIE,
   CSRF_HEADER,
@@ -127,6 +127,35 @@ describe('OrganizationGuard', () => {
       });
 
       await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('refuses an Organization Admin reaching a tenant they do not belong to', async () => {
+      // Being an admin of *your own* organization is not a pass anywhere else.
+      // The role is only ever read after the membership lookup, so a foreign
+      // path never even reaches the permission check.
+      organizations.memberships.push(
+        aMembership({ organizationId: 'org-a', userId: 'user-a', role: 'ADMIN' }),
+      );
+      organizations.organizations.push({
+        id: 'org-b',
+        slug: 'beta',
+        name: 'Beta',
+        suspendedAt: null,
+      });
+
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'member:remove'),
+        params: { organizationId: 'org-b' },
+        principal: { userId: 'user-a' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+      expect(audit.events[0]).toMatchObject({
+        organizationId: 'org-b',
+        action: 'authorization.denied',
+        outcome: 'DENIED',
+        metadata: { reason: 'no_membership' },
+      });
     });
 
     it('refuses every request to a suspended organization, including its own Owner', async () => {
@@ -244,10 +273,39 @@ describe('OrganizationGuard', () => {
   });
 
   describe('role permissions', () => {
+    // The Organization Admin matrix, written out literally rather than derived
+    // from `ORGANIZATION_ROLE_PERMISSIONS`: a test that recomputes the expected
+    // answer from the implementation passes even when the implementation is
+    // wrong. RBAC-002 judges the ADMIN rows against this independent list -
+    // every organization permission, allow or deny, decided here.
+    const ADMIN_MATRIX = [
+      { permission: 'organization:read', allowed: true },
+      { permission: 'organization:update', allowed: true },
+      { permission: 'member:read', allowed: true },
+      { permission: 'member:invite', allowed: true },
+      { permission: 'member:update', allowed: true },
+      { permission: 'member:remove', allowed: true },
+      { permission: 'invitation:read', allowed: true },
+      { permission: 'invitation:revoke', allowed: true },
+      { permission: 'campaign:read', allowed: true },
+      { permission: 'campaign:create', allowed: true },
+      { permission: 'campaign:update', allowed: true },
+      { permission: 'campaign:delete', allowed: true },
+      { permission: 'reporting:read', allowed: true },
+      // The four an admin administers the organization without: ownership and
+      // money. Denials are asserted here so a silent grant fails the suite.
+      { permission: 'ownership:transfer', allowed: false },
+      { permission: 'billing:read', allowed: false },
+      { permission: 'billing:update', allowed: false },
+      { permission: 'wallet:read', allowed: false },
+    ] as const;
+
     const cases = [
-      { role: 'ADMIN', permission: 'organization:update', allowed: true },
-      { role: 'ADMIN', permission: 'ownership:transfer', allowed: false },
-      { role: 'ADMIN', permission: 'billing:read', allowed: false },
+      ...ADMIN_MATRIX.map(({ permission, allowed }) => ({
+        role: 'ADMIN' as const,
+        permission,
+        allowed,
+      })),
       { role: 'CAMPAIGN_MANAGER', permission: 'campaign:create', allowed: true },
       { role: 'CAMPAIGN_MANAGER', permission: 'member:invite', allowed: false },
       { role: 'CAMPAIGN_MANAGER', permission: 'ownership:transfer', allowed: false },
@@ -278,6 +336,36 @@ describe('OrganizationGuard', () => {
         }
       });
     }
+
+    it('decides every organization permission for ADMIN, so a new one forces a row here', () => {
+      expect([...ADMIN_MATRIX.map(({ permission }) => permission)].sort()).toEqual(
+        [...ORGANIZATION_PERMISSIONS].sort(),
+      );
+    });
+
+    it('denies an ADMIN probe with the same 403 and an audit row', async () => {
+      organizations.memberships.push(
+        aMembership({ organizationId: 'org-1', userId: 'user-1', role: 'ADMIN' }),
+      );
+
+      const { context } = httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, 'ownership:transfer'),
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({
+        status: 403,
+        code: 'permission_denied',
+      });
+      expect(audit.events[0]).toMatchObject({
+        organizationId: 'org-1',
+        actorUserId: 'user-1',
+        action: 'authorization.denied',
+        outcome: 'DENIED',
+        metadata: { permission: 'ownership:transfer', reason: 'insufficient_permission' },
+      });
+    });
   });
 
   describe('terms acceptance', () => {
@@ -472,6 +560,31 @@ describe('PlatformGuard', () => {
     });
 
     await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+
+    expect(audit.events[0]).toMatchObject({
+      organizationId: 'org-1',
+      action: 'platform.access.denied',
+      scope: 'PLATFORM',
+      outcome: 'DENIED',
+    });
+  });
+
+  it('refuses an Organization Admin probing platform administration', async () => {
+    // RBAC-002: an ADMIN arriving from their own organization carries that
+    // context, so the denial is recorded - but the organization role itself
+    // grants nothing here. No organization permission can satisfy a platform
+    // requirement, and there is no platform role on the principal to fall
+    // back to.
+    const { context } = httpContext({
+      handler: handlerRequiring(PLATFORM_PERMISSION, 'platform:admin:manage'),
+      principal: { userId: 'user-1', platformRole: null },
+      organization: { organizationId: 'org-1', role: 'ADMIN' },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({
+      status: 403,
+      code: 'permission_denied',
+    });
 
     expect(audit.events[0]).toMatchObject({
       organizationId: 'org-1',
