@@ -29,6 +29,15 @@ The 2026-10-14 audit confirmed existing `/admin` and `/health` public routes.
 Preserve the admin app's established `/admin` basePath. The legacy checkout's
 local admin configuration and backup are retained for recovery; it is never a
 release input, so dirty legacy Git state does not block an isolated source archive.
+
+> Amended 2026-10-18: no public admin route was ever confirmed. The 2026-10-14
+> session recorded its VPS audit as blocked and admin/API routes as unconfirmed
+> (`docs/runbooks/deployment-audit.md`), and a read-only external check of
+> production shows `/admin` is not public and the admin app serves loopback-only
+> under its own `/admin` basePath. Only the customer route `/` and `/health` are
+> public; browser API traffic uses `/api/*` on the customer host, proxied to the
+> web app, because the API has no `/api` prefix of its own.
+
 The owner authorized migration from root PM2 to a dedicated deployment account.
 Restrict the existing environment file to root and the deployment group (640)
 without changing its content. Keep the exact pinned runtime under

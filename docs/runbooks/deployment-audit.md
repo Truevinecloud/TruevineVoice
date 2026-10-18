@@ -168,6 +168,15 @@ push, Git reset, production database change or Nginx mutation was executed.
 | Public admin/API                           | Routes unconfirmed; not checked                        |
 | Deployed commit SHA                        | Unknown; no production SHA verified                    |
 
+Status update (2026-10-18, read-only external diagnosis, independent of the
+session above): production is deployed at `129dbcc`; public `/` and `/health`
+answer 200; `/admin` has no public route and stays loopback-only (no admin
+authentication exists); the intended browser API route is `/api/*` on the
+customer host, proxied to the web app and not directly to the API, which has no
+`/api` prefix. The exact VPS `sudo nginx -T` and `pm2 ls` output still needs to
+be recorded; SSH access remained unavailable to the diagnosing session, so the
+directives above are not yet captured.
+
 No tests were skipped or weakened, no compiler strictness reduced, and no
 forced dependency fix applied. CommonJS require is permitted only for the new
 PM2 configuration, which PM2 loads as CommonJS. Captured PM2 inventories are

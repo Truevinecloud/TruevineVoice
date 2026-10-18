@@ -3,8 +3,12 @@
 Target: Ubuntu VPS `169.58.162.143`, application root `/var/www/TruevineVoice`.
 Customer URL: `https://voice.truevinecloud.online/`.
 
-The 2026-10-14 audit confirmed the existing public `/health` and `/admin` routes,
-including the admin app's `/admin` basePath. Preserve these routes and Nginx/TLS.
+The 2026-10-14 audit confirmed the existing public customer route `/` and
+`/health`; it did not confirm any public admin route. The admin app serves under
+its own `/admin` basePath on loopback only (see below). Preserve the existing
+routes and Nginx/TLS. A 2026-10-18 read-only routing check confirmed the same,
+and confirmed that browser API traffic belongs on `/api/*` on the customer host,
+proxied to the web app; the API has no `/api` prefix of its own.
 The deployment account uses `/opt/truevine-runtime/bin` for the exact Node/npm pins.
 The owner authorized restricting `.env` access to root and the deployment group;
 its content remains unchanged. The legacy checkout and its local admin configuration
@@ -39,12 +43,11 @@ bindings. No database or Redis port should be publicly reachable. Do not run the
 repository's development Compose file in production: its credentials are public
 placeholders. Keep existing production databases, volumes and credentials.
 
-The repository defines no admin hostname, admin path prefix, Nginx configuration,
-or authentication. Confirm the intended operator route before publishing it.
-Next.js has no `basePath`; proxying this app under `/admin` without a separately
-reviewed basePath change will break its assets. Until routing is agreed, keep
-admin on loopback and access it through an SSH tunnel. This does not implement
-admin authentication.
+The repository defines no admin hostname, public admin route, Nginx
+configuration, or admin authentication. The admin app sets its own `/admin`
+`basePath` and listens on `127.0.0.1:3002`. Publishing it needs a separately
+reviewed Nginx change and an authentication decision first. Keep admin on
+loopback and access it through an SSH tunnel. There is no admin authentication.
 
 Node must be exactly `24.19.0`, npm exactly `11.17.0`. Install those through the
 server's established package management procedure; make `node`, `npm`, `bash`,
@@ -286,21 +289,25 @@ Keep existing valid certificates and HTTPS server blocks. After auditing them,
 only the confirmed customer's existing location needs to proxy to
 `http://127.0.0.1:3000`. Keep its normal proxy headers (`Host`,
 `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`) and existing security settings.
-The API uses its independently confirmed route/upstream, with `/health` reaching
-the NestJS service. Do not silently expose admin or invent another domain.
+`/health` reaches the NestJS service on its existing route/upstream. Browser API
+traffic is not served from the API's own route: it uses `/api/*` on the customer
+host, which must proxy to the web app (`127.0.0.1:3000`) so the app's
+same-origin proxy forwards it to the NestJS service and applies its route
+allowlist. The API has no `/api` prefix of its own. Do not silently expose admin
+or invent another domain.
 
 Before any separately reviewed Nginx change, back up the exact relevant config
 privately, run `sudo nginx -t`, and only then `sudo systemctl reload nginx`.
 Preserve certificate renewal configuration and other virtual hosts. No Nginx
 configuration is overwritten by the pipeline.
 
-| Service            | Binding                                         | Public route                                                  |
-| ------------------ | ----------------------------------------------- | ------------------------------------------------------------- |
-| Customer Next.js   | `127.0.0.1:3000`                                | `https://voice.truevinecloud.online/`                         |
-| Admin Next.js      | `127.0.0.1:3002`                                | Unconfirmed; internal unless an established route is verified |
-| NestJS API         | `127.0.0.1:<apiPort>` (default 3001)            | Existing route to be confirmed; `GET /health`                 |
-| NestJS worker      | No HTTP port                                    | None; PM2 stability plus API Redis health are verified        |
-| PostgreSQL / Redis | Existing private/loopback endpoints from `.env` | None                                                          |
+| Service            | Binding                                         | Public route                                                                                 |
+| ------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Customer Next.js   | `127.0.0.1:3000`                                | `https://voice.truevinecloud.online/`                                                        |
+| Admin Next.js      | `127.0.0.1:3002`                                | None; internal only, loopback/SSH tunnel (no admin auth exists)                              |
+| NestJS API         | `127.0.0.1:<apiPort>` (default 3001)            | `GET /health`; browser API traffic via `/api/*` on the customer host, proxied to the web app |
+| NestJS worker      | No HTTP port                                    | None; PM2 stability plus API Redis health are verified                                       |
+| PostgreSQL / Redis | Existing private/loopback endpoints from `.env` | None                                                                                         |
 
 ## Routine deployment and failures
 

@@ -157,6 +157,18 @@ async function proxy(request: NextRequest): Promise<NextResponse> {
 export async function buildUpstreamResponse(upstream: Response): Promise<NextResponse> {
   const responseHeaders = new Headers();
   for (const name of FORWARDED_RESPONSE_HEADERS) {
+    if (name === 'set-cookie') {
+      // `Headers.get` joins several cookies into one string, and `set` would
+      // then emit a single `Set-Cookie` header. The browser keeps only the
+      // first cookie it can parse from that, so the others are silently
+      // dropped - on a sign-in response that is the CSRF token, and every
+      // later mutation fails. `getSetCookie` is the API that keeps them apart.
+      for (const cookie of upstream.headers.getSetCookie()) {
+        responseHeaders.append(name, cookie);
+      }
+      continue;
+    }
+
     const value = upstream.headers.get(name);
     if (value !== null) responseHeaders.set(name, value);
   }
