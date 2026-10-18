@@ -379,7 +379,10 @@ describe('organization admin removing members over HTTP', () => {
       .delete(memberPath(ORG_ADMIN, USER_ADMIN))
       .set(mutationHeaders(admin));
 
-    expect(response.status).toBe(403);
+    // 409, not 403: acting on yourself is a conflict, matching the last-owner
+    // and transfer-to-yourself refusals, and the service pins this status.
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('cannot_delegate_beyond_own_authority');
     expect(await roleOf(ORG_ADMIN, USER_ADMIN)).toBe('ADMIN');
   });
 
