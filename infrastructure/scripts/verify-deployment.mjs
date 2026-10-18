@@ -236,6 +236,14 @@ export async function checkHttp(url, kind, sha, fetcher = fetch) {
       body.dependencies?.redis?.status !== 'up'
     )
       throw new Error('API release/dependency check failed');
+  } else if (kind === 'proxy') {
+    const body = await response.json();
+    if (
+      typeof body?.version !== 'string' ||
+      body.version.length === 0 ||
+      typeof body.url !== 'string'
+    )
+      throw new Error('Terms proxy response check failed');
   } else {
     const body = await response.text();
     // Markers prove Nginx is serving THIS release's own page rather than a
@@ -287,6 +295,7 @@ export async function verifyHttp(
     [`http://127.0.0.1:${config.apiPort}/health`, 'api'],
     [config.webUrl, 'web'],
     [config.apiHealthUrl, 'api'],
+    [new URL('api/auth/terms', config.webUrl).href, 'proxy'],
   ];
   if (config.adminUrl) checks.push([config.adminUrl, 'admin']);
   await Promise.all(checks.map(([url, kind]) => checkHttp(url, kind, sha, fetcher)));
