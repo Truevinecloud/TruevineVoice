@@ -105,6 +105,7 @@ const config = {
   adminUrl: null,
   apiPort: 3001,
 };
+const TERMS_URL = 'https://voice.truevinecloud.online/api/auth/terms';
 const healthy = {
   status: 'ok',
   service: 'truevine-voice-api',
@@ -147,6 +148,15 @@ function response(kind = 'api', body = healthy, status = 200) {
     json: async () => body,
     text: async () => (kind === 'web' ? SSR_WEB_BODY : SSR_ADMIN_BODY),
   };
+}
+
+const TERMS_BODY = { version: '2026-10-01', url: '' };
+
+function routeResponse(url: string) {
+  if (url.endsWith('/api/auth/terms')) return response('proxy', TERMS_BODY);
+  if (url.includes('health')) return response('api');
+  if (url.includes('3002') || url.includes('operators')) return response('admin');
+  return response('web');
 }
 
 describe('release command environment', () => {
@@ -525,9 +535,7 @@ describe('deployment HTTP checks', () => {
     ).rejects.toThrow('404');
   });
   it('checks each application locally and the agreed public routes', async () => {
-    const fetcher = vi.fn(async (url) =>
-      response(url.includes('health') ? 'api' : url.includes('3002') ? 'admin' : 'web'),
-    );
+    const fetcher = vi.fn(async (url) => routeResponse(url));
     await verifyHttp(config, sha, fetcher);
     expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
       'http://127.0.0.1:3000/',
@@ -535,25 +543,41 @@ describe('deployment HTTP checks', () => {
       'http://127.0.0.1:3001/health',
       config.webUrl,
       config.apiHealthUrl,
+      TERMS_URL,
     ]);
     expect(fetcher.mock.calls[0][1].redirect).toBe('error');
   });
   it('verifies a confirmed public admin route', async () => {
-    const fetcher = vi.fn(async (url) =>
-      response(
-        url.includes('health')
-          ? 'api'
-          : url.includes('3002') || url.includes('operators')
-            ? 'admin'
-            : 'web',
-      ),
-    );
+    const fetcher = vi.fn(async (url) => routeResponse(url));
     await verifyHttp(
       { ...config, adminAccess: 'public', adminUrl: 'https://operators.example.test/' },
       sha,
       fetcher,
     );
     expect(fetcher.mock.calls.map(([url]) => url)).toContain('https://operators.example.test/');
+  });
+  it.each(['2026-10-01', '2027-04-01'])(
+    'accepts the terms JSON through the customer-facing proxy at version %s',
+    async (version) => {
+      await expect(
+        checkHttp(TERMS_URL, 'proxy', sha, async () => response('proxy', { version, url: '' })),
+      ).resolves.toBeUndefined();
+    },
+  );
+  it('rejects HTTP 500 from the customer-facing proxy', async () => {
+    await expect(
+      checkHttp(TERMS_URL, 'proxy', sha, async () => response('proxy', TERMS_BODY, 500)),
+    ).rejects.toThrow('proxy HTTP check returned 500');
+  });
+  it.each([
+    { label: 'an empty version', body: { version: '', url: '' } },
+    { label: 'a non-string version', body: { version: 7, url: '' } },
+    { label: 'a missing url field', body: { version: 'v1' } },
+    { label: 'an error payload', body: { error: { code: 'not_found', message: 'Not found.' } } },
+  ])('rejects a 200 carrying $label instead of the terms response', async ({ body }) => {
+    await expect(
+      checkHttp(TERMS_URL, 'proxy', sha, async () => response('proxy', body)),
+    ).rejects.toThrow('Terms proxy response check failed');
   });
   it.each([
     { ...config, webUrl: 'https://wrong.example/' },
@@ -672,6 +696,22 @@ describe('activation and rollback', () => {
     const ops = operations();
     ops.check.mockRejectedValue(new Error('unhealthy'));
     await expect(activate(ops)).rejects.toThrow('Deployment AND rollback failed');
+  });
+  it('restores the old release when the customer-facing proxy check fails', async () => {
+    let proxyBroken = true;
+    const fetcher = vi.fn(async (url) => {
+      if (proxyBroken && url.endsWith('/api/auth/terms')) {
+        proxyBroken = false;
+        return { status: 500, json: async () => ({}), text: async () => '' };
+      }
+      return routeResponse(url);
+    });
+    const ops = { ...operations(), check: () => verifyHttp(config, sha, fetcher) };
+    await expect(activate(ops)).rejects.toThrow('proxy HTTP check returned 500');
+    expect(fetcher.mock.calls.some(([url]) => url === TERMS_URL)).toBe(true);
+    expect(ops.restart.mock.calls.at(-1)).toEqual(['old']);
+    expect(ops.switchLink.mock.calls.at(-1)).toEqual(['old']);
+    expect(ops.stopNew).not.toHaveBeenCalled();
   });
   it('stops only newly managed processes on failed initial deployment', async () => {
     const ops = { ...operations(), previous: null };
