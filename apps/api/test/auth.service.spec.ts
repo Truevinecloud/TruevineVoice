@@ -567,6 +567,73 @@ describe('OrganizationsService delegation', () => {
     });
   });
 
+  // Removal follows the delegation ladder. The registry grants ADMIN
+  // `member:remove`, and these rows are what keep that permission inside the
+  // ladder: strictly-below members may be removed, everybody else may not.
+  it('lets an admin remove a viewer', async () => {
+    seedOwner(auth, organizations, { role: 'ADMIN' });
+    organizations.memberships.push(aMembership({ userId: 'user-2', role: 'VIEWER' }));
+
+    await service.removeMember('org-1', actor('ADMIN'), 'user-2');
+
+    expect(organizations.memberships.some((m) => m.userId === 'user-2')).toBe(false);
+  });
+
+  it('lets an admin remove a campaign manager', async () => {
+    seedOwner(auth, organizations, { role: 'ADMIN' });
+    organizations.memberships.push(aMembership({ userId: 'user-2', role: 'CAMPAIGN_MANAGER' }));
+
+    await service.removeMember('org-1', actor('ADMIN'), 'user-2');
+
+    expect(organizations.memberships.some((m) => m.userId === 'user-2')).toBe(false);
+  });
+
+  it('refuses an admin removing a peer admin', async () => {
+    seedOwner(auth, organizations, { role: 'ADMIN' });
+    organizations.memberships.push(aMembership({ userId: 'user-2', role: 'ADMIN' }));
+
+    await expect(service.removeMember('org-1', actor('ADMIN'), 'user-2')).rejects.toMatchObject({
+      code: 'cannot_delegate_beyond_own_authority',
+      status: 403,
+    });
+    expect(organizations.memberships.some((m) => m.userId === 'user-2')).toBe(true);
+    expect(audit.events[0]).toMatchObject({ action: 'authorization.denied', outcome: 'DENIED' });
+  });
+
+  it('refuses an admin removing an owner', async () => {
+    seedOwner(auth, organizations, { role: 'ADMIN' });
+    organizations.memberships.push(aMembership({ userId: 'user-2', role: 'OWNER' }));
+
+    await expect(service.removeMember('org-1', actor('ADMIN'), 'user-2')).rejects.toMatchObject({
+      code: 'cannot_delegate_beyond_own_authority',
+    });
+    expect(organizations.memberships.some((m) => m.userId === 'user-2')).toBe(true);
+  });
+
+  it('refuses an admin removing a billing member', async () => {
+    // Billing authority is not part of an admin set, so an admin cannot reach
+    // the role either - granting or removing.
+    seedOwner(auth, organizations, { role: 'ADMIN' });
+    organizations.memberships.push(aMembership({ userId: 'user-2', role: 'BILLING' }));
+
+    await expect(service.removeMember('org-1', actor('ADMIN'), 'user-2')).rejects.toMatchObject({
+      code: 'cannot_delegate_beyond_own_authority',
+    });
+    expect(organizations.memberships.some((m) => m.userId === 'user-2')).toBe(true);
+  });
+
+  it('refuses an admin granting ownership through a role change', async () => {
+    // The escalation path that must stay closed: `ownership:transfer` is the
+    // only way to make an owner, and no role change can substitute for it.
+    seedOwner(auth, organizations, { role: 'ADMIN' });
+    organizations.memberships.push(aMembership({ userId: 'user-2', role: 'VIEWER' }));
+
+    await expect(
+      service.changeMemberRole('org-1', actor('ADMIN'), 'user-2', 'OWNER'),
+    ).rejects.toMatchObject({ code: 'cannot_delegate_beyond_own_authority', status: 403 });
+    expect(organizations.memberships.find((m) => m.userId === 'user-2')?.role).toBe('VIEWER');
+  });
+
   it('lets an owner remove another owner while one remains', async () => {
     seedOwner(auth, organizations);
     organizations.memberships.push(
@@ -617,6 +684,48 @@ describe('OrganizationsService delegation', () => {
     ).rejects.toMatchObject({ code: 'cannot_delegate_beyond_own_authority' });
   });
 
+  it('lets a viewer remove nobody', async () => {
+    seedOwner(auth, organizations, { role: 'VIEWER' });
+    organizations.memberships.push(aMembership({ userId: 'user-2', role: 'VIEWER' }));
+
+    await expect(service.removeMember('org-1', actor('VIEWER'), 'user-2')).rejects.toMatchObject({
+      code: 'cannot_delegate_beyond_own_authority',
+    });
+  });
+
+  it('lets a billing member remove nobody', async () => {
+    // BILLING holds no membership permission at all, so this is refused before
+    // the ladder is even consulted.
+    seedOwner(auth, organizations, { role: 'BILLING' });
+    organizations.memberships.push(aMembership({ userId: 'user-2', role: 'VIEWER' }));
+
+    await expect(service.removeMember('org-1', actor('BILLING'), 'user-2')).rejects.toMatchObject({
+      code: 'cannot_delegate_beyond_own_authority',
+    });
+  });
+
+  it('still lets an owner remove an admin', async () => {
+    // The fix narrows ADMIN only. An owner administers every membership,
+    // including one that an admin may not touch.
+    seedOwner(auth, organizations);
+    organizations.memberships.push(aMembership({ userId: 'user-2', role: 'ADMIN' }));
+
+    await service.removeMember('org-1', actor('OWNER'), 'user-2');
+
+    expect(organizations.memberships.some((m) => m.userId === 'user-2')).toBe(false);
+  });
+
+  it('still lets an owner remove a billing member', async () => {
+    // Billing sits outside the admin's ladder entirely; only the owner reaches
+    // it, and this is the row that proves the fix did not take that away.
+    seedOwner(auth, organizations);
+    organizations.memberships.push(aMembership({ userId: 'user-2', role: 'BILLING' }));
+
+    await service.removeMember('org-1', actor('OWNER'), 'user-2');
+
+    expect(organizations.memberships.some((m) => m.userId === 'user-2')).toBe(false);
+  });
+
   it('audits a role change', async () => {
     seedOwner(auth, organizations);
     organizations.memberships.push(aMembership({ userId: 'user-2', role: 'VIEWER' }));
@@ -665,6 +774,22 @@ describe('OrganizationsService invitations', () => {
     await expect(
       service.invite('org-1', { userId: 'user-1', role: 'OWNER' }, 'x@example.invalid', 'OWNER'),
     ).rejects.toMatchObject({ code: 'cannot_delegate_beyond_own_authority' });
+  });
+
+  it('refuses an admin issuing an owner invitation', async () => {
+    // Creating an owner is a transfer, never an invitation - and the check runs
+    // before any token is generated, so no invitation row exists to race on.
+    await expect(
+      service.invite('org-1', actor, 'x@example.invalid', 'OWNER'),
+    ).rejects.toMatchObject({ code: 'cannot_delegate_beyond_own_authority', status: 403 });
+    expect(organizations.invitations).toHaveLength(0);
+  });
+
+  it('refuses an admin issuing a billing invitation', async () => {
+    await expect(
+      service.invite('org-1', actor, 'x@example.invalid', 'BILLING'),
+    ).rejects.toMatchObject({ code: 'cannot_delegate_beyond_own_authority' });
+    expect(organizations.invitations).toHaveLength(0);
   });
 
   it('refuses an admin inviting a billing user', async () => {

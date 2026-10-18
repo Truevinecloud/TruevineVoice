@@ -24,6 +24,10 @@
 # - The only teardown command is `docker compose down --volumes`, and it runs
 #   exclusively against the ephemeral Compose stack this job started on a
 #   throwaway GitHub-hosted runner. It can never reach a production database.
+# - `npm run test:security` creates and drops its own databases
+#   (`rbac_security_<timestamp>_<pid>_<suffix>`) inside that same stack. The
+#   harness drops each one in a `finally` block and checks the name pattern
+#   before every drop, so it cannot delete a database it did not create.
 #
 # Runtime
 # -------
@@ -210,6 +214,16 @@ jobs:
 
       - name: Run end-to-end tests
         run: npm run test:e2e
+
+      # Runs the RBAC-001 remediation suite. It does not touch `truevine_voice`:
+      # `infrastructure/scripts/run-security-tests.mjs` creates its own databases
+      # named `rbac_security_<timestamp>_<pid>_<suffix>`, applies the migrations to
+      # them, runs the e2e suites against those, and drops every one of them in a
+      # `finally` block - with a name check before each drop so it cannot delete a
+      # database it did not create. The databases live on the disposable Compose
+      # container this job started, so they cannot outlive the runner either.
+      - name: Run security remediation tests against disposable databases
+        run: npm run test:security
 
       - name: Stop and discard the test infrastructure
         if: always()
