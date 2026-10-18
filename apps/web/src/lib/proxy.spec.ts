@@ -135,6 +135,25 @@ describe('proxy allowlist', () => {
       });
     }
 
+    it('forwards every cookie when the upstream sends more than one', async () => {
+      // A sign-in response sets the session cookie and the CSRF cookie
+      // together. Forwarding them as one joined header loses everything after
+      // the first cookie: the browser cannot read the CSRF token, and every
+      // mutation that follows fails the double-submit check.
+      const upstreamHeaders = new Headers();
+      upstreamHeaders.append('set-cookie', 'tv_session=abc; Path=/; HttpOnly');
+      upstreamHeaders.append('set-cookie', 'tv_csrf=xyz; Path=/');
+
+      const proxied = await buildUpstreamResponse(
+        new Response(null, { status: 200, headers: upstreamHeaders }),
+      );
+
+      expect(proxied.headers.getSetCookie()).toEqual([
+        'tv_session=abc; Path=/; HttpOnly',
+        'tv_csrf=xyz; Path=/',
+      ]);
+    });
+
     it('never caches an authenticated response', async () => {
       for (const status of [200, 204, 401, 403, 404, 500]) {
         const proxied = await buildUpstreamResponse(new Response(null, { status }));
