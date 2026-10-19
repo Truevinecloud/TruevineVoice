@@ -607,3 +607,7 @@ See [production setup, secrets, routing and rollback](./docs/runbooks/production
 server-local `deployment.json`, existing readable `.env`, matching Node/npm,
 and PM2. Deploy applies approved migrations before activation; rollback changes code only.
 They never reset Git or run development Compose. See [ADR 0011](./docs/adr/0011-reviewed-deployment-migrations.md).
+
+## Isolated RBAC database CI
+
+Run `npm run test:rbac-ci:checks` for workflow safety checks. See [isolated RBAC database CI](docs/rbac-database-ci-preparation.md) for disposable hosted billing/reporting E2E and the remaining release prerequisites. This does not approve migrations or deploy.

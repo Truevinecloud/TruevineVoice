@@ -131,3 +131,7 @@ before setting `DEPLOYMENT_READY=true`. Required secrets are `VPS_SSH_HOST`,
 `VPS_SSH_USER`, `VPS_SSH_KEY`, and `VPS_SSH_KNOWN_HOSTS`; optional variable
 `VPS_SSH_PORT` defaults to 22. Production configuration stays on the VPS.
 Reviewed migrations run through `prisma migrate deploy` after the build and before PM2 activation. Migration failure leaves the active release untouched. No automatic Nginx changes, database resets or release pruning.
+
+## `rbac-database-e2e.yml`
+
+Independent hosted PostgreSQL/Redis service jobs for billing and campaign/reporting E2E. The CI-only branch runs workflow checks; the separate authorized test snapshot runs both complete suites. See [preparation and release prerequisites](../../docs/rbac-database-ci-preparation.md). No deployment or production credentials.
