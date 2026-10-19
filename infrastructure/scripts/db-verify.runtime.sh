@@ -11,7 +11,6 @@
 #
 set -u
 SCRIPT="${1:-$(dirname "$0")/db-verify.sh}"
-[ "$(uname -s)" = Linux ] || { echo "SKIP: runtime tests are POSIX/Linux only"; exit 0; }
 STATE=${TMPDIR:-/tmp}/dbv
 BIN=$STATE/bin
 LABEL_KEY=truevine.verify.run
@@ -53,7 +52,7 @@ case "\$1" in
   run)
     name=\$(getval --name); net=\$(getval --network)
     mount=\$(getval --mount); volsrc=""
-    case "\$mount" in src=*) volsrc="\${mount#src=}"; volsrc="\${volsrc%%,*}";; esac
+    case "\$mount" in *src=*) volsrc="\${mount#*src=}"; volsrc="\${volsrc%%,*}";; esac
     [ "\$(mode)" = failrun ] && { echo "stub: docker run failed" >&2; exit 1; }
     printf '%s|%s|%s|%s\n' "\$name" "\$net" "\$volsrc" "\$NEWLABEL" > "\$S/containers/\$name"
     printf 'id%s' "\$name" | md5sum | cut -c1-32; exit 0 ;;
@@ -64,21 +63,26 @@ case "\$1" in
                case "\${args[\$j]}" in truevine.verify.run=*) v="\${args[\$j]}";; esac
                j=\$((j+1))
              done
-             printf '%s\n' "\$v" > "\$S/volumes/\${3:-}"
-             echo "\${3:-}"; exit 0 ;;
+             name="\${args[\$((\${#args[@]}-1))]}"
+             printf '%s\n' "\$v" > "\$S/volumes/\$name"
+             echo "\$name"; exit 0 ;;
       ls) flt=\$(getval --filter); key="\${flt#label=}"
           for f in "\$S"/volumes/*; do [ -e "\$f" ] || continue
             n=\$(basename "\$f"); l=\$(cat "\$f")
             if [ -z "\$key" ] || haslabel "\$l"; then printf '%s\n' "\$n"; fi
           done; exit 0 ;;
-      inspect) f="\$S/volumes/\${3:-}"; [ -f "\$f" ] || exit 1
+      inspect) name="\${args[\$((\${#args[@]}-1))]}"; f="\$S/volumes/\$name"; [ -f "\$f" ] || exit 1
              case "\$*" in *Mountpoint*) echo "/var/lib/docker/volumes/\${3}/_data";;
                                 *Labels*) labelval "\$(cat "\$f")";; esac; exit 0 ;;
       rm) f="\$S/volumes/\${3:-}"; [ -f "\$f" ] || { echo "no such volume" >&2; exit 1; }
+          for c in "\$S"/containers/*; do
+            [ -f "\$c" ] || continue
+            [ "\$(cut -d'|' -f3 "\$c")" = "\${3:-}" ] && { echo "volume is in use" >&2; exit 1; }
+          done
           rm -f "\$f"; exit 0 ;;
     esac ;;
   inspect)
-    name="\${2:-}"; fmt="\${4:-}"; f="\$S/containers/\$name"
+    name="\${args[\$((\${#args[@]}-1))]}"; fmt=\$(getval --format); f="\$S/containers/\$name"
     if [ -f "\$f" ]; then
       case "\$fmt" in
         *Id*) printf 'id%s' "\$name" | md5sum | cut -c1-32 ;;
@@ -127,10 +131,46 @@ case "\$1" in
       exit 0 ;;
   exec)
     for a in "\$@"; do
-      if [ "\$a" = pg_isready ]; then [ "$ready_sleep" != 0 ] && sleep "\$ready_sleep"; exit 0; fi
+      if [ "\$a" = pg_isready ]; then touch "\$S/readiness-started"; [ "$ready_sleep" != 0 ] && sleep "\$ready_sleep"; exit 0; fi
       case "\$a" in PING) echo PONG; exit 0;; esac
     done
     case "\$*" in
+      *psql*SELECT\ 1*)
+        name="\${2:-}"
+        if [ -f "\$S/containers/\$name" ] && [ "\$(getval -U)" = postgres ]; then
+          touch "\$S/readiness-started"
+          [ "$ready_sleep" != 0 ] && sleep "$ready_sleep"
+          probe="\$S/probes-\$name"; count=0
+          [ -f "\$probe" ] && count=\$(cat "\$probe")
+          count=\$((count+1)); echo "\$count" > "\$probe"
+          if [ "\$(mode)" = initializing ]; then
+            # pg_isready already accepts connections, but the DB does not yet
+            # exist; next it exists only on the temporary Unix-socket server.
+            [ "\$count" = 1 ] && { echo 'database does not exist' >&2; exit 2; }
+            if [ "\$(getval -h)" != 127.0.0.1 ]; then echo 1; exit 0; fi
+            [ "\$count" = 2 ] && { echo 'temporary server is socket-only' >&2; exit 2; }
+          fi
+          touch "\$S/ready-\$name"
+        fi
+        echo 1; exit 0;;
+      *pg_restore*--list*)
+        for i in \$(seq 1 11); do
+          echo "\$i; 1259 100 TABLE public table_\$i truevine"
+          echo "\$((i+11)); 0 100 TABLE DATA public table_\$i truevine"
+        done
+        echo '30; 1259 200 TABLE private other truevine'
+        echo '31; 1259 201 VIEW public report truevine'
+        [ "\$(mode)" = faillist ] && exit 1
+        exit 0;;
+      *pg_restore*)
+        [ "\$(mode)" = failrestore ] && exit 1
+        if [ "\$(mode)" = initializing ] && [ ! -f "\$S/ready-\${2:-}" ]; then
+          echo 'restore reached an uninitialized database' >&2; exit 1
+        fi
+        exit 0;;
+      *psql*information_schema.tables*)
+        [ "\$(mode)" = mismatch ] && { echo 10; exit 0; }
+        echo 11; exit 0;;
       *psql*) echo 1; exit 0;;
       *redis-cli\ KEYS*) exit 0;;
       *redis-cli\ GET*) echo x; exit 0;;
@@ -233,13 +273,43 @@ left=$(ls "$STATE/containers" 2>/dev/null | wc -l | tr -d ' ')
 [ -f "$STATE/containers/keep-ctr" ] && ok "unrelated container survived a failed run" || bad "failed run deleted an unrelated container"
 
 echo
-echo "=== 6. an interrupt leaves nothing behind ==="
+echo "=== 6. restore count and failure cleanup regressions ==="
+for command in verify-restore verify-volume; do
+  for mode in normal initializing mismatch failrestore faillist; do
+    reset; mkfake
+    echo "$mode" > "$STATE/mode"
+    want=1; case "$mode" in normal|initializing) want=0;; faillist) want=2;; esac
+    t "$command with $mode" "$want" bash "$SCRIPT" "$command" "$STATE/fake.dump"
+    if [ "$mode" = initializing ]; then
+      probes=0
+      for probe in "$STATE"/probes-*; do
+        [ -f "$probe" ] || continue
+        probes=$((probes+1))
+        [ "$(cat "$probe")" = 3 ] && ok "waited for the final server and target database" || bad "readiness accepted initialization too early"
+      done
+      expected_probes=1; [ "$command" = verify-volume ] && expected_probes=2
+      [ "$probes" = "$expected_probes" ] && ok "readiness verified for every created container" || bad "expected $expected_probes readiness probes, got $probes"
+    fi
+    [ -z "$(ls -A "$STATE/containers")" ] && ok "no rehearsal containers remain" || bad "rehearsal container leaked"
+    [ -z "$(ls -A "$STATE/volumes")" ] && ok "no rehearsal volumes remain" || bad "rehearsal volume leaked"
+    [ -f "$STATE/fake.dump" ] && ok "backup preserved" || bad "backup removed"
+  done
+done
+
+echo "=== 7. an interrupt leaves nothing behind ==="
 reset 30
 mkfake
 bash "$SCRIPT" verify-restore "$STATE/fake.dump" >/dev/null 2>&1 &
 pid=$!
-sleep 4
-kill -INT "$pid" 2>/dev/null || true
+for attempt in $(seq 1 200); do
+  [ -f "$STATE/readiness-started" ] && break
+  kill -0 "$pid" 2>/dev/null || break
+  sleep 0.1
+done
+[ -f "$STATE/readiness-started" ] && ok "interrupt reached a running rehearsal" || bad "rehearsal never reached readiness"
+# Background shells can inherit SIGINT as ignored; SIGTERM exercises the
+# installed termination trap reliably in both CI and Git Bash.
+kill -TERM "$pid" 2>/dev/null || true
 wait "$pid" 2>/dev/null || true
 left=$(ls "$STATE/containers" 2>/dev/null | wc -l | tr -d ' ')
 [ "$left" = "0" ] && ok "interrupt left no container behind" || bad "$left container(s) survived an interrupt"
@@ -247,7 +317,7 @@ leftv=$(ls "$STATE/volumes" 2>/dev/null | wc -l | tr -d ' ')
 [ "$leftv" = "0" ] && ok "interrupt left no volume behind" || bad "$leftv volume(s) survived an interrupt"
 
 echo
-echo "=== 7. no destructive command ever targets a production resource ==="
+echo "=== 8. no destructive command ever targets a production resource ==="
 reset
 bash "$SCRIPT" preflight >/dev/null 2>&1 || true
 bash "$SCRIPT" cleanup --all-runs >/dev/null 2>&1 || true

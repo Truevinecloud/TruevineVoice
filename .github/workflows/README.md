@@ -1,5 +1,39 @@
 # GitHub Actions workflows
 
+## `restore-integration.yml`
+
+Independent, optional integration verification on GitHub-hosted `ubuntu-24.04`.
+Triggers on relevant feature-branch pushes, pull requests, or manual dispatch;
+it does not trigger the production deployment workflow or alter existing gates.
+It reads no secrets, references no environment, and grants only `contents: read`.
+
+`npm run test:restore-integration` requires a hosted Linux runner and forces the
+local Unix Docker socket, ignoring inherited remote contexts and TLS settings.
+It refuses a daemon containing any containers or volumes. It creates a labeled
+PostgreSQL 18 fixture named `truevine-postgres` solely to satisfy the unchanged
+recovery CLI's fixed source identity; this is a disposable database created by
+the harness, never an existing production resource. No ports are published and
+all PostgreSQL containers run with `--network none`. No migrations are applied.
+
+The fixture contains 11 public tables with rows, a private table, a public view,
+an enum, an index and constraints. Real `pg_dump` archives contain both TABLE
+and TABLE DATA entries. Both `verify-restore` and `verify-volume` must pass with
+11 public tables. A second readable archive intentionally excludes a schema
+needed by a column default; both commands must fail during real `pg_restore`.
+Each case asserts that rehearsal containers/volumes are gone **before** fallback
+cleanup. The source fixture must survive each case; final cleanup removes it
+and asserts an empty daemon. The EXIT trap and an `always()` step provide
+label-checked emergency cleanup; runner disposal also bounds cancellation.
+
+`npm run test:restore-integration:checks` validates workflow syntax and safety
+contracts without Docker; `npm run test:db-verify` runs the existing Linux stub
+regressions. Missing Docker fails the hosted integration job, rather than
+silently skipping it. Logs contain the archive-count assertions, restoration
+fingerprints, real PostgreSQL errors and per-case cleanup results. A prepared
+workflow is not evidence of a successful integration run: the hosted result
+must pass before authorizing the PR. Nothing is published or dispatched by
+preparing these files.
+
 ## `ci.yml`
 
 Continuous integration. Triggered by pull requests targeting `main` and by

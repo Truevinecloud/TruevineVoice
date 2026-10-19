@@ -56,6 +56,8 @@
                     "ci:setup-npm":  "node infrastructure/scripts/setup-npm.mjs",
                     "test:deployment":  "vitest run --config infrastructure/vitest.config.mts \u0026\u0026 npm run test:db-verify \u0026\u0026 npm run test:backup",
                     "test:db-verify":  "node infrastructure/scripts/run-db-verify-tests.mjs",
+                    "test:restore-integration": "node infrastructure/scripts/run-restore-integration.mjs",
+                    "test:restore-integration:checks": "vitest run --config infrastructure/vitest.config.mts infrastructure/scripts/restore-integration.spec.ts",
                     "test:backup":  "node infrastructure/scripts/run-backup-tests.mjs",
                     "test:rehearsal":  "node infrastructure/scripts/run-rbac-001-rehearsal.mjs",
                     "deploy:release":  "bash infrastructure/scripts/deploy.sh",

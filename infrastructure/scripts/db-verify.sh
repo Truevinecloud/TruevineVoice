@@ -193,17 +193,22 @@ cleanup_owned() {
   # Removes only what this run created. Never touches backups.
   [ -n "$STATE_DIR" ] || return 0
   [ -f "$STATE_DIR/owned" ] || return 0
-  local kind name
-  while IFS=$'\t' read -r kind name; do
-    [ -n "${kind:-}" ] || continue
-    # Best effort: never let a cleanup problem mask the original exit status.
-    case "$kind" in
-      container) exists container "$name" && [ "$(label_of container "$name")" = "$RUN_ID" ] \
-                    && docker rm -fv "$name" >/dev/null 2>&1 || true ;;
-      volume)    exists volume "$name" && [ "$(label_of volume "$name")" = "$RUN_ID" ] \
-                    && docker volume rm "$name" >/dev/null 2>&1 || true ;;
-    esac
-  done < "$STATE_DIR/owned"
+  local kind name phase
+  # Volumes are registered before their containers. Remove all containers first:
+  # Docker refuses to remove a named volume while any container references it.
+  for phase in container volume; do
+    while IFS=$'\t' read -r kind name; do
+      [ -n "${kind:-}" ] || continue
+      [ "$kind" = "$phase" ] || continue
+      # Best effort: never let a cleanup problem mask the original exit status.
+      case "$kind" in
+        container) exists container "$name" && [ "$(label_of container "$name")" = "$RUN_ID" ] \
+                      && docker rm -fv "$name" >/dev/null 2>&1 || true ;;
+        volume)    exists volume "$name" && [ "$(label_of volume "$name")" = "$RUN_ID" ] \
+                      && docker volume rm "$name" >/dev/null 2>&1 || true ;;
+      esac
+    done < "$STATE_DIR/owned"
+  done
 }
 
 on_exit() {
@@ -274,7 +279,11 @@ fingerprint() {
 wait_for_pg() {
   local cname=$1 i
   for i in $(seq 1 90); do
-    if docker exec "$cname" pg_isready -U postgres -d "$PROD_DB_NAME" >/dev/null 2>&1; then
+    # The image's temporary initialization server accepts Unix-socket probes
+    # before POSTGRES_DB exists. Require SQL in that DB over container-local
+    # TCP, which is enabled only by the final server after initialization.
+    if docker exec "$cname" psql -h 127.0.0.1 -v ON_ERROR_STOP=1 \
+         -U postgres -d "$PROD_DB_NAME" -tAc 'SELECT 1;' >/dev/null 2>&1; then
       pass "$cname ready after ${i}s"; return 0
     fi
     sleep 1
@@ -287,7 +296,7 @@ wait_for_pg() {
 # ---------------------------------------------------------------- validation
 # Validates the assumptions a restore depends on, before anything is restored.
 validate_restore_assumptions() {
-  local backup=$1 toc_tables
+  local backup=$1 toc_lines
   say "validate restore assumptions"
 
   # 1. Production role and database must exist and be readable.
@@ -304,25 +313,29 @@ validate_restore_assumptions() {
      && ! docker exec "$PROD_CONTAINERS_FIRST" true >/dev/null 2>&1; then
     die "no usable pg_restore; refusing to interpret an empty listing as a valid archive"
   fi
-  toc_lines=$(docker exec -i "$PROD_CONTAINERS_FIRST" pg_restore --list < "$backup" 2>/dev/null | grep -cE '^[0-9]+;' || true)
+  if ! docker exec -i "$PROD_CONTAINERS_FIRST" pg_restore --list < "$backup" > "$STATE_DIR/archive.toc" 2>/dev/null; then
+    die "pg_restore could not read a table of contents from ${backup}; refusing to continue"
+  fi
+  toc_lines=$(grep -cE '^[0-9]+;' "$STATE_DIR/archive.toc" || true)
   [ "${toc_lines:-0}" -gt 0 ] \
     || die "pg_restore could not read a table of contents from ${backup}; refusing to continue"
   pass "archive table of contents readable (${toc_lines} entries)"
 
   # 3. The archive must actually contain tables, so a post-restore comparison
   #    has something to compare against.
-  toc_tables=$(docker exec -i "$PROD_CONTAINERS_FIRST" pg_restore --list < "$backup" 2>/dev/null \
-               | grep -c ' TABLE ' || true)
-  [ "${toc_tables:-0}" -gt 0 ] \
+  # Match TABLE definitions in public, not TABLE DATA or other schemas. This
+  # must use the same scope as the restored information_schema query below.
+  ARCHIVE_TABLES=$(awk '$1 ~ /^[0-9]+;$/ && $4 == "TABLE" && $5 == "public" { n++ } END { print n+0 }' "$STATE_DIR/archive.toc")
+  [ "$ARCHIVE_TABLES" -gt 0 ] \
     || die "archive contains no TABLE entries; nothing to verify"
-  info "archive declares ${toc_tables} table(s)"
+  info "archive declares ${ARCHIVE_TABLES} public table(s)"
 }
 
 # Confirms the restored database really holds what the archive promised.
 assert_restored_schema() {
   local cname=$1 expected=$2 actual
   actual=$(docker exec "$cname" psql -v ON_ERROR_STOP=1 -U postgres -d "$PROD_DB_NAME" -tAc \
-    "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null || echo -1)
+    "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';" 2>/dev/null || echo -1)
   if [ "$actual" -lt "$expected" ]; then
     fail "restored database has ${actual} public table(s) but the archive declared ${expected}"
     return 1
@@ -379,11 +392,11 @@ new_volume() {
 
 restore_into() {
   local cname=$1 backup=$2
-  docker cp "$backup" "$cname:/tmp/verify.dump"
+  docker cp "$backup" "$cname:/tmp/verify.dump" || return 1
   # trust auth on a loopback-only, disposable instance keeps every credential
   # out of this script and out of the shell history.
   docker exec "$cname" pg_restore -U postgres -d "$PROD_DB_NAME" \
-    --no-owner --no-privileges /tmp/verify.dump
+    --no-owner --no-privileges /tmp/verify.dump || return 1
   pass "pg_restore completed with no errors"
 }
 
@@ -474,7 +487,7 @@ cmd_verify_restore() {
   info "volume ${vol} (production volume is never mounted)"
   info "network none, publishedPorts 0, label ${LABEL_KEY}=${RUN_ID}"
   start_pg "$cname" "$vol" || exit 1
-  expected=$(docker exec -i truevine-postgres pg_restore --list < "$backup" 2>/dev/null | grep -c ' TABLE ' || echo 0)
+  expected=$ARCHIVE_TABLES
   restore_into "$cname" "$backup" || exit 1
   assert_restored_schema "$cname" "$expected" || exit 1
   fingerprint restored "$cname" postgres || exit 1
@@ -507,7 +520,7 @@ cmd_verify_volume() {
   info "volume ${vol}; mount destination ${PG_MOUNTPOINT} matches production"
   start_pg "$name_a" "$vol" || exit 1
   local id_a; id_a=$(docker inspect --format '{{.Id}}' "$name_a")
-  expected=$(docker exec -i truevine-postgres pg_restore --list < "$backup" 2>/dev/null | grep -c ' TABLE ' || echo 0)
+  expected=$ARCHIVE_TABLES
   restore_into "$name_a" "$backup" || exit 1
   assert_restored_schema "$name_a" "$expected" || exit 1
   fingerprint before "$name_a" postgres || exit 1
