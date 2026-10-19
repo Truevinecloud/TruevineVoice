@@ -15,6 +15,7 @@ Naming: `NNNN-short-kebab-title.md`, numbered sequentially and never reused.
 | [0004](./0004-github-actions-ci.md)              | CI E2E tests run the real Compose stack          | Accepted                       |
 | [0005](./0005-production-deployment.md)          | CI-gated release directories and PM2 deployment  | Accepted; VPS adoption pending |
 | [0006](./0006-tenancy-core-schema.md)            | Tenancy enforced by composite keys, not queries  | Accepted                       |
+| [0011](./0011-reviewed-deployment-migrations.md) | Apply reviewed migrations before activation | Accepted |
 
 ## When to write an ADR
 

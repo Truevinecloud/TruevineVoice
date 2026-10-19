@@ -130,4 +130,4 @@ Complete the [production runbook](../../docs/runbooks/production-deployment.md)
 before setting `DEPLOYMENT_READY=true`. Required secrets are `VPS_SSH_HOST`,
 `VPS_SSH_USER`, `VPS_SSH_KEY`, and `VPS_SSH_KNOWN_HOSTS`; optional variable
 `VPS_SSH_PORT` defaults to 22. Production configuration stays on the VPS.
-No automatic Nginx changes, migrations, database resets or release pruning.
+Reviewed migrations run through `prisma migrate deploy` after the build and before PM2 activation. Migration failure leaves the active release untouched. No automatic Nginx changes, database resets or release pruning.

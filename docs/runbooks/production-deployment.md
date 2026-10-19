@@ -348,19 +348,19 @@ a lost SSH connection/power failure requires inspecting `pm2 ls`, `current`, and
 public health before retrying; no system can run an in-process rollback after
 being killed. The retained releases and lock support supervised recovery.
 
-Deploy never runs migrate/reset/db push or Compose teardown. The schema has
-models and there are SQL migrations, but deploy still does not apply them.
+Deploy never runs development migrations, reset, db push or Compose teardown.
+The migration manifest must exactly match the release migration directories.
+After build and approval checks, deployment runs `npm run prisma:migrate:deploy`
+using DATABASE_URL from the shared production .env, before touching PM2 or current.
+Prisma output is captured to keep connection details out of CI logs. A nonzero
+exit or timeout fails deployment without activating the candidate or restarting
+the baseline. Inspect the migration state securely before retrying.
 
-A migration reaches a release only when it is listed in
-`infrastructure/migrations-reviewed.json`. `assertReviewedMigrations` blocks the
-deploy when the release contains a migration that is not listed there, and when
-the manifest lists a migration the release does not contain. Adding a migration
-therefore blocks deployment until a human reviews its SQL, backward
-compatibility, rollback and execution plan and adds its name to that file.
+Approval requires SQL review, backward compatibility with the active release,
+a rehearsed backup and a recovery plan. Migration failure can leave partial schema
+changes; code rollback does not undo SQL. Explicit code rollback does not run
+migrations. See [ADR 0011](../adr/0011-reviewed-deployment-migrations.md).
 
-Listing a migration permits the **code** to deploy. It does not apply the
-migration: that remains a supervised operator action with
-`prisma migrate deploy` from a controlled environment, with a rehearsed backup.
 See [ADR 0006](../../docs/adr/0006-tenancy-core-schema.md).
 
 ## Rollback
