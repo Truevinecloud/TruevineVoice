@@ -15,6 +15,7 @@ import {
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
+import { parseEnv } from 'node:util';
 import {
   assertReleaseEnvAccessible,
   managedProcesses,
@@ -244,7 +245,51 @@ async function verify(release, config) {
   throw lastError;
 }
 
-export async function activate({ release, previous, restart, check, switchLink, save, stopNew }) {
+/** Apply only approved SQL using the shared production configuration, without logging it. */
+export function migrateReviewedRelease({ release, envFile, execute = execFileSync }) {
+  assertReviewedMigrations(release);
+  assertReleaseEnvAccessible(release, envFile);
+  let databaseUrl;
+  try {
+    databaseUrl = parseEnv(readFileSync(envFile, 'utf8')).DATABASE_URL;
+    const parsed = new URL(databaseUrl);
+    if (
+      !['postgres:', 'postgresql:'].includes(parsed.protocol) ||
+      !parsed.hostname ||
+      parsed.pathname.length < 2
+    )
+      throw new Error('Invalid database configuration');
+  } catch {
+    throw new Error('Production DATABASE_URL is missing or invalid; activation was not attempted');
+  }
+  try {
+    execute('npm', ['run', 'prisma:migrate:deploy'], {
+      cwd: release,
+      encoding: 'utf8',
+      // Prisma output can contain connection details. A nonzero exit still fails deployment.
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, ...releaseEnv(), DATABASE_URL: databaseUrl },
+      timeout: 30 * 60 * 1000,
+    });
+  } catch {
+    throw new Error(
+      'Reviewed database migration failed; activation was not attempted. Inspect migration state securely before retrying',
+    );
+  }
+}
+
+export async function activate({
+  release,
+  previous,
+  migrate,
+  restart,
+  check,
+  switchLink,
+  save,
+  stopNew,
+}) {
+  // Outside activation recovery: a failed migration must not touch the running baseline.
+  await migrate(release);
   try {
     await restart(release);
     await check(release);
@@ -344,6 +389,10 @@ async function main() {
   await activate({
     release,
     previous,
+    // Code rollback never reverses or reapplies database migrations.
+    migrate: rollback
+      ? () => {}
+      : (directory) => migrateReviewedRelease({ release: directory, envFile }),
     // Restart is a genuine switch, not a reload. Rollback re-enters this same
     // function with `previous`, so the baseline is started from its own
     // ecosystem rather than inheriting the failed release's process paths.

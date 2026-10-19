@@ -347,10 +347,10 @@ Run both with `npm run test:deployment`.
 
 ### Rolling back after a schema change
 
-Migrations are applied by an operator with `prisma migrate deploy` from a
-controlled environment, never by the deployment pipeline
-(`infrastructure/migrations-reviewed.json` gates which migrations may ship). Take
-a backup immediately before any manual migration. Prisma records applied
+The protected deployment applies approved migrations with `prisma migrate deploy`
+using the shared production configuration before activation (ADR 0011). The manifest
+gates which migrations may run. Require a rehearsed backup before approval.
+Code rollback never reverses SQL. Prisma records applied
 migrations in `_prisma_migrations`; a restore returns that table to its
 pre-migration state.
 

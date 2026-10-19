@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
   activate,
+  migrateReviewedRelease,
   assertReviewedMigrations,
   assertManagedProcessesAuditable,
   ECOSYSTEM,
@@ -659,6 +660,7 @@ describe('activation and rollback', () => {
     return {
       release: 'new',
       previous: 'old',
+      migrate: vi.fn(),
       restart: vi.fn(),
       check: vi.fn(),
       switchLink: vi.fn(),
@@ -666,6 +668,29 @@ describe('activation and rollback', () => {
       stopNew: vi.fn(),
     };
   }
+  it('completes migration before touching application processes', async () => {
+    const ops = operations();
+    const order: string[] = [];
+    ops.migrate.mockImplementation(async () => {
+      order.push('migrate');
+    });
+    ops.restart.mockImplementation(async () => {
+      order.push('restart');
+    });
+    await activate(ops);
+    expect(order).toEqual(['migrate', 'restart']);
+    expect(ops.migrate).toHaveBeenCalledExactlyOnceWith('new');
+  });
+  it.each(['old', null])(
+    'preserves the baseline after migration failure (%s)',
+    async (previous) => {
+      const ops = { ...operations(), previous };
+      ops.migrate.mockRejectedValue(new Error('migration failed'));
+      await expect(activate(ops)).rejects.toThrow('migration failed');
+      for (const action of ['restart', 'check', 'switchLink', 'save', 'stopNew'] as const)
+        expect(ops[action]).not.toHaveBeenCalled();
+    },
+  );
   it('saves only after every verification passes', async () => {
     const order = [];
     const ops = operations();
@@ -1084,6 +1109,7 @@ describe('release switching', () => {
       // failed release's paths.
       await expect(
         activate({
+          migrate: vi.fn(),
           release: next,
           previous,
           restart: (directory) => switchRelease(directory, fake.pm2),
@@ -1118,6 +1144,7 @@ describe('release switching', () => {
       // release's process state being sane.
       await expect(
         activate({
+          migrate: vi.fn(),
           release: next,
           previous,
           restart: async (directory) => {
@@ -1150,6 +1177,7 @@ describe('release switching', () => {
 
       await expect(
         activate({
+          migrate: vi.fn(),
           release: next,
           previous,
           restart: (directory) => switchRelease(directory, fake.pm2),
@@ -1170,6 +1198,7 @@ describe('release switching', () => {
 
       await expect(
         activate({
+          migrate: vi.fn(),
           release: next,
           previous: null,
           restart: (directory) => switchRelease(directory, fake.pm2),
@@ -1384,5 +1413,82 @@ describe('migration safety', () => {
     } finally {
       rmSync(directory, { recursive: true });
     }
+  });
+});
+
+describe('controlled production migration execution', () => {
+  const directories: string[] = [];
+  afterAll(() => {
+    for (const directory of directories) rmSync(directory, { recursive: true, force: true });
+  });
+  function fixture(
+    configuration = 'DATABASE_URL="postgresql://fixture:secret@localhost:5432/disposable"\n',
+  ) {
+    const release = mkdtempSync(join(tmpdir(), 'migration-execution-'));
+    directories.push(release);
+    mkdirSync(join(release, 'infrastructure'));
+    mkdirSync(join(release, 'packages/database/prisma/migrations/reviewed'), { recursive: true });
+    writeFileSync(
+      join(release, 'infrastructure/migrations-reviewed.json'),
+      JSON.stringify({ migrations: ['reviewed'] }),
+    );
+    const envFile = join(release, '.env');
+    writeFileSync(envFile, configuration);
+    return { release, envFile };
+  }
+  it('uses the production file URL instead of ambient configuration and captures output', () => {
+    const input = fixture();
+    const execute = vi.fn();
+    vi.stubEnv('DATABASE_URL', 'postgresql://wrong:wrong@other/wrong');
+    try {
+      migrateReviewedRelease({ ...input, execute });
+      expect(execute).toHaveBeenCalledExactlyOnceWith(
+        'npm',
+        ['run', 'prisma:migrate:deploy'],
+        expect.objectContaining({
+          cwd: input.release,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 1800000,
+          env: expect.objectContaining({
+            DATABASE_URL: 'postgresql://fixture:secret@localhost:5432/disposable',
+            NODE_ENV: 'production',
+          }),
+        }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('fails without exposing credentials from child-process errors', () => {
+    const input = fixture();
+    const execute = vi.fn(() => {
+      throw new Error('postgresql://fixture:secret@localhost:5432/disposable');
+    });
+    expect(() => migrateReviewedRelease({ ...input, execute })).toThrow(
+      'migration failed; activation was not attempted',
+    );
+    try {
+      migrateReviewedRelease({ ...input, execute });
+    } catch (error) {
+      expect(String(error)).not.toContain('secret');
+      expect(error).not.toHaveProperty('cause');
+    }
+  });
+  it.each(['', 'DATABASE_URL=invalid', 'DATABASE_URL=https://example.com/db'])(
+    'rejects invalid production configuration (%s)',
+    (configuration) => {
+      const execute = vi.fn();
+      expect(() => migrateReviewedRelease({ ...fixture(configuration), execute })).toThrow(
+        'DATABASE_URL is missing or invalid',
+      );
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
+  it('refuses unreviewed SQL before running Prisma', () => {
+    const input = fixture();
+    mkdirSync(join(input.release, 'packages/database/prisma/migrations/unreviewed'));
+    const execute = vi.fn();
+    expect(() => migrateReviewedRelease({ ...input, execute })).toThrow('Unreviewed migration');
+    expect(execute).not.toHaveBeenCalled();
   });
 });

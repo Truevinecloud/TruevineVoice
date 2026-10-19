@@ -380,8 +380,8 @@ hosted runner and an empty local Docker daemon, and fails elsewhere. See the
 > `npm run typecheck` and `npm run test` build `packages/*` first, because apps
 > resolve `@truevine/*` through their built `dist` output.
 >
-> `npm run prisma:migrate:deploy` is a supervised operator action. It is not run
-> by CI, and it is never the right command against a database you did not create.
+> `npm run prisma:migrate:deploy` runs only in controlled environments. The protected
+> deployment executes approved migrations before activation; see ADR 0011.
 
 ---
 
@@ -605,4 +605,5 @@ See [production setup, secrets, routing and rollback](./docs/runbooks/production
 
 `npm test` also runs deployment safety tests. Deploy commands require the
 server-local `deployment.json`, existing readable `.env`, matching Node/npm,
-and PM2. They never reset Git, run development Compose, or apply migrations.
+and PM2. Deploy applies approved migrations before activation; rollback changes code only.
+They never reset Git or run development Compose. See [ADR 0011](./docs/adr/0011-reviewed-deployment-migrations.md).
