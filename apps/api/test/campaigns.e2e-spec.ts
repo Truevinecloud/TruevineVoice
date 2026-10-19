@@ -521,13 +521,26 @@ describe('campaign routes: audit over HTTP', () => {
 
 describe('campaign routes: session and CSRF', () => {
   it('refuses every campaign route with no session', async () => {
-    for (const path of [campaignsPath, `${campaignsPath}/${randomUUID()}`]) {
-      const get = await request(server).get(path);
-      expect(get.status, path).toBe(401);
+    const item = `${campaignsPath}/${randomUUID()}`;
 
-      const post = await request(server).post(path).send({ name: 'x' });
-      expect(post.status, path).toBe(401);
-    }
+    // The routes that exist, with the methods they actually answer. An
+    // unmatched method-and-path never reaches the guards - the router
+    // answers 404 for a route that does not exist - so POST on a campaign
+    // item is deliberately not part of this list.
+    const list = await request(server).get(campaignsPath);
+    expect(list.status, 'GET list').toBe(401);
+
+    const create = await request(server).post(campaignsPath).send({ name: 'x' });
+    expect(create.status, 'POST list').toBe(401);
+
+    const fetched = await request(server).get(item);
+    expect(fetched.status, 'GET item').toBe(401);
+
+    const patched = await request(server).patch(item).send({ name: 'x' });
+    expect(patched.status, 'PATCH item').toBe(401);
+
+    const removed = await request(server).delete(item);
+    expect(removed.status, 'DELETE item').toBe(401);
   });
 
   it('refuses a create with no CSRF token', async () => {
@@ -545,6 +558,8 @@ describe('campaign routes: session and CSRF', () => {
 
 describe('campaign teardown', () => {
   it('removed every campaign the suite created', async () => {
+    await removeFixtures(database);
+
     const remaining = await database.campaign.count({
       where: { organizationId: { in: [ORG, ORG_B] } },
     });
