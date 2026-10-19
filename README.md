@@ -342,6 +342,13 @@ See [`.github/workflows/README.md`](./.github/workflows/README.md) for the desig
 notes and [ADR 0004](./docs/adr/0004-github-actions-ci.md) for why the E2E job
 starts the repository's own Compose stack rather than a `services:` container.
 
+The separate `PostgreSQL restore integration` workflow tests real backup/restore
+and failure cleanup on a fresh GitHub-hosted Ubuntu runner. It uses no secrets,
+deployment jobs or migrations. `npm run test:restore-integration:checks` runs its
+Docker-free safety tests locally; `npm run test:restore-integration` requires that
+hosted runner and an empty local Docker daemon, and fails elsewhere. See the
+[workflow notes](.github/workflows/README.md#restore-integrationyml).
+
 ### Formatting
 
 | Command                | Description                            |
