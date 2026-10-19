@@ -167,6 +167,73 @@ describe('ownership is not an administrative capability', () => {
   });
 });
 
+describe('the Campaign Manager matrix is exactly as specified', () => {
+  // Written out independently of the registry, mirroring the ADMIN block above
+  // (RBAC-003 acceptance: allow/deny matrix). The per-permission `can` tests
+  // elsewhere prove single cells; this proves the whole row, so adding a
+  // permission to CAMPAIGN_MANAGER - or removing one - fails here instead of
+  // quietly widening or narrowing what a campaign manager may do.
+  it('grants precisely these six permissions', () => {
+    const expected = [
+      'organization:read',
+      'campaign:read',
+      'campaign:create',
+      'campaign:update',
+      'campaign:delete',
+      'reporting:read',
+    ];
+
+    expect([...ORGANIZATION_ROLE_PERMISSIONS.CAMPAIGN_MANAGER].sort()).toEqual([...expected].sort());
+  });
+
+  it('withholds membership, ownership, money and profile control by omission', () => {
+    // The rows above deliberately left out. Each is a "prohibited access" item
+    // in the RBAC-003 requirement, stated here so removing it from the omission
+    // list fails loudly.
+    expect(can('CAMPAIGN_MANAGER', 'member:read')).toBe(false);
+    expect(can('CAMPAIGN_MANAGER', 'member:invite')).toBe(false);
+    expect(can('CAMPAIGN_MANAGER', 'member:update')).toBe(false);
+    expect(can('CAMPAIGN_MANAGER', 'member:remove')).toBe(false);
+    expect(can('CAMPAIGN_MANAGER', 'invitation:read')).toBe(false);
+    expect(can('CAMPAIGN_MANAGER', 'invitation:revoke')).toBe(false);
+    expect(can('CAMPAIGN_MANAGER', 'ownership:transfer')).toBe(false);
+    expect(can('CAMPAIGN_MANAGER', 'organization:update')).toBe(false);
+    expect(can('CAMPAIGN_MANAGER', 'billing:read')).toBe(false);
+    expect(can('CAMPAIGN_MANAGER', 'billing:update')).toBe(false);
+    expect(can('CAMPAIGN_MANAGER', 'wallet:read')).toBe(false);
+  });
+
+  it('holds no membership-administration or money permission of any kind', () => {
+    const held = ORGANIZATION_ROLE_PERMISSIONS.CAMPAIGN_MANAGER as readonly string[];
+
+    expect(held.filter((p) => p.startsWith('member:') || p.startsWith('invitation:'))).toEqual([]);
+    expect(held.filter((p) => p.startsWith('billing:') || p.startsWith('wallet:'))).toEqual([]);
+    expect(held.filter((p) => p.startsWith('platform:'))).toEqual([]);
+  });
+});
+
+describe('a Billing member cannot reach campaigns', () => {
+  // The required billing-403 half at the registry level: BILLING exists to see
+  // money, not to run campaigns, and no `campaign:*` permission may creep into
+  // its row. The guard/e2e suites assert the same property as HTTP 403s.
+  it('holds none of the campaign permissions', () => {
+    for (const permission of ['campaign:read', 'campaign:create', 'campaign:update', 'campaign:delete'] as const) {
+      expect(can('BILLING', permission)).toBe(false);
+    }
+  });
+
+  it('cannot report either', () => {
+    expect(can('BILLING', 'reporting:read')).toBe(false);
+  });
+
+  it('is not secretly an admin by another name', () => {
+    expect(can('BILLING', 'member:invite')).toBe(false);
+    expect(can('BILLING', 'member:update')).toBe(false);
+    expect(can('BILLING', 'ownership:transfer')).toBe(false);
+    expect(can('BILLING', 'organization:update')).toBe(false);
+  });
+});
+
 describe('the Organization Admin matrix is exactly as specified', () => {
   // Written out independently of the registry. The per-permission `can` tests
   // elsewhere prove single cells; this proves the whole row, so adding a

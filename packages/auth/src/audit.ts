@@ -34,6 +34,12 @@ export const AUDIT_ACTIONS = [
   // Organization profile.
   'organization.profile_updated',
 
+  // Campaigns (RBAC-003). Campaign rows are tenant-owned; every mutation is
+  // recorded against the organization that performed it.
+  'campaign.created',
+  'campaign.updated',
+  'campaign.deleted',
+
   // Membership and invitations.
   'organization.member.invited',
   'organization.member.role_changed',

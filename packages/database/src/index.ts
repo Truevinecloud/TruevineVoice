@@ -32,6 +32,7 @@ export type { PrismaClient };
 export type {
   AuditOutcome,
   AuditScope,
+  CampaignStatus,
   MembershipRole,
   PlatformRole,
   UserStatus,
