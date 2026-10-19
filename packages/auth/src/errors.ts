@@ -35,6 +35,8 @@ export const AUTH_ERROR_CODES = [
   'cannot_remove_last_owner',
   'invitation_not_found',
   'cannot_delegate_beyond_own_authority',
+  'campaign_not_found',
+  'invalid_campaign',
 ] as const;
 
 export type AuthErrorCode = (typeof AUTH_ERROR_CODES)[number];
@@ -126,4 +128,22 @@ export function cannotRemoveLastOwner(): AuthError {
     'An organization must always have at least one owner.',
     409,
   );
+}
+
+/**
+ * No such campaign inside the caller's organization.
+ *
+ * 404 rather than 403, for the same reason `invitation_not_found` is: the guard
+ * has already proved the caller holds the campaign permission in *this*
+ * organization, so the only remaining explanation for a miss is that the id is
+ * wrong or belongs to another tenant - and the store's organization-scoped
+ * lookup is what keeps the two indistinguishable from outside.
+ */
+export function campaignNotFound(): AuthError {
+  return new AuthError('campaign_not_found', 'No such campaign.', 404);
+}
+
+/** A campaign field failed validation. Never echoes the offending value. */
+export function invalidCampaign(message: string): AuthError {
+  return new AuthError('invalid_campaign', message, 400);
 }

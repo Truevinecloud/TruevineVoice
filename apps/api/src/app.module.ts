@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AppConfigModule } from './config/app-config.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { CampaignsModule } from './campaigns/campaigns.module.js';
 import { HealthModule } from './health/health.module.js';
 import { InfrastructureModule } from './infrastructure/infrastructure.module.js';
 import { OrganizationsModule } from './organizations/organizations.module.js';
@@ -15,6 +16,13 @@ import { OrganizationsModule } from './organizations/organizations.module.js';
  * module's internals.
  */
 @Module({
-  imports: [AppConfigModule, InfrastructureModule, HealthModule, AuthModule, OrganizationsModule],
+  imports: [
+    AppConfigModule,
+    InfrastructureModule,
+    HealthModule,
+    AuthModule,
+    OrganizationsModule,
+    CampaignsModule,
+  ],
 })
 export class AppModule {}

@@ -368,6 +368,172 @@ describe('OrganizationGuard', () => {
     });
   });
 
+  describe('RBAC-003: Campaign Manager reach', () => {
+    // The campaign permissions, decided through the guard for every
+    // organization role that matters to the RBAC-003 acceptance criteria.
+    // Written out independently of the registry, so a registry edit that widens
+    // a campaign permission - or narrows one the campaign manager is supposed to
+    // hold - fails here rather than silently changing behaviour.
+    const CAMPAIGN_PERMISSIONS = [
+      'campaign:read',
+      'campaign:create',
+      'campaign:update',
+      'campaign:delete',
+    ] as const;
+
+    /**
+     * Roles that must never reach a campaign *mutation*. `VIEWER` is
+     * deliberately absent: read-only visibility of campaigns is part of what a
+     * viewer is, and the registry grants it `campaign:read` on purpose. The
+     * registry - not this test - is the design authority for that row.
+     */
+    const NO_CAMPAIGN_MUTATION_ROLES = ['BILLING', 'VIEWER'] as const;
+
+    /** `BILLING` must not reach even the read route. */
+    const NO_CAMPAIGN_ACCESS_ROLES = ['BILLING'] as const;
+
+    /** What `CAMPAIGN_MANAGER` must not hold, stated as omissions from its row. */
+    const CAMPAIGN_MANAGER_PROHIBITED = [
+      'member:read',
+      'member:invite',
+      'member:update',
+      'member:remove',
+      'invitation:read',
+      'invitation:revoke',
+      'ownership:transfer',
+      'organization:update',
+      'billing:read',
+      'billing:update',
+      'wallet:read',
+    ] as const;
+
+    const asMember = (role: 'CAMPAIGN_MANAGER' | (typeof NO_CAMPAIGN_MUTATION_ROLES)[number]) => {
+      organizations.memberships.push(
+        aMembership({ organizationId: 'org-1', userId: 'user-1', role }),
+      );
+    };
+
+    const probe = (permission: string, organizationId = 'org-1') =>
+      httpContext({
+        handler: handlerRequiring(ORGANIZATION_PERMISSION, permission),
+        params: { organizationId },
+        principal: { userId: 'user-1' },
+      });
+
+    for (const permission of CAMPAIGN_PERMISSIONS) {
+      it(`allows CAMPAIGN_MANAGER -> ${permission}`, async () => {
+        asMember('CAMPAIGN_MANAGER');
+
+        await expect(guard.canActivate(probe(permission).context)).resolves.toBe(true);
+      });
+    }
+
+    // Mutations are refused for both roles; read is refused only for BILLING.
+    const mutationPermissions = CAMPAIGN_PERMISSIONS.filter((p) => p !== 'campaign:read');
+
+    for (const permission of mutationPermissions) {
+      for (const role of NO_CAMPAIGN_MUTATION_ROLES) {
+        it(`refuses ${role} -> ${permission} with 403`, async () => {
+          asMember(role);
+
+          await expect(guard.canActivate(probe(permission).context)).rejects.toMatchObject({
+            status: 403,
+            code: 'permission_denied',
+          });
+        });
+      }
+    }
+
+    for (const role of NO_CAMPAIGN_ACCESS_ROLES) {
+      it(`refuses ${role} -> campaign:read with 403`, async () => {
+        asMember(role);
+
+        await expect(guard.canActivate(probe('campaign:read').context)).rejects.toMatchObject({
+          status: 403,
+          code: 'permission_denied',
+        });
+      });
+    }
+
+    it('allows VIEWER -> campaign:read, because read-only visibility is deliberate', async () => {
+      asMember('VIEWER');
+
+      await expect(guard.canActivate(probe('campaign:read').context)).resolves.toBe(true);
+    });
+
+    for (const permission of CAMPAIGN_MANAGER_PROHIBITED) {
+      it(`refuses CAMPAIGN_MANAGER -> ${permission} with 403`, async () => {
+        asMember('CAMPAIGN_MANAGER');
+
+        await expect(guard.canActivate(probe(permission).context)).rejects.toMatchObject({
+          status: 403,
+          code: 'permission_denied',
+        });
+      });
+    }
+
+    it('records the campaign denial with the permission it refused and its reason', async () => {
+      asMember('BILLING');
+
+      await expect(guard.canActivate(probe('campaign:create').context)).rejects.toMatchObject({
+        status: 403,
+      });
+
+      expect(audit.events[0]).toMatchObject({
+        organizationId: 'org-1',
+        actorUserId: 'user-1',
+        action: 'authorization.denied',
+        outcome: 'DENIED',
+        metadata: { permission: 'campaign:create', reason: 'insufficient_permission' },
+      });
+    });
+
+    it('refuses a CAMPAIGN_MANAGER of one tenant reaching another tenant\'s campaigns', async () => {
+      // Being a campaign manager of *your own* organization is not a pass
+      // anywhere else. The role is only ever read after the membership lookup,
+      // so a foreign path never even reaches the permission check.
+      asMember('CAMPAIGN_MANAGER');
+      organizations.organizations.push({
+        id: 'org-b',
+        slug: 'beta',
+        name: 'Beta',
+        suspendedAt: null,
+      });
+
+      await expect(guard.canActivate(probe('campaign:read', 'org-b').context)).rejects.toMatchObject({
+        status: 403,
+        code: 'permission_denied',
+      });
+
+      expect(audit.events[0]).toMatchObject({
+        organizationId: 'org-b',
+        action: 'authorization.denied',
+        outcome: 'DENIED',
+        metadata: { reason: 'no_membership' },
+      });
+    });
+
+    it('still refuses before the current terms are accepted', async () => {
+      // The campaign routes carry `@RequireAcceptedTerms()`; reaching the
+      // permission check without accepted terms must not be possible.
+      asMember('CAMPAIGN_MANAGER');
+
+      const handler = handlerRequiring(ORGANIZATION_PERMISSION, 'campaign:create');
+      Reflect.defineMetadata('truevine:accepted-terms', true, handler);
+
+      const { context } = httpContext({
+        handler,
+        params: { organizationId: 'org-1' },
+        principal: { userId: 'user-1' },
+      });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({
+        code: 'terms_acceptance_required',
+        status: 403,
+      });
+    });
+  });
+
   describe('terms acceptance', () => {
     it('refuses protected use before the current terms are accepted', async () => {
       seedOwner(auth, organizations);
@@ -579,6 +745,29 @@ describe('PlatformGuard', () => {
       handler: handlerRequiring(PLATFORM_PERMISSION, 'platform:admin:manage'),
       principal: { userId: 'user-1', platformRole: null },
       organization: { organizationId: 'org-1', role: 'ADMIN' },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({
+      status: 403,
+      code: 'permission_denied',
+    });
+
+    expect(audit.events[0]).toMatchObject({
+      organizationId: 'org-1',
+      action: 'platform.access.denied',
+      scope: 'PLATFORM',
+      outcome: 'DENIED',
+    });
+  });
+
+  it('refuses a Campaign Manager probing platform administration', async () => {
+    // RBAC-003: campaign permissions live in the organization namespace; none
+    // of them can satisfy a platform requirement, and the campaign manager
+    // holds no platform role.
+    const { context } = httpContext({
+      handler: handlerRequiring(PLATFORM_PERMISSION, 'platform:admin:manage'),
+      principal: { userId: 'user-1', platformRole: null },
+      organization: { organizationId: 'org-1', role: 'CAMPAIGN_MANAGER' },
     });
 
     await expect(guard.canActivate(context)).rejects.toMatchObject({

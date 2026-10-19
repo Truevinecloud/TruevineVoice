@@ -64,8 +64,10 @@ export {
 export {
   AuthError,
   AUTH_ERROR_CODES,
+  campaignNotFound,
   cannotDelegate,
   cannotRemoveLastOwner,
+  invalidCampaign,
   invalidCredentials,
   passwordTooWeak,
   permissionDenied,

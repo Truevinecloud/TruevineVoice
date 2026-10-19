@@ -10,7 +10,14 @@
 // Membership remains the tenancy anchor: it is what makes an organizationId a
 // real relationship rather than a loose column.
 //
-// Deliberately absent: Contact, Campaign, Call, Audio, Wallet, LedgerEntry,
+// CAMPAIGNS (added 2026-10-19, RBAC-003). The first tenant-owned resource
+// beyond the tenancy core itself. It exists so the CAMPAIGN_MANAGER role has
+// something real to exercise: the permission registry already carried
+// `campaign:*`, but a permission with no endpoint is untested by construction.
+// Contact and Audio remain deliberately absent - they need permission-registry
+// decisions (contact:*, audio:*) that RBAC-003 does not make.
+//
+// Deliberately absent: Contact, Call, Audio, Wallet, LedgerEntry,
 // Billing, Voice, SMS, WhatsApp and every Africa's Talking concept. Money rules
 // (AGENTS.md 6-7) and idempotency (AGENTS.md 9) are not yet expressed anywhere
 // in this schema, so no financial table is introduced before they are. The
@@ -140,6 +147,7 @@ model User {
   invitationsAccepted  Invitation[]                @relation("InvitationAcceptedBy")
   auditEvents          SecurityAuditEvent[]
   identityAuditEvents  IdentityAuditEvent[]
+  campaignsCreated     Campaign[]
 
   @@map("users")
 }
@@ -399,6 +407,54 @@ model Membership {
   @@map("memberships")
 }
 
+/// Lifecycle state of a campaign.
+///
+/// Minimal on purpose. RBAC-003 needs a state a Campaign Manager may move a
+/// campaign through - draft, running, finished - so "create, run and manage"
+/// is expressible over HTTP. Transition rules (which step may follow which) are
+/// product logic and deliberately unconstrained here; constraining them is a
+/// later decision, not an implied one.
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+}
+
+/// TENANT-OWNED. A campaign belonging to exactly one organization.
+///
+/// Follows the Invitation shape: the composite primary key leads with
+/// `organization_id` (ADR 0006), so a row cannot exist without an organization
+/// and the tenant scope is part of the row's identity rather than a column a
+/// query might forget. Every lookup takes the organization id from the
+/// validated path, so a campaign id guessed from another tenant resolves to
+/// nothing.
+///
+/// No money, no provider reference, no recipient data: those belong to the
+/// wallet, telephony and contact models that are deliberately not introduced
+/// yet. This table is the RBAC surface, not the product.
+model Campaign {
+  // No standalone `id` primary key: organization scope plus id is the identity,
+  // exactly as for Membership and Invitation.
+  organizationId String         @map("organization_id") @db.Uuid
+  id             String         @default(uuid()) @db.Uuid
+  /// 1-200 characters, validated in the service before the row is written.
+  name           String         @db.VarChar(200)
+  status         CampaignStatus @default(DRAFT)
+  /// Provenance. `RESTRICT` rather than `SET NULL`: a campaign without a
+  /// recorded creator is not a state this codebase can produce, and no
+  /// user-deletion path exists that would need the softer constraint.
+  createdById    String         @map("created_by_user_id") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@id([organizationId, id])
+  @@index([organizationId])
+  @@map("campaigns")
+}
+
 /// The unit of tenancy. Every other tenant-owned row hangs off exactly one of
 /// these.
 ///
@@ -423,6 +479,7 @@ model Organization {
   memberships        Membership[]
   invitations        Invitation[]
   securityAuditEvents SecurityAuditEvent[]
+  campaigns          Campaign[]
 
   @@map("organizations")
 }
