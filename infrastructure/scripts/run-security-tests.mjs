@@ -28,7 +28,10 @@ const boundary = allMigrations.indexOf('20261016170000_security_atomicity');
 if (boundary < 0) throw new Error('Security migration missing');
 const migrations = allMigrations.slice(0, boundary);
 const remediation = allMigrations.slice(boundary);
-if (remediation.join(',') !== '20261016170000_security_atomicity,20261016171000_invitation_origin')
+if (
+  remediation.join(',') !==
+  '20261016170000_security_atomicity,20261016171000_invitation_origin,20261019120000_campaigns_rbac_003'
+)
   throw new Error('Review migration rehearsal when adding a later migration.');
 function psql(database, sql, expectFailure = false) {
   const result = spawnSync(
