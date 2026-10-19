@@ -22,6 +22,7 @@
     "20261016142500_identity_audit_fk_restrict",
     "20261016153000_organization_suspension",
     "20261016170000_security_atomicity",
-    "20261016171000_invitation_origin"
+    "20261016171000_invitation_origin",
+    "20261019120000_campaigns_rbac_003"
   ]
 }
