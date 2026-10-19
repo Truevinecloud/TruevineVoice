@@ -77,6 +77,31 @@ their rationale live in [`docs/adr/`](./docs/adr/).
 
 ---
 
+## RBAC-004 customer billing (development)
+
+The customer Billing page at `/app/billing` supports wallet balance, paginated
+transaction history, billing details, and pending top-up requests for OWNER and
+BILLING memberships. API routes are organization-scoped and recheck permissions,
+terms and CSRF. Amounts are UGX integer strings; balance is derived from an
+append-only PostgreSQL ledger. A billing role grants no campaign/contact access.
+
+**Payment collection is not integrated.** Requests remain pending and never
+credit a wallet. Invoices and usage charging are not implemented. See
+[ADR 0012](./docs/adr/0012-customer-billing-ledger.md). The additive RBAC-004 migration
+is unapproved and must not be applied to production with this change.
+
+`npm test` covers service/HTTP permission and customer-page tests without Docker.
+`npm run test:billing:e2e` runs the focused real PostgreSQL billing journey
+(also included in `npm run test:e2e`): use a disposable
+loopback test database with the new migration applied, `NODE_ENV=test`, and
+`BILLING_E2E_DISPOSABLE=1` (GitHub CI already uses disposable infrastructure).
+Tests fail loudly if those requirements are missing. Do not point them at
+production or a database whose test records cannot be discarded.
+
+## RBAC-005 customer Viewer (development)
+
+VIEWER memberships can open the organization dashboard, read campaign status and dates, and view a campaign status summary at `/app/reports`. API reads are scoped to the authorized organization and guarded by `campaign:read` or `reporting:read`; the role has no campaign, billing, wallet, organization, or membership write permission. Reports currently summarize campaign records only. Campaign execution, call outcomes, and performance reporting are not implemented.
+
 ## Requirements
 
 | Tool           | Version     | Notes                                                              |

@@ -40,7 +40,11 @@ import {
 } from '../auth/permission.decorators.js';
 import { SessionGuard } from '../auth/session.guard.js';
 
-import { CampaignsService, type CampaignView } from './campaigns.service.js';
+import {
+  CampaignsService,
+  type CampaignStatusReport,
+  type CampaignView,
+} from './campaigns.service.js';
 
 /**
  * Guards applied to every campaign-scoped route.
@@ -64,6 +68,17 @@ export class CampaignsController {
     @CurrentOrganization() context: { organizationId: string },
   ): Promise<readonly CampaignView[]> {
     return this.campaigns.list(context.organizationId);
+  }
+
+  /** `GET /organizations/:organizationId/reports/campaign-status` */
+  @Get('organizations/:organizationId/reports/campaign-status')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('reporting:read')
+  async statusReport(
+    @CurrentOrganization() context: { organizationId: string },
+  ): Promise<CampaignStatusReport> {
+    return this.campaigns.statusReport(context.organizationId);
   }
 
   /** `POST /organizations/:organizationId/campaigns` */

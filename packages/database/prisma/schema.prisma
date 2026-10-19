@@ -148,6 +148,7 @@ model User {
   auditEvents          SecurityAuditEvent[]
   identityAuditEvents  IdentityAuditEvent[]
   campaignsCreated     Campaign[]
+  topUpRequests        TopUpRequest[]
 
   @@map("users")
 }
@@ -480,6 +481,51 @@ model Organization {
   invitations        Invitation[]
   securityAuditEvents SecurityAuditEvent[]
   campaigns          Campaign[]
+  walletEntries      WalletEntry[]
+  topUpRequests      TopUpRequest[]
+  billingProfile     BillingProfile?
 
   @@map("organizations")
+}
+
+/// Append-only accounting. Balance is SUM(amount_minor), never a mutable column.
+model WalletEntry {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  amountMinor BigInt @map("amount_minor")
+  currency String @db.VarChar(3)
+  reference String @db.VarChar(200)
+  description String @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  @@id([organizationId, id])
+  @@unique([organizationId, reference])
+  @@index([organizationId, createdAt, id])
+  @@map("wallet_entries")
+}
+
+/// A durable customer request, not payment confirmation and never a wallet credit.
+model TopUpRequest {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  idempotencyKey String @map("idempotency_key") @db.Uuid
+  amountMinor BigInt @map("amount_minor")
+  currency String @db.VarChar(3)
+  createdById String @map("created_by_user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  @@id([organizationId, id])
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, createdAt, id])
+  @@map("top_up_requests")
+}
+
+model BillingProfile {
+  organizationId String @id @map("organization_id") @db.Uuid
+  name String @db.VarChar(200)
+  email String @db.VarChar(254)
+  address String @db.VarChar(500)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  @@map("billing_profiles")
 }

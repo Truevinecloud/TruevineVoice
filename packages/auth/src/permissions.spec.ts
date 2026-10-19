@@ -94,6 +94,12 @@ describe('an Organization Owner is confined to its own organization', () => {
 });
 
 describe('a Viewer cannot mutate data', () => {
+  it('has exactly the approved dashboard, campaign, report, and team read permissions', () => {
+    expect([...ORGANIZATION_ROLE_PERMISSIONS.VIEWER].sort()).toEqual(
+      ['campaign:read', 'member:read', 'organization:read', 'reporting:read'].sort(),
+    );
+  });
+
   it('holds no mutating permission', () => {
     const held = ORGANIZATION_ROLE_PERMISSIONS.VIEWER;
 
@@ -183,7 +189,9 @@ describe('the Campaign Manager matrix is exactly as specified', () => {
       'reporting:read',
     ];
 
-    expect([...ORGANIZATION_ROLE_PERMISSIONS.CAMPAIGN_MANAGER].sort()).toEqual([...expected].sort());
+    expect([...ORGANIZATION_ROLE_PERMISSIONS.CAMPAIGN_MANAGER].sort()).toEqual(
+      [...expected].sort(),
+    );
   });
 
   it('withholds membership, ownership, money and profile control by omission', () => {
@@ -217,7 +225,12 @@ describe('a Billing member cannot reach campaigns', () => {
   // money, not to run campaigns, and no `campaign:*` permission may creep into
   // its row. The guard/e2e suites assert the same property as HTTP 403s.
   it('holds none of the campaign permissions', () => {
-    for (const permission of ['campaign:read', 'campaign:create', 'campaign:update', 'campaign:delete'] as const) {
+    for (const permission of [
+      'campaign:read',
+      'campaign:create',
+      'campaign:update',
+      'campaign:delete',
+    ] as const) {
       expect(can('BILLING', permission)).toBe(false);
     }
   });

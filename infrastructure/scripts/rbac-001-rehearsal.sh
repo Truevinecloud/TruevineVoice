@@ -316,7 +316,7 @@ scenario_fresh_full_deploy() {
   run_deploy "$REAL_CONFIG" "$log"
   assert_rc "S1  migrate deploy succeeds on an empty database" 0 "$?"
 
-  assert_sql "S1  ledger records 8 cleanly applied migrations" "8" \
+  assert_sql "S1  ledger records 9 cleanly applied migrations" "9" \
     "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;"
   assert_sql "S1  MembershipRole is the post-swap label set" \
     "OWNER,ADMIN,CAMPAIGN_MANAGER,BILLING,VIEWER" \
@@ -353,7 +353,7 @@ scenario_fresh_full_deploy() {
 }
 
 scenario_populated_valid() {
-  say "S2  populated, valid database — apply 1..4, seed synthetic rows, then 5..8"
+  say "S2  populated, valid database — apply 1..4, seed synthetic rows, then 5..9"
   reset_db
   prepare_migrations_dir
   add_migration 20261014042915_tenancy_core
@@ -387,7 +387,7 @@ SQL
   add_all_real_migrations
   local log2="$LOG_DIR/s2b.log"
   run_deploy "$WORK/prisma.config.ts" "$log2"
-  assert_rc "S2  deploy of 5..8 onto the populated database succeeds" 0 "$?"
+  assert_rc "S2  deploy of 5..9 onto the populated database succeeds" 0 "$?"
 
   assert_sql "S2  organizations preserved" "2" "SELECT count(*) FROM organizations;"
   assert_sql "S2  memberships preserved"   "3" "SELECT count(*) FROM memberships;"
@@ -397,7 +397,7 @@ SQL
     "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='organizations' AND column_name='suspended_at';"
   assert_present "S2  memberships_single_owner index added" \
     "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname='memberships_single_owner';"
-  assert_sql "S2  ledger records 8 cleanly applied migrations" "8" \
+  assert_sql "S2  ledger records 9 cleanly applied migrations" "9" \
     "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;"
 }
 

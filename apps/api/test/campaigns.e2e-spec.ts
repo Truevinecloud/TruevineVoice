@@ -298,6 +298,9 @@ describe('campaign routes: the roles that must not mutate them', () => {
     const list = await caller.get(campaignsPath);
     expect(list.status).toBe(200);
     expect(list.body.some((c: { id: string }) => c.id === campaignId)).toBe(true);
+    const report = await caller.get(`/organizations/${ORG}/reports/campaign-status`);
+    expect(report.status).toBe(200);
+    expect(report.body).toMatchObject({ total: expect.any(Number), draft: expect.any(Number) });
 
     const create = await caller.post(campaignsPath).send({ name: 'By viewer' });
     expect(create.status).toBe(403);
@@ -313,6 +316,46 @@ describe('campaign routes: the roles that must not mutate them', () => {
     const owner = await asUser(EMAIL_OWNER);
     const after = await owner.get(`${campaignsPath}/${campaignId}`);
     expect(after.body.name).toBe('Read-only visible');
+  });
+
+  it('refuses Viewer billing, top-up, organization, and membership administration actions', async () => {
+    const caller = await asUser(EMAIL_VIEWER);
+    const item = `${campaignsPath}/${randomUUID()}`;
+    const denied = [
+      await caller.get(`/organizations/${ORG}/billing`),
+      await caller.get(`/organizations/${ORG}/wallet`),
+      await caller.post(`/organizations/${ORG}/wallet/top-ups`).send({
+        amountMinor: '1000',
+        currency: 'UGX',
+        idempotencyKey: randomUUID(),
+      }),
+      await caller.patch(`/organizations/${ORG}/billing`).send({ name: 'Changed' }),
+      await caller.patch(`/organizations/${ORG}`).send({ name: 'Changed' }),
+      await caller.post(`/organizations/${ORG}/invitations`).send({
+        email: 'new@example.invalid',
+        role: 'VIEWER',
+      }),
+      await caller.patch(`/organizations/${ORG}/members/${USER_ADMIN}`).send({ role: 'VIEWER' }),
+      await caller.delete(`/organizations/${ORG}/members/${USER_ADMIN}`),
+      await caller.post(campaignsPath).send({ name: 'Forbidden' }),
+      await caller.patch(item).send({ status: 'ACTIVE' }),
+      await caller.delete(item),
+      await caller
+        .post(`/organizations/${ORG}/ownership/transfer`)
+        .send({ newOwnerId: USER_ADMIN }),
+    ];
+
+    expect(denied.map((response) => response.status)).toEqual(
+      Array.from({ length: 12 }, () => 403),
+    );
+    expect(denied.every((response) => response.body.error.code === 'permission_denied')).toBe(true);
+  });
+
+  it('keeps Viewer campaign and report reads inside its organization', async () => {
+    const caller = await asUser(EMAIL_VIEWER);
+
+    expect((await caller.get(`/organizations/${ORG_B}/campaigns`)).status).toBe(403);
+    expect((await caller.get(`/organizations/${ORG_B}/reports/campaign-status`)).status).toBe(403);
   });
 });
 
@@ -506,8 +549,7 @@ describe('campaign routes: audit over HTTP', () => {
     });
 
     const campaignDenial = rows.find(
-      (row) =>
-        (row.metadata as { permission?: string } | null)?.permission === 'campaign:create',
+      (row) => (row.metadata as { permission?: string } | null)?.permission === 'campaign:create',
     );
 
     expect(campaignDenial).toBeDefined();
