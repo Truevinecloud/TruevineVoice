@@ -135,6 +135,24 @@ case "\$1" in
       case "\$a" in PING) echo PONG; exit 0;; esac
     done
     case "\$*" in
+      *psql*SELECT\ 1*)
+        name="\${2:-}"
+        if [ -f "\$S/containers/\$name" ] && [ "\$(getval -U)" = postgres ]; then
+          touch "\$S/readiness-started"
+          [ "$ready_sleep" != 0 ] && sleep "$ready_sleep"
+          probe="\$S/probes-\$name"; count=0
+          [ -f "\$probe" ] && count=\$(cat "\$probe")
+          count=\$((count+1)); echo "\$count" > "\$probe"
+          if [ "\$(mode)" = initializing ]; then
+            # pg_isready already accepts connections, but the DB does not yet
+            # exist; next it exists only on the temporary Unix-socket server.
+            [ "\$count" = 1 ] && { echo 'database does not exist' >&2; exit 2; }
+            if [ "\$(getval -h)" != 127.0.0.1 ]; then echo 1; exit 0; fi
+            [ "\$count" = 2 ] && { echo 'temporary server is socket-only' >&2; exit 2; }
+          fi
+          touch "\$S/ready-\$name"
+        fi
+        echo 1; exit 0;;
       *pg_restore*--list*)
         for i in \$(seq 1 11); do
           echo "\$i; 1259 100 TABLE public table_\$i truevine"
@@ -144,7 +162,12 @@ case "\$1" in
         echo '31; 1259 201 VIEW public report truevine'
         [ "\$(mode)" = faillist ] && exit 1
         exit 0;;
-      *pg_restore*) [ "\$(mode)" = failrestore ] && exit 1; exit 0;;
+      *pg_restore*)
+        [ "\$(mode)" = failrestore ] && exit 1
+        if [ "\$(mode)" = initializing ] && [ ! -f "\$S/ready-\${2:-}" ]; then
+          echo 'restore reached an uninitialized database' >&2; exit 1
+        fi
+        exit 0;;
       *psql*information_schema.tables*)
         [ "\$(mode)" = mismatch ] && { echo 10; exit 0; }
         echo 11; exit 0;;
@@ -252,11 +275,21 @@ left=$(ls "$STATE/containers" 2>/dev/null | wc -l | tr -d ' ')
 echo
 echo "=== 6. restore count and failure cleanup regressions ==="
 for command in verify-restore verify-volume; do
-  for mode in normal mismatch failrestore faillist; do
+  for mode in normal initializing mismatch failrestore faillist; do
     reset; mkfake
     echo "$mode" > "$STATE/mode"
-    want=1; [ "$mode" = normal ] && want=0; [ "$mode" = faillist ] && want=2
+    want=1; case "$mode" in normal|initializing) want=0;; faillist) want=2;; esac
     t "$command with $mode" "$want" bash "$SCRIPT" "$command" "$STATE/fake.dump"
+    if [ "$mode" = initializing ]; then
+      probes=0
+      for probe in "$STATE"/probes-*; do
+        [ -f "$probe" ] || continue
+        probes=$((probes+1))
+        [ "$(cat "$probe")" = 3 ] && ok "waited for the final server and target database" || bad "readiness accepted initialization too early"
+      done
+      expected_probes=1; [ "$command" = verify-volume ] && expected_probes=2
+      [ "$probes" = "$expected_probes" ] && ok "readiness verified for every created container" || bad "expected $expected_probes readiness probes, got $probes"
+    fi
     [ -z "$(ls -A "$STATE/containers")" ] && ok "no rehearsal containers remain" || bad "rehearsal container leaked"
     [ -z "$(ls -A "$STATE/volumes")" ] && ok "no rehearsal volumes remain" || bad "rehearsal volume leaked"
     [ -f "$STATE/fake.dump" ] && ok "backup preserved" || bad "backup removed"

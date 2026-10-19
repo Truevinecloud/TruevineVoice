@@ -279,7 +279,11 @@ fingerprint() {
 wait_for_pg() {
   local cname=$1 i
   for i in $(seq 1 90); do
-    if docker exec "$cname" pg_isready -U postgres -d "$PROD_DB_NAME" >/dev/null 2>&1; then
+    # The image's temporary initialization server accepts Unix-socket probes
+    # before POSTGRES_DB exists. Require SQL in that DB over container-local
+    # TCP, which is enabled only by the final server after initialization.
+    if docker exec "$cname" psql -h 127.0.0.1 -v ON_ERROR_STOP=1 \
+         -U postgres -d "$PROD_DB_NAME" -tAc 'SELECT 1;' >/dev/null 2>&1; then
       pass "$cname ready after ${i}s"; return 0
     fi
     sleep 1

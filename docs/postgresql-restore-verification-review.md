@@ -151,3 +151,74 @@ and runner availability can fail the hosted job; missing infrastructure fails
 loudly. A forcibly terminated runner ultimately discards its entire disposable
 environment, even if its cleanup step cannot execute. No Docker installation,
 production access, remote PR publication, push, merge or deployment was attempted.
+
+## Hosted initialization readiness correction
+
+Original publication: `23396ea1a6ad9504adaab10ce53af3fdde81782f`,
+[run 39218360186](https://github.com/Truevinecloud/TruevineVoice/actions/runs/39218360186).
+All five safety tests and shell regressions passed. Real `verify-restore`
+succeeded, counted 11 public tables rather than 22 table/data records, and
+asserted container/volume removal. The next `verify-volume` invocation failed
+while restoring into **container A**, before removing A or creating B:
+`FATAL: database "truevine_voice" does not exist`. The unconditional cleanup
+step passed; the planned controlled failures and final empty-daemon assertion
+were not reached.
+
+The defect is the target readiness check in `db-verify.sh`, not volume recreation
+or archive sequencing. `start_pg` correctly sets `POSTGRES_DB=truevine_voice`,
+but `wait_for_pg` used `pg_isready` over the default Unix socket. PostgreSQL
+documents that `pg_isready` can return server status without a valid database
+name. The official image initializes an empty volume by starting a socket-only
+temporary server, creating `POSTGRES_DB`, running initialization scripts, then
+stopping it and starting the final server. Thus the old check could pass before
+the database existed, or before the temporary server's shutdown.
+
+Sources: [pg_isready notes](https://www.postgresql.org/docs/current/app-pg-isready.html#APP-PG-ISREADY-NOTES)
+and [official image startup sequence](https://github.com/docker-library/postgres/blob/master/docker-entrypoint.sh).
+The original job did not retain the target container's server logs; the failed
+phase, correct environment, documented probe semantics and image startup code
+identify the race, rather than providing a timestamped trace of its internals.
+
+Correction: retain the existing bounded retry loop, but require a successful
+`SELECT 1` in the target database over `127.0.0.1` inside the disposable
+container. TCP excludes the image's socket-only temporary server, and the SQL
+query proves the target database exists and accepts queries. It also works for
+container B, which skips initialization on the retained volume; there is no
+dependence on an initialization-complete log line or an arbitrary fixed sleep.
+
+Regression coverage models `pg_isready` accepting connections while the target
+database is absent, followed by a socket-only database and finally a usable TCP
+server. Both restore commands must wait through those phases. The volume test
+asserts readiness separately for A and B. Restore fails in the fake if either
+command proceeds early. Existing failure cleanup and termination tests remain.
+
+Files in this correction:
+
+- `infrastructure/scripts/db-verify.sh`
+- `infrastructure/scripts/db-verify.runtime.sh`
+- `docs/postgresql-restore-verification-review.md`
+
+Commands and verification for this correction, in execution order:
+
+1. Read repository instructions, recovery scripts/tests and ADRs; checked branch,
+   working tree and manifest hash. Retrieved the complete 598-line original run
+   using `gh run view 39218360186 --repo Truevinecloud/TruevineVoice --log` and
+   inspected readiness, restore and cleanup evidence. Consulted the two primary
+   sources above to establish the image's initialization sequence.
+2. Added the initializing regression before changing the production helper.
+   Git Bash `bash infrastructure/scripts/db-verify.runtime.sh infrastructure/scripts/db-verify.sh`
+   failed as expected with four assertions: both commands proceeded too early
+   and neither performed target SQL readiness probes. Existing cases passed.
+3. Replaced the readiness check and ran Git Bash `bash -n` on both scripts:
+   passed. Re-ran the complete shell regression suite: passed, including both
+   initializing cases, readiness for A/B and termination cleanup.
+4. `npm.cmd run lint`: passed.
+5. `npm.cmd run typecheck`: passed.
+6. `npm.cmd test`: passed (600 tests passed, three existing skips). The Windows
+   wrappers skipped Linux-only shell suites; the restore shell suite runs
+   separately through Git Bash, as above.
+7. `npm.cmd run build`: passed for packages and all four applications.
+
+No workflow, schema, migration, package command or dependency changes are needed.
+The manifest remains excluded and unchanged. Only the existing isolated test
+branch is authorized for publication; no PR, merge or deployment is authorized.
