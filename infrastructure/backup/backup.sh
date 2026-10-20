@@ -224,7 +224,10 @@ capture_configuration() {
       echo -n '  "published_ports": ['
       first=1
       for c in $(docker ps --format '{{.Names}}' | sort); do
-        local ports; ports=$(docker port "$c" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+        # `docker port` exits nonzero for a healthy container with no published
+        # ports (for example, the --network none test database). That is an
+        # empty inventory entry, not a reason to discard all captured metadata.
+        local ports; ports=$(docker port "$c" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//' || true)
         [ -n "$ports" ] || continue
         [ $first -eq 1 ] || echo -n ','
         first=0

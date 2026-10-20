@@ -456,6 +456,10 @@ if [ -f "$OWNERSHIP_MISMATCH_MARKER" ] && [ "${1:-}" = inspect ] && [[ " ${*:2} 
   echo "foreign-run-label"
   exit 0
 fi
+if [ -f "$OWNERSHIP_MISMATCH_MARKER" ] && [ "${1:-}" = volume ] && [ "${2:-}" = inspect ] && [[ " ${*:3} " == *"truevine.restore.run"* ]]; then
+  echo "foreign-run-label"
+  exit 0
+fi
 if [ "${1:-}" = rm ] || { [ "${1:-}" = volume ] && [ "${2:-}" = rm ]; }; then
   printf '%s\n' "$*" >> "$DOCKER_CALL_LOG"
 fi
