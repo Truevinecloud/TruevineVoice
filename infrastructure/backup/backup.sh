@@ -185,6 +185,7 @@ capture_configuration() {
   # Emitted as structured JSON objects rather than pipe-joined strings, so the
   # archive is actually usable when rebuilding a host from scratch.
   if command -v docker >/dev/null 2>&1; then
+    local metadata_errors="$BACKUP_WORK_DIR/metadata-errors.log"
     {
       echo "{"
       echo -n '  "captured_at": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'",'
@@ -235,7 +236,11 @@ capture_configuration() {
       done
       echo ']'
       echo "}"
-    } > "$bundle/metadata.json" 2>/dev/null || echo '{}' > "$bundle/metadata.json"
+    } > "$bundle/metadata.json" 2>"$metadata_errors" || {
+      warn "Docker object inventory capture failed; recording an empty inventory"
+      sed -n '1,20p' "$metadata_errors" | sed 's/^/  /' >&2
+      echo '{}' > "$bundle/metadata.json"
+    }
     # A malformed object inventory is a failed capture, not a warning: record it
     # so a restore review can see that the metadata is absent rather than trust
     # a silently-truncated file.
