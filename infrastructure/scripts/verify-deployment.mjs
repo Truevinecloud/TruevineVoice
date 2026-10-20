@@ -263,12 +263,10 @@ export async function checkHttp(url, kind, sha, fetcher = fetch) {
             'is in development',
             'product plans',
           ]
-        : // `Truevine Voice`, not `Truevine Voice Admin`: the heading is
-          // `{product} Admin`, and React SSR inserts a comment separator between
-          // the two text nodes, so the contiguous string never appears in the HTML
-          // and verification rejected a perfectly healthy page. The other two
-          // markers keep the check specific to this application.
-          ['Truevine Voice', 'No admin functionality yet', 'internal operators'];
+        : // This is the current Operations Dashboard, rendered before sign-in.
+          // These markers identify its actual server-rendered screen rather than a
+          // retired foundation placeholder that disappeared when Operations Admin shipped.
+          ['Truevine Voice', 'Operations', 'Platform sign in'];
     if (!markers.every((marker) => body.includes(marker)))
       throw new Error(`${kind} foundation page check failed`);
   }

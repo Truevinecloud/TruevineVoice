@@ -136,22 +136,17 @@ const healthy = {
 };
 
 /**
- * Body as React actually emits it from server rendering.
+ * Operations Admin page as React renders it before authentication.
  *
- * The `<!-- -->` separators are not decoration. When a heading mixes an
- * interpolated expression with literal text, as `{product} Admin` does, React
- * SSR inserts a comment between the two text nodes, so the concatenated words
- * never appear as a contiguous substring of the HTML. A marker built by joining
- * those words therefore fails against a perfectly healthy page.
- *
- * Reproducing that here means a marker regression of this kind fails in CI
- * rather than on the VPS, where the deployment has already activated a release
- * before verification rejects it.
+ * The platform screen is public at the HTML layer so operators can sign in;
+ * authorization is enforced by the API. Keep this fixture aligned with the
+ * implemented dashboard instead of the retired foundation placeholder.
  */
 const SSR_ADMIN_BODY =
-  '<main><h1>Truevine Voice<!-- --> Admin</h1>' +
-  '<p>Intended audience: Truevine Voice<!-- --> internal operators.</p>' +
-  '<h2>No admin functionality yet</h2></main>';
+  '<html><head><title>Truevine Voice - Admin</title></head><body>' +
+  '<main class="operations-shell"><header><h1>Operations</h1></header>' +
+  '<p role="status">Checking platform access…</p>' +
+  '<form><h2>Platform sign in</h2></form></main></body></html>';
 
 const SSR_WEB_BODY =
   '<div class="mk-page"><header class="mk-header"><a class="mk-brand">' +
@@ -524,10 +519,8 @@ describe('deployment HTTP checks', () => {
       })),
     ).rejects.toThrow('web foundation page check failed');
   });
-  it('accepts the admin page as React SSR emits it', async () => {
-    // The regression this guards: the marker used to be `Truevine Voice Admin`,
-    // but React renders `<h1>Truevine Voice<!-- --> Admin</h1>`, so the
-    // contiguous string is absent and verification failed on a healthy page.
+  it('accepts the Operations Admin page in its pre-auth SSR state', async () => {
+    // This matches the implemented Operations Dashboard rendered before sign-in.
     await expect(
       checkHttp('https://example.test/admin', 'admin', sha, async () => response('admin')),
     ).resolves.toBeUndefined();
@@ -540,13 +533,13 @@ describe('deployment HTTP checks', () => {
       })),
     ).rejects.toThrow('admin foundation page check failed');
   });
-  it('rejects an admin page missing the deferred-functionality statement', async () => {
+  it('rejects an admin page without the sign-in screen marker', async () => {
     // Guards against someone "fixing" the marker by dropping the checks that
     // prove the page is ours rather than swapping in a weaker single marker.
     await expect(
       checkHttp('https://example.test/admin', 'admin', sha, async () => ({
         status: 200,
-        text: async () => '<main><h1>Truevine Voice<!-- --> Admin</h1></main>',
+        text: async () => '<title>Truevine Voice - Admin</title><main><h1>Operations</h1></main>',
       })),
     ).rejects.toThrow('admin foundation page check failed');
   });
