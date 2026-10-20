@@ -440,6 +440,8 @@ model Campaign {
   /// 1-200 characters, validated in the service before the row is written.
   name           String         @db.VarChar(200)
   status         CampaignStatus @default(DRAFT)
+  /// Set by platform emergency stop. Customer role mutations cannot clear it.
+  emergencyStoppedAt DateTime? @map("emergency_stopped_at") @db.Timestamptz(3)
   /// Provenance. `RESTRICT` rather than `SET NULL`: a campaign without a
   /// recorded creator is not a state this codebase can produce, and no
   /// user-deletion path exists that would need the softer constraint.

@@ -212,6 +212,13 @@ jobs:
       - name: Apply migrations to the test database
         run: npm run prisma:migrate:deploy
 
+      # Rehearses the RBAC-007 DDL transaction against a separate, fixed-name
+      # database inside this job's disposable PostgreSQL container. It forces a
+      # late SQL error, verifies complete rollback, retries the exact migration,
+      # and checks that a legacy writer cannot restart a stopped campaign.
+      - name: Rehearse RBAC-007 migration failure and retry
+        run: bash infrastructure/scripts/rbac-007-migration-rehearsal.sh
+
       - name: Run end-to-end tests
         run: npm run test:e2e
 

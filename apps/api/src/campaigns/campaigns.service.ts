@@ -42,7 +42,8 @@ import { CAMPAIGN_STORE } from './tokens.js';
 export interface CampaignView {
   readonly id: string;
   readonly name: string;
-  readonly status: CampaignStatus;
+  readonly status: CampaignStatus | 'PAUSED';
+  readonly emergencyStoppedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -159,7 +160,8 @@ export class CampaignsService {
     return {
       id: campaign.id,
       name: campaign.name,
-      status: campaign.status,
+      status: campaign.emergencyStoppedAt ? 'PAUSED' : campaign.status,
+      emergencyStoppedAt: campaign.emergencyStoppedAt?.toISOString() ?? null,
       createdAt: campaign.createdAt.toISOString(),
       updatedAt: campaign.updatedAt.toISOString(),
     };

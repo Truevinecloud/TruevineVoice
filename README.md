@@ -3,11 +3,11 @@
 Multi-tenant automated customer engagement SaaS. The first channel is **outbound
 Voice in Uganda**.
 
-> **Status: engineering foundation.**
-> This repository currently contains the build, test and infrastructure skeleton
-> only. **No product functionality has been implemented.** There are no
-> contacts, campaigns, audio, wallet, billing, voice, SMS, WhatsApp, RBAC,
-> authentication or admin features yet. See
+> **Status: engineering foundation with organization RBAC and campaign records.**
+> This branch adds the RBAC-007 Operations Admin console and campaign emergency
+> stop. RBAC-004/005 remain in separate draft development work, and production
+> payment collection, wallet settlement, voice dispatch, SMS, and customer
+> notifications are not implemented. See
 > [Deliberately deferred](#deliberately-deferred).
 
 ---
@@ -28,13 +28,18 @@ package boundaries.
 | Async         | Redis + BullMQ                                                |
 | Tooling       | TypeScript 6, ESLint 10, Prettier 3, Vitest 5, npm workspaces |
 
+The platform-admin app provides an Operations console at `/admin` on this
+branch. Its API independently enforces platform permissions. Emergency stop
+pauses and locks an active campaign record; no voice provider or call dispatch
+is connected. See [RBAC-007 implementation notes](./docs/rbac-007-operations-admin-progress-2026-10-20.md).
+
 Every Node workspace is an **ES module**, because NestJS 12 is published
 ESM-only. See [ADR 0002](./docs/adr/0002-runtime-and-toolchain-versions.md).
 
 ```
 truevine-voice/
 ├── apps/
-│   ├── admin/          Platform-admin frontend (placeholder only)
+│   ├── admin/          Platform-admin Operations console
 │   ├── api/            NestJS REST API  -> GET /health
 │   ├── web/            Customer web application (public marketing homepage)
 │   └── worker/         Background worker (no business queues yet)

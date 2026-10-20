@@ -69,7 +69,11 @@ export class PrismaCampaignStore implements CampaignStore {
     // as not found - the same answer as a genuinely unknown id, which is the
     // point (an id from another tenant is not a privilege, just an id).
     const result = await this.prisma.campaign.updateMany({
-      where: { organizationId, id: campaignId },
+      where: {
+        organizationId,
+        id: campaignId,
+        ...(changes.status === 'ACTIVE' ? { emergencyStoppedAt: null } : {}),
+      },
       data: changes,
     });
 
