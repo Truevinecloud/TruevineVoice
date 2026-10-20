@@ -110,16 +110,29 @@ start_test_pg() {
   docker volume create --label "truevine.backup.test.run=$TEST_RUN_ID" "$TEST_VOLUME" >/dev/null || return 1
   TEST_VOLUME_MOUNTPOINT=$(docker volume inspect --format '{{.Mountpoint}}' "$TEST_VOLUME") || return 1
   [ -n "$TEST_VOLUME_MOUNTPOINT" ] || return 1
-  docker run -d --name "$TEST_CONTAINER" --network none \
+  if ! docker run -d --name "$TEST_CONTAINER" --network none \
     --mount "type=volume,src=$TEST_VOLUME,dst=/var/lib/postgresql" \
     --label "truevine.backup.test.run=$TEST_RUN_ID" \
     -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=testdb \
-    postgres:18-alpine >"$WORK/container.id" 2>&1 || return 1
+    postgres:18-alpine >"$WORK/container.id" 2>&1; then
+    warn "isolated test PostgreSQL container did not start:"
+    sed 's/^/          /' "$WORK/container.id"
+    return 1
+  fi
   TEST_CONTAINER_ID=$(cat "$WORK/container.id")
   local actual_label actual_mount
-  actual_label=$(docker inspect --format '{{ index .Config.Labels "truevine.backup.test.run" }}' "$TEST_CONTAINER_ID") || return 1
-  actual_mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql"}}{{.Name}}{{end}}{{end}}' "$TEST_CONTAINER_ID") || return 1
-  [ "$actual_label" = "$TEST_RUN_ID" ] && [ "$actual_mount" = "$TEST_VOLUME" ] || return 1
+  actual_label=$(docker inspect --format '{{ index .Config.Labels "truevine.backup.test.run" }}' "$TEST_CONTAINER_ID") || {
+    warn "could not inspect isolated test PostgreSQL container identity"
+    return 1
+  }
+  actual_mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql"}}{{.Name}}{{end}}{{end}}' "$TEST_CONTAINER_ID") || {
+    warn "could not inspect isolated test PostgreSQL container mount"
+    return 1
+  }
+  if [ "$actual_label" != "$TEST_RUN_ID" ] || [ "$actual_mount" != "$TEST_VOLUME" ]; then
+    warn "isolated test PostgreSQL identity mismatch (label=$actual_label mount=$actual_mount)"
+    return 1
+  fi
   local i
   # A real query, not `pg_isready`. The image runs a temporary server while it
   # initialises and pg_isready succeeds against that, so seeding could start
@@ -131,6 +144,9 @@ start_test_pg() {
     fi
     sleep 1
   done
+  warn "isolated test PostgreSQL did not become ready; container state follows:"
+  docker inspect --format '{{json .State}}' "$TEST_CONTAINER_ID" 2>/dev/null | sed 's/^/          /' || true
+  docker logs "$TEST_CONTAINER_ID" 2>&1 | tail -40 | sed 's/^/          /' || true
   return 1
 }
 
