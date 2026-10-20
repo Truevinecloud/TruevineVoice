@@ -246,6 +246,9 @@ describe('RBAC-009 support lookup over real PostgreSQL and HTTP', () => {
 
   it('finds users by email fragment and returns a redacted detail view', async () => {
     const support = await signIn(EMAIL_SUPPORT);
+    // OWNER_A must actually hold a session for the summary below to be
+    // meaningful; sign them in here rather than relying on another test.
+    await signIn(EMAIL_OWNER_A);
 
     const search = await support.get(`/platform/support/users?q=${encodeURIComponent(EMAIL_OWNER_A)}`);
     expect(search.status).toBe(200);
@@ -270,7 +273,7 @@ describe('RBAC-009 support lookup over real PostgreSQL and HTTP', () => {
     expect(detail.body.memberships).toEqual([
       expect.objectContaining({ organizationId: ORG_A, role: 'OWNER' }),
     ]);
-    expect(detail.body.sessionSummary).toMatchObject({ active: 1 });
+    expect(detail.body.sessionSummary.active).toBeGreaterThanOrEqual(1);
   });
 
   it('reads both audit trails through the support routes', async () => {
@@ -281,10 +284,15 @@ describe('RBAC-009 support lookup over real PostgreSQL and HTTP', () => {
     );
     expect(organizationTrail.status).toBe(200);
     expect(organizationTrail.body.events.length).toBeGreaterThan(0);
-    expect(organizationTrail.body.events[0]).toMatchObject({
-      action: 'platform.support.organization_viewed',
-      actor: { userId: SUPPORT_ADMIN },
-    });
+    // Newest-first, and more than one operator may have viewed this tenant.
+    expect(organizationTrail.body.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'platform.support.organization_viewed',
+          actor: { userId: SUPPORT_ADMIN, email: EMAIL_SUPPORT },
+        }),
+      ]),
+    );
 
     const userTrail = await support.get(`/platform/support/users/${OWNER_A}/audit`);
     expect(userTrail.status).toBe(200);
@@ -314,7 +322,12 @@ describe('RBAC-009 support lookup over real PostgreSQL and HTTP', () => {
     expect((await support.get('/platform/support/users?q=ab')).status).toBe(400);
     expect((await support.get('/platform/support/users?q=owner%25')).status).toBe(400);
     expect((await support.get('/platform/support/organizations?status=DELETED')).status).toBe(400);
-    expect((await support.get(`/platform/support/organizations/${randomUUID()}/audit?action=nope`)).status).toBe(400);
+    // Against a real tenant so the unknown-action check is reached; a random id
+    // would 404 on existence first, which is correct but not what is asserted.
+    expect(
+      (await support.get(`/platform/support/organizations/${ORG_A}/audit?action=nope`)).status,
+    ).toBe(400);
+    expect((await support.get(`/platform/support/organizations/${randomUUID()}`)).status).toBe(404);
     expect((await support.get(`/platform/support/organizations/not-a-uuid`)).status).toBe(400);
   });
 });
