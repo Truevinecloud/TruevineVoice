@@ -1470,7 +1470,7 @@ describe('controlled production migration execution', () => {
           stdio: ['ignore', 'pipe', 'pipe'],
           timeout: 1800000,
           env: expect.objectContaining({
-            DATABASE_URL: 'postgresql://fixture:secret@localhost:5432/disposable',
+            DATABASE_URL: 'postgresql://fixture:secret@localhost:5432/disposable?options=-c+lock_timeout%3D5s',
             NODE_ENV: 'production',
           }),
         }),
@@ -1478,6 +1478,21 @@ describe('controlled production migration execution', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+  it('adds a five-second fail-fast PostgreSQL lock timeout to Prisma migration connections', () => {
+    const input = fixture('DATABASE_URL="postgresql://fixture:secret@localhost:5432/disposable?schema=public"\n');
+    const execute = vi.fn();
+    migrateReviewedRelease({ ...input, execute });
+    const environment = execute.mock.calls[0]?.[2]?.env as NodeJS.ProcessEnv;
+    const url = new URL(environment.DATABASE_URL ?? '');
+    expect(url.searchParams.get('schema')).toBe('public');
+    expect(url.searchParams.get('options')).toBe('-c lock_timeout=5s');
+  });
+  it('fails closed when the database URL already sets a lock timeout', () => {
+    const input = fixture('DATABASE_URL="postgresql://fixture:secret@localhost:5432/disposable?options=-c%20lock_timeout%3D30s"\n');
+    const execute = vi.fn();
+    expect(() => migrateReviewedRelease({ ...input, execute })).toThrow('DATABASE_URL is missing or invalid');
+    expect(execute).not.toHaveBeenCalled();
   });
   it('fails without exposing credentials from child-process errors', () => {
     const input = fixture();

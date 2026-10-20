@@ -13,7 +13,8 @@
     "",
     "Migrations are applied by an operator with `prisma migrate deploy` from a",
     "controlled environment, never by this pipeline. Listing a migration here",
-    "permits the CODE to deploy; it does not apply the migration."
+    "permits the CODE to deploy; it does not apply the migration.",
+    "This is a proposal for explicit release-operator approval; it is not production approval until reviewed and merged."
   ],
   "migrations": [
     "20261014042915_tenancy_core",
@@ -23,6 +24,8 @@
     "20261016153000_organization_suspension",
     "20261016170000_security_atomicity",
     "20261016171000_invitation_origin",
-    "20261019120000_campaigns_rbac_003"
+    "20261019120000_campaigns_rbac_003",
+    "20261019160000_customer_billing_rbac_004",
+    "20261020110000_rbac_007_emergency_stop"
   ]
 }

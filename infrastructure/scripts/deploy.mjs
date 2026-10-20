@@ -259,6 +259,14 @@ export function migrateReviewedRelease({ release, envFile, execute = execFileSyn
       parsed.pathname.length < 2
     )
       throw new Error('Invalid database configuration');
+    const existingOptions = parsed.searchParams.get('options') ?? '';
+    if (/\block_timeout\s*=/.test(existingOptions))
+      throw new Error('DATABASE_URL already specifies lock_timeout; review it explicitly');
+    parsed.searchParams.set(
+      'options',
+      [existingOptions, '-c lock_timeout=5s'].filter(Boolean).join(' '),
+    );
+    databaseUrl = parsed.toString();
   } catch {
     throw new Error('Production DATABASE_URL is missing or invalid; activation was not attempted');
   }
