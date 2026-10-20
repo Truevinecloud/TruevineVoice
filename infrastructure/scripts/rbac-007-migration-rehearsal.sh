@@ -69,4 +69,13 @@ if [[ "$legacy_restart" -eq 0 ]]; then
   exit 1
 fi
 
-echo "RBAC-007 migration rehearsal passed: forced transaction failure rolled back, exact retry succeeded, and legacy restart was rejected."
+set +e
+psql_ci -d "$database" -c "DELETE FROM campaigns;" >/dev/null 2>&1
+legacy_delete=$?
+set -e
+if [[ "$legacy_delete" -eq 0 ]]; then
+  echo "Emergency-stop trigger allowed a legacy delete." >&2
+  exit 1
+fi
+
+echo "RBAC-007 migration rehearsal passed: forced transaction failure rolled back, exact retry succeeded, and legacy restart/delete were rejected."

@@ -17,4 +17,15 @@ describe('PrismaCampaignStore emergency-stop lock', () => {
     });
     expect(findUnique).not.toHaveBeenCalled();
   });
+
+  it('refuses customer deletion of an emergency-stopped campaign', async () => {
+    const deleteMany = vi.fn(async () => ({ count: 0 }));
+    const store = new PrismaCampaignStore({ campaign: { deleteMany } } as never);
+
+    await expect(store.deleteCampaign('org-id', 'campaign-id')).resolves.toBe(false);
+
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: { organizationId: 'org-id', id: 'campaign-id', emergencyStoppedAt: null },
+    });
+  });
 });

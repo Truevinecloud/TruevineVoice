@@ -84,7 +84,7 @@ export class PrismaCampaignStore implements CampaignStore {
 
   async deleteCampaign(organizationId: string, campaignId: string): Promise<boolean> {
     const result = await this.prisma.campaign.deleteMany({
-      where: { organizationId, id: campaignId },
+      where: { organizationId, id: campaignId, emergencyStoppedAt: null },
     });
 
     return result.count === 1;

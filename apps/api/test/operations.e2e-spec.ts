@@ -85,6 +85,11 @@ async function signIn(email: string) {
         .patch(path)
         .set('cookie', `${cookie}; ${CSRF_COOKIE}=${encodeURIComponent(csrf)}`)
         .set(CSRF_HEADER, csrf),
+    delete: (path: string) =>
+      request(server)
+        .delete(path)
+        .set('cookie', `${cookie}; ${CSRF_COOKIE}=${encodeURIComponent(csrf)}`)
+        .set(CSRF_HEADER, csrf),
   };
 }
 
@@ -220,6 +225,8 @@ describe('RBAC-007 platform operations over real PostgreSQL and HTTP', () => {
       .patch(`/organizations/${ORG_B}/campaigns/${CAMPAIGN}`)
       .send({ status: 'ACTIVE' });
     expect(reactivation.status).toBe(404);
+    const deletion = await manager.delete(`/organizations/${ORG_B}/campaigns/${CAMPAIGN}`);
+    expect(deletion.status).toBe(404);
     expect(
       await database.campaign.findUnique({
         where: { organizationId_id: { organizationId: ORG_B, id: CAMPAIGN } },

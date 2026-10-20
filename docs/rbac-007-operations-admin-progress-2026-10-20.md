@@ -31,7 +31,7 @@ provided in the task.
 - Added a persistent emergency-stop timestamp. The database keeps the existing
   COMPLETED enum value for compatibility; API reads present a marked record as
   PAUSED. A database trigger prevents older application code from clearing the
-  marker or reactivating a stopped campaign.
+  marker, reactivating a stopped campaign or deleting its record.
 - Writes the stop and a platform-scoped audit event atomically. Audit metadata
   stores one of five allowlisted reason codes.
 - Kept billing, refunds, pricing, role assignment and platform-role management

@@ -34,4 +34,19 @@ CREATE TRIGGER "campaigns_emergency_stop_guard"
 BEFORE UPDATE OF "status", "emergency_stopped_at" ON "campaigns"
 FOR EACH ROW EXECUTE FUNCTION "enforce_campaign_emergency_stop"();
 
+CREATE FUNCTION "prevent_emergency_stopped_campaign_delete"() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD."emergency_stopped_at" IS NOT NULL THEN
+    RAISE EXCEPTION 'Emergency-stopped campaign cannot be deleted.' USING ERRCODE = '23514';
+  END IF;
+
+  RETURN OLD;
+END;
+$$;
+
+CREATE TRIGGER "campaigns_emergency_stop_delete_guard"
+BEFORE DELETE ON "campaigns"
+FOR EACH ROW EXECUTE FUNCTION "prevent_emergency_stopped_campaign_delete"();
+
 COMMIT;

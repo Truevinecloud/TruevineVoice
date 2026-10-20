@@ -21,7 +21,8 @@ active-call controls are not.
   an immutable stop marker; the API presents that combination as PAUSED. This
   keeps the stored enum readable by the deployed client during rollback. A DB
   trigger prevents older application code from clearing the marker or moving
-  the campaign back to ACTIVE. No resume or marker-clearing endpoint is added.
+  the campaign back to ACTIVE or delete it. No resume or marker-clearing
+  endpoint is added.
 - The campaign mutation and its `platform.campaign.emergency_stopped` audit row
   commit in one PostgreSQL transaction. The event is written to the target
   organization's existing append-only security audit table with `scope =
