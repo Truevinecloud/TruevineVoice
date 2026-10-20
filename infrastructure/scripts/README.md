@@ -7,6 +7,7 @@ are discoverable without reading this directory.
 | Script                    | Purpose                                                           |
 | ------------------------- | ----------------------------------------------------------------- |
 | `deploy.sh`               | Serialised entry point for release and rollback                   |
+| `bootstrap-platform-owner.mjs` | Operator-only first Platform Owner creation; explicit approval and private activation; never automatic |
 | `db-verify.sh`            | PostgreSQL and Redis backup, restore and persistence verification |
 | `db-verify.runtime.sh`    | Runtime safety tests for `db-verify.sh` (Linux only)              |
 | `run-db-verify-tests.mjs` | Skips the runtime tests cleanly off Linux                         |

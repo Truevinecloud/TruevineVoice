@@ -230,6 +230,11 @@ jobs:
       - name: Run end-to-end tests
         run: npm run test:e2e
 
+      # Explicit Linux filesystem and real CLI evidence, using only the
+      # disposable loopback PostgreSQL stack created by this job.
+      - name: Validate Platform Owner bootstrap on Linux
+        run: npm run test:platform-owner-bootstrap:linux
+
       # Runs the RBAC-001 remediation suite. It does not touch `truevine_voice`:
       # `infrastructure/scripts/run-security-tests.mjs` creates its own databases
       # named `rbac_security_<timestamp>_<pid>_<suffix>`, applies the migrations to
