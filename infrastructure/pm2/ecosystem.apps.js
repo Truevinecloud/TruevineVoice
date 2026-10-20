@@ -19,6 +19,8 @@ function buildApps(release, sha, config) {
     },
   };
 
+  const apiOrigin = `http://${common.env.API_HOST}:${common.env.API_PORT}`;
+
   return [
     {
       ...common,
@@ -28,7 +30,7 @@ function buildApps(release, sha, config) {
       args: 'start --hostname 127.0.0.1 --port 3000',
       env: {
         ...common.env,
-        TRUEVINE_API_URL: `http://${common.env.API_HOST}:${common.env.API_PORT}`,
+        TRUEVINE_API_URL: apiOrigin,
       },
     },
     {
@@ -37,6 +39,10 @@ function buildApps(release, sha, config) {
       cwd: path.join(release, 'apps/admin'),
       script: path.join(release, 'node_modules/next/dist/bin/next'),
       args: 'start --hostname 127.0.0.1 --port 3002',
+      env: {
+        ...common.env,
+        TRUEVINE_API_URL: apiOrigin,
+      },
     },
     {
       ...common,

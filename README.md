@@ -407,6 +407,7 @@ hosted runner and an empty local Docker daemon, and fails elsewhere. See the
 | `npm run prisma:generate`       | Generate the typed Prisma client                        |
 | `npm run prisma:migrate:dev`    | Create and apply a development migration                |
 | `npm run prisma:migrate:deploy` | Apply pending migrations (controlled environments only) |
+| `npm run prisma:migrate:status` | Read migration-file and database ledger status; does not apply migrations |
 | `npm run prisma:studio`         | Prisma Studio                                           |
 
 > `npm run typecheck` and `npm run test` build `packages/*` first, because apps
