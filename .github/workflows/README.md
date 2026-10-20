@@ -108,17 +108,15 @@ as its own change before adding the gate.
 
 ## `deploy.yml`
 
-Triggered by completion of CI, restricted to successful push runs on main from
-this repository. Verifies all four CI jobs, checks the exact main SHA, and uses
-a protected production environment. Deployment uses OpenSSH, a non-root SSH
-account and independently verified known_hosts; no third-party SSH action.
-
-It can also be run manually from the Actions tab (`workflow_dispatch`) to
-redeploy the current main commit. A manual run has no `workflow_run` payload, so
-it resolves the CI run for the selected commit and accepts only a completed,
-successful `push` run from this repository before verifying the same four gates.
-A manual run still refuses a commit that is not the tip of main, so it cannot
-publish an unreviewed or superseded commit.
+Triggered only by `workflow_dispatch`; pushes and CI completion never start
+production deployment. The operator must explicitly set the required
+`authorize_production` boolean (default `false`) after reviewing approvals.
+The job also requires `DEPLOYMENT_READY=true`, checks all four CI jobs for the
+selected current-main SHA, and uses the protected production environment.
+Deployment uses OpenSSH, a non-root SSH account and independently verified
+known_hosts; no third-party SSH action. Configure GitHub environment required
+reviewers separately as defense in depth; this repository change does not alter
+live environment settings.
 
 The source archive is built on the VPS with `npm ci` and the repository scripts
 in an isolated release directory. Explicit PM2 processes cover both Next.js

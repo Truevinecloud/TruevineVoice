@@ -7,7 +7,7 @@ import { check } from 'prettier';
 const workflow = readFileSync(
   new URL('../../.github/workflows/restore-integration.yml', import.meta.url),
   'utf8',
-);
+).replace(/\r\n/g, '\n');
 const script = readFileSync(new URL('./restore-integration.sh', import.meta.url), 'utf8');
 
 describe('isolated restore integration workflow', () => {

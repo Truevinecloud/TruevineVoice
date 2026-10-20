@@ -71,18 +71,17 @@ The gate never prints the value it found — only the filename.
 
 ## Retention
 
-**7 daily, 4 weekly, 3 monthly**, enforced by **bucket lifecycle rules**, not
-by the script.
+The library contains a tested pure function that calculates the target policy of
+7 daily, 4 weekly and 3 monthly backups. `backup.sh` has no object deletion path,
+and the current flat timestamp keys do not let R2 age-based lifecycle rules
+select exactly those counts. The function is not invoked by the backup script,
+so this policy is not active. The R2 setup runbook proposes an age-based expiry
+of at least 100 days as an interim option, subject to operator approval.
 
-The backup scripts contain no delete path at all — no `s3 rm`, no
-`delete-object`, no `aws s3api delete-objects`. A script that deletes backups
-cannot be reasoned about afterwards, and a compromised nightly job with delete
-rights could destroy the very history it is supposed to protect. Expiry is a
-property of the bucket, reviewed as configuration rather than executed as code.
-
-`retention_keep_set()` in `lib/common.sh` implements the same policy as a pure,
-tested function. It exists so the policy can be unit-tested and reasoned about;
-it is not invoked by `backup.sh`.
+Do not configure an expiry shorter than the approved recovery horizon. If exact
+count-based retention is required, it needs a separately reviewed pruning
+mechanism and a credential whose delete capability is isolated from the nightly
+uploader.
 
 ---
 
@@ -256,56 +255,35 @@ This has **not** been run. No key exists anywhere yet.
 
 ## Storage
 
-An S3-compatible bucket, created by a human, with:
+Cloudflare R2 is the selected provider. The implementation already supports
+S3-compatible storage. Configure `BACKUP_STORE=s3`,
+`BACKUP_S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com`, and
+`AWS_DEFAULT_REGION=auto`. Use a private bucket with public access disabled and
+server-side encryption enabled. See the [R2 setup runbook](../../docs/runbooks/r2-backup-setup.md).
 
-- **Object encryption at rest enabled** (defence in depth — objects are already
-  encrypted client-side with age).
-- **Versioning enabled**, so an accidental overwrite is recoverable.
-- **Lifecycle rules** implementing 7 daily / 4 weekly / 3 monthly expiry.
-- A credential with **`PutObject` and `GetObject` only — no `DeleteObject`.**
-  The scripts never delete, so it does not need the permission. Removing it
-  means a compromised backup job cannot destroy history.
+The job credential must be scoped to this one bucket and needs object read,
+write, and list for uploads, post-upload download/checksum verification, `HEAD`,
+and `--latest` listing. Do not grant bucket administration. R2 Object Read &
+Write may allow broader writes than the script uses; verify deletion semantics
+and review bucket-lock protection before issuing the credential. The script
+contains no object-deletion path.
+
+The 7-daily / 4-weekly / 3-monthly helper is a tested retention calculation,
+not active pruning. Age-based R2 lifecycle rules over flat timestamp keys cannot
+implement those exact tiers. The R2 runbook proposes at least 100 days of age
+expiry until a separately reviewed count-based retention process exists.
 
 ### Cost
 
-Pricing verified **16 October 2026** against each provider's published page.
+Cloudflare currently lists R2 Standard at $0.015 per GB-month, with a 10-GB-month
+monthly free storage tier, 1 million free Class A operations, 10 million free
+Class B operations, and no R2 egress charge. At 100 GB-month of retained data,
+Standard storage is approximately $1.35/month after the 10-GB-month free tier, before account-specific taxes or terms; measure actual encrypted daily bytes and the chosen retention horizon.
+See [Cloudflare R2 pricing](https://developers.cloudflare.com/r2/pricing/).
 
-| Provider          | Storage           | Free tier   | Egress               | Lifecycle delete |
-| ----------------- | ----------------- | ----------- | -------------------- | ---------------- |
-| **Cloudflare R2** | $0.015 / GB-month | 10 GB-month | **Free, unlimited**  | Free             |
-| Backblaze B2      | $6.95 / TB-month  | first 10 GB | Free up to 3× stored | Free (Class C)   |
-
-Nightly operation volume is negligible against both free tiers: 3 `PutObject`
-calls per night (dump, manifest, config) ≈ **90 Class A operations/month**,
-plus ≈30 `GetObject` from the post-upload verification — against free allowances
-of 1 million and 10 million respectively.
-
-**What actually costs money is retained bytes, not run frequency.** Retention
-holds ~14 objects (7 daily + 4 weekly + 3 monthly, with overlap), so:
-
-| Dump size                           | Retained | R2           | B2           |
-| ----------------------------------- | -------- | ------------ | ------------ |
-| 13 KB (measured now, 3 tables)      | ~180 KB  | **$0.00**    | **$0.00**    |
-| 10 MB (conservative MVP projection) | ~140 MB  | **$0.00**    | **$0.00**    |
-| 100 MB                              | ~1.4 GB  | **$0.00**    | **$0.00**    |
-| 700 MB                              | ~9.8 GB  | **$0.00**    | **$0.00**    |
-| 1 GB                                | ~14 GB   | ~$0.06/month | ~$0.10/month |
-| 10 GB                               | ~140 GB  | ~$1.95/month | ~$0.98/month |
-
-**Free until a dump exceeds roughly 700 MB**, which at MVP growth is years away.
-Neither provider charges for the lifecycle deletions that expire old backups,
-so the 7/4/3 policy costs nothing to enforce.
-
-**Recommendation: Cloudflare R2**, on one specific ground: **egress is free and
-unlimited**. A recovery drill downloads the whole archive, and that is precisely
-where per-GB egress billing surprises people. B2 covers egress up to 3× stored
-(also enough here) and adds **Object Lock / WORM immutability**, which R2 does
-not offer.
-
-**Open decision:** if ransomware-resistant, legally provable immutability is
-required, B2's Object Lock is the reason to choose it over R2, at comparable
-price. That choice needs a human. Hetzner Object Storage was **not** evaluated
-and its pricing is unverified.
+The prior 7/4/3 byte estimates described a target retention policy that is not
+implemented. They should not be used for budget approval until a retention
+mechanism is selected.
 
 ---
 
@@ -399,54 +377,58 @@ place was the credential-bearing one that the secret gate correctly rejects.
 
 ---
 
-## Activation — not done
+## Activation - not done
 
-Nothing below has been performed. Each step needs explicit approval.
+Cloudflare R2 is the selected provider, but nothing below has been performed.
+Each production setup/write step requires separate explicit approval.
 
-1. **Decide the provider** (R2 vs B2 vs Hetzner) and whether Object Lock is
-   required.
-2. **Create the bucket** with versioning, lifecycle rules, and server-side
-   encryption. Requires an account; **no paid resource has been created.**
-3. **Generate the age key** on the VPS, mode 600.
-4. **Make two offline copies**, in two places, held by two people.
-5. **Verify both copies decrypt** — a copy nobody has tested is not a copy.
-6. **Create the bucket credential** with `PutObject` + `GetObject` only, and
-   store it on the VPS outside the repository and outside `.env`.
-7. **Run one manual backup and one manual restore** end to end, from an offline
-   key copy. This is a gate: it must pass before anything is scheduled.
-8. **Add the systemd service and timer** for the nightly run.
-9. **Add a weekly restore test** that verifies freshness and decryptability
-   automatically, so a silently failing backup is noticed within days rather
-   than at restore time.
-10. **Update the recovery runbook** with the off-site procedure.
+1. Create a private Cloudflare R2 bucket with public access disabled and
+   server-side encryption enabled. Confirm the account and bucket jurisdiction.
+2. Decide whether to add an R2 bucket lock and reconcile its minimum retention
+   with lifecycle expiry. Keep bucket administration separate from the job token.
+3. Generate the age identity on an authorized host, mode 600; make and test two
+   separately held offline recovery copies.
+4. Create a bucket-scoped R2 Object Read & Write token for the job. It needs
+   upload, download/HEAD verification, and list operations. Verify its exact
+   delete capability; the script itself has no object-delete path.
+5. Approve the retention policy. The 7/4/3 helper is not active pruning and the
+   current flat timestamp prefixes cannot implement those counts with R2 age
+   lifecycle. See the R2 setup runbook for the 100-day initial proposal.
+6. Store R2 credentials and the age identity outside Git and `.env`, in the
+   approved VPS secret location. Configure only `backup.env` and the R2 endpoint.
+7. After separate approval, run a manual encrypted backup, verify both hashes,
+   and restore into the isolated disposable database using an offline age copy.
+8. Only after a successful restore drill, separately approve and add the systemd
+   service/timer plus a monitoring/alert path.
+9. Update the recovery inventory with bucket jurisdiction, key custodians,
+   retention, restore evidence, timer and alert owner.
 
 ### Known limitation
 
-A backup that is never restored is not a backup. Until step 9 exists, a
-nightly failure would go unnoticed until someone needed the data. The nightly
-job logs, exits non-zero, and writes `"state": "failed"` to `BACKUP_STATUS_FILE`
-when that is configured — but nothing currently **alerts** on it. Step 9 is the
-fix and is the highest-value item on this list.
+The backup script records success/failure to `BACKUP_STATUS_FILE`, but no
+production schedule or alert is active. A backup that has not been restored is
+not proven recoverable. Do not report backup readiness until the isolated restore
+has succeeded and schedule freshness is monitored.
 
-### Decisions and approvals needed before activation
+### Decisions still needed before activation
 
-| #   | Decision                                                                                                                                                     | Owner   | Blocks |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | ------ |
-| 1   | **R2 or B2?** R2 has free unlimited egress but no Object Lock; B2 adds WORM immutability at comparable price                                                 | founder | step 2 |
-| 2   | **Create the bucket account** — requires a Cloudflare or Backblaze account and payment details. **No account has been created and no paid resource exists.** | founder | step 2 |
-| 3   | **Who holds the two offline key copies**                                                                                                                     | founder | step 5 |
-| 4   | **Retention confirmation** (7/4/3 assumed)                                                                                                                   | founder | step 2 |
-| 5   | **VPS approval** to install the systemd service/timer                                                                                                        | founder | step 8 |
+| Decision                                                               | Owner    | Blocks                  |
+| ---------------------------------------------------------------------- | -------- | ----------------------- |
+| Cloudflare account/bucket owner and jurisdiction                       | operator | bucket creation         |
+| Bucket-lock policy and exact token delete capability                   | operator | credential issuance     |
+| Two offline age-key custodians                                         | operator | restore readiness       |
+| Age-based retention horizon or separately funded count-based design    | operator | lifecycle configuration |
+| VPS approval for key, credentials, systemd timer and restore rehearsal | operator | production activation   |
 
 ### Credentials required on the VPS (never in Git, never in `.env`)
 
-| Variable                                      | Value                                           |
-| --------------------------------------------- | ----------------------------------------------- |
-| `BACKUP_KEYFILE`                              | path to the mode-600 age identity               |
-| `BACKUP_STORE`                                | `s3`                                            |
-| `BACKUP_BUCKET`                               | bucket name                                     |
-| `BACKUP_S3_ENDPOINT`                          | R2/B2 endpoint URL                              |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | bucket credential, `PutObject`+`GetObject` only |
-
-`BACKUP_STATUS_FILE` and `BACKUP_LOG_FILE` should point outside the repository
-so monitoring and log retention can see them.
+| Variable                                                                       | Value                                                                                 |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `BACKUP_KEYFILE`                                                               | mode-600 age identity path                                                            |
+| `BACKUP_STORE`                                                                 | `s3`                                                                                  |
+| `BACKUP_BUCKET`                                                                | R2 bucket name                                                                        |
+| `BACKUP_S3_ENDPOINT`                                                           | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` or the matching jurisdiction endpoint |
+| `AWS_DEFAULT_REGION`                                                           | `auto`                                                                                |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`                                  | bucket-scoped R2 Object Read & Write token values                                     |
+| `BACKUP_STATUS_FILE` and `BACKUP_LOG_FILE` should point outside the repository |
+| so monitoring and log retention can see them.                                  |
