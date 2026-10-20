@@ -1,5 +1,4 @@
 # Truevine Voice
-
 Multi-tenant automated customer engagement SaaS. The first channel is **outbound
 Voice in Uganda**.
 
@@ -32,8 +31,10 @@ The platform-admin app provides an Operations console at `/admin` on this
 branch. Its API independently enforces platform permissions. Emergency stop
 pauses and locks an active campaign record; no voice provider or call dispatch
 is connected. See [RBAC-007 implementation notes](./docs/rbac-007-operations-admin-progress-2026-10-20.md).
-Supported non-production account activation and the platform-role provisioning
-gap are documented in [the UAT runbook](./docs/runbooks/uat-account-provisioning.md).
+Supported non-production account activation is documented in
+[the UAT runbook](./docs/runbooks/uat-account-provisioning.md). First-owner
+bootstrap controls and separate production approval requirements are documented
+in [the bootstrap runbook](./docs/runbooks/platform-owner-bootstrap.md).
 
 Every Node workspace is an **ES module**, because NestJS 12 is published
 ESM-only. See [ADR 0002](./docs/adr/0002-runtime-and-toolchain-versions.md).
@@ -650,3 +651,37 @@ For non-production Operations Admin UAT, use the audited
 account provisioning runbook](docs/runbooks/uat-account-provisioning.md). It
 requires an isolated staging database, explicit opt-in, an active platform
 owner, and a reviewed UAT request; it refuses production accounts.
+
+## First Platform Owner bootstrap (local implementation; production approval withheld)
+
+`npm run bootstrap:platform-owner -- --help` describes the operator-only command.
+It creates a dedicated new platform identity with a private, single-use 24-hour
+activation link, never a default password. Explicit environment opt-in and a
+private, matching operator approval record are mandatory. Existing identities,
+any prior Platform Owner assignment and a consumed bootstrap claim are refused.
+There is no public bootstrap endpoint and deployment never runs the command.
+
+See [ADR 0014](docs/adr/0014-first-platform-owner-bootstrap.md) and the
+[operator runbook](docs/runbooks/platform-owner-bootstrap.md). The additive
+`20261020180000_platform_owner_bootstrap` and
+`20261020181000_platform_owner_bootstrap_no_truncate` and forward-hardening
+`20261020182000_platform_owner_bootstrap_search_path` migrations are intentionally
+absent from the production approval manifest. No production execution is
+approved by this implementation.
+
+`npm run test:platform-owner-bootstrap:e2e` runs the focused real PostgreSQL
+suite. It creates and migrates fresh uniquely named databases, runs synthetic
+bootstrap/activation/rollback/concurrency tests, then drops only databases that
+invocation created. Local use requires `NODE_ENV=test`,
+`BOOTSTRAP_E2E_DISPOSABLE=1` and `BOOTSTRAP_TEST_ADMIN_URL` supplied privately for
+an exclusively disposable loopback PostgreSQL instance's `postgres` database.
+Hosted full E2E uses the existing disposable CI service. The suite fails loudly
+if neither safe target is available. Redis and real accounts are not required.
+
+`npm run test:platform-owner-bootstrap:linux` additionally requires Linux and
+checks actual private-file permissions, path protections and the CLI handoff.
+The existing Linux Actions E2E job runs this gate with disposable services;
+no production secrets are used. See the runbook for independently approved
+production cluster-identity verification and private operator prerequisites.
+`npm run test:platform-owner-bootstrap:unit` runs just the bootstrap unit suite;
+its Windows refusal assertions do not establish Linux filesystem validation.

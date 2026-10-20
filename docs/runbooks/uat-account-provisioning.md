@@ -67,9 +67,10 @@ accounts. A production target, payment/voice integration, or production role
 assignment is unsupported by this command.
 
 The actual staging environment must already have an approved active
-`PLATFORM_OWNER`; the repository has no platform-role bootstrap flow. If that
-precondition is not met, stop and obtain a separately reviewed staging-only
-bootstrap path. Never seed or assign a platform role with ad-hoc production SQL.
+`PLATFORM_OWNER`. If that precondition is not met, use only the separately
+approved first-owner bootstrap process in [the bootstrap runbook](platform-owner-bootstrap.md).
+Its local implementation does not approve staging or production execution.
+Never seed or assign a platform role with ad-hoc production SQL.
 The CI rehearsal tests this command only against a fixed disposable PostgreSQL
 database with synthetic actors, verifies denial/allow/audit/activation/retry,
 then drops that database.

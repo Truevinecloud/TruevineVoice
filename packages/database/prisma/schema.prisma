@@ -144,6 +144,7 @@ model User {
   invitationsAccepted  Invitation[]                @relation("InvitationAcceptedBy")
   auditEvents          SecurityAuditEvent[]
   identityAuditEvents  IdentityAuditEvent[]
+  platformOwnerBootstrap PlatformOwnerBootstrap?
   campaignsCreated     Campaign[]
 
   @@map("users")
@@ -240,6 +241,19 @@ model PlatformRoleAssignment {
   @@map("platform_role_assignments")
 }
 
+/// Platform-owned, immutable first-owner claim. The fixed slot is SQL-constrained;
+/// it never reopens when an owner is revoked. See ADR 0014.
+model PlatformOwnerBootstrap {
+  slot String @id @db.VarChar(32)
+  operationId String @unique @map("operation_id") @db.Uuid
+  userId String @unique @map("user_id") @db.Uuid
+  auditEventId String @unique @map("audit_event_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  auditEvent IdentityAuditEvent @relation(fields: [auditEventId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@map("platform_owner_bootstrap")
+}
+
 /// TENANT-OWNED. ADR 0006 rule: the primary key leads with `organization_id`, so
 /// a row cannot exist without an organization.
 ///
@@ -305,6 +319,7 @@ model IdentityAuditEvent {
   /// most likely anonymising the user rather than deleting it - and RBAC-001 does
   /// not implement one. Flagged in ADR 0009 rather than left to be discovered.
   actor User @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+  platformOwnerBootstrap PlatformOwnerBootstrap?
 
   @@id([id])
   @@index([actorUserId])

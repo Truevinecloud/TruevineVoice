@@ -57,10 +57,15 @@ export interface QueryableClient {
  * Prisma 7 executes through driver adapters; `@prisma/adapter-pg` brings its
  * own `pg` dependency, so nothing else needs to be installed here.
  */
-export function createDatabaseClient(connectionString: string): PrismaClient {
+export function createDatabaseClient(
+  connectionString: string,
+  options: { log?: Array<'warn' | 'error'> } = {},
+): PrismaClient {
   return new PrismaClient({
     adapter: new PrismaPg({ connectionString }),
-    log: process.env['LOG_LEVEL'] === 'debug' ? ['warn', 'error'] : ['error'],
+    // Credential-producing operator commands use [] so ORM diagnostics cannot
+    // print identity creation arguments. Existing callers retain default logging.
+    log: options.log ?? (process.env['LOG_LEVEL'] === 'debug' ? ['warn', 'error'] : ['error']),
   });
 }
 

@@ -18,6 +18,7 @@ Naming: `NNNN-short-kebab-title.md`, numbered sequentially and never reused.
 | [0011](./0011-reviewed-deployment-migrations.md) | Apply reviewed migrations before activation         | Accepted                       |
 | [0012](./0012-customer-billing-ledger.md)        | Customer billing ledger and pending top-up requests | Proposed                       |
 | [0013](./0013-platform-operations-admin.md)      | Platform Operations Admin emergency stops         | Accepted for implementation   |
+| [0014](./0014-first-platform-owner-bootstrap.md) | Audited singleton first Platform Owner bootstrap | Local implementation; production approval withheld |
 
 ## When to write an ADR
 
