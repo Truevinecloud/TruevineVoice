@@ -55,6 +55,7 @@
                     "prisma:validate":  "npm run prisma:validate --workspace @truevine/database",
                     "prisma:migrate:dev":  "npm run prisma:migrate:dev --workspace @truevine/database",
                     "prisma:migrate:deploy":  "npm run prisma:migrate:deploy --workspace @truevine/database",
+                    "prisma:migrate:status": "npm run prisma:migrate:status --workspace @truevine/database",
                     "prisma:studio":  "npm run prisma:studio --workspace @truevine/database",
                     "ci:setup-npm":  "node infrastructure/scripts/setup-npm.mjs",
                     "test:deployment":  "vitest run --config infrastructure/vitest.config.mts \u0026\u0026 npm run test:db-verify \u0026\u0026 npm run test:backup",

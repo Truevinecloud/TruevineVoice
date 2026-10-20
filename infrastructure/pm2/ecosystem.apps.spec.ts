@@ -47,7 +47,20 @@ describe('PM2 app definitions', () => {
     expect(webApp(4002).env['TRUEVINE_API_URL']).toBe('http://127.0.0.1:4002');
   });
 
-  it('scopes TRUEVINE_API_URL to the web app and keeps every app in the list', () => {
+  it.each([3001, 4002])('gives admin the same loopback API origin on port %s', (apiPort) => {
+    const admin = appsFor(apiPort).find((app) => app.name === 'truevine-admin');
+    expect(admin?.env).toMatchObject({
+      NODE_ENV: 'production',
+      APP_VERSION: sha,
+      API_HOST: '127.0.0.1',
+      API_PORT: String(apiPort),
+      TRUEVINE_API_URL: webApp(apiPort).env['TRUEVINE_API_URL'],
+    });
+    expect(admin?.env['TRUEVINE_API_URL']).toBe(`http://127.0.0.1:${apiPort}`);
+    expect(admin?.args).toBe('start --hostname 127.0.0.1 --port 3002');
+  });
+
+  it('scopes TRUEVINE_API_URL to web and admin and keeps every app in the list', () => {
     const apps = appsFor(3001);
     expect(apps.map((app) => app.name)).toEqual([
       'truevine-web',
@@ -56,7 +69,7 @@ describe('PM2 app definitions', () => {
       'truevine-worker',
     ]);
     for (const app of apps) {
-      if (app.name === 'truevine-web') {
+      if (app.name === 'truevine-web' || app.name === 'truevine-admin') {
         expect(app.env).toHaveProperty('TRUEVINE_API_URL');
       } else {
         expect(app.env).not.toHaveProperty('TRUEVINE_API_URL');

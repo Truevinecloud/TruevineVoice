@@ -43,15 +43,20 @@ from the deployed release whose SHA was recorded in the preceding audit. Do not
 print `.env` or pass its URL as a command-line argument:
 
 ```bash
-cd /var/www/TruevineVoice/current/packages/database
+cd /var/www/TruevineVoice/current
 env -u DATABASE_URL npm run prisma:migrate:status
 ```
 
+The root script delegates to the database workspace's `prisma migrate status`.
+It reports migration-file and database ledger status without applying migrations.
 The Prisma config loads the release's shared `.env` symlink, while `env -u`
 prevents an inherited shell value from overriding it. Capture only the command's
-migration names/status and exit code in the audit record. If the command cannot
-connect or its release context is unclear, stop; do not substitute `migrate
-deploy`, `migrate resolve`, `db push`, or a direct SQL update.
+migration names/status and exit code in the audit record. Inspect the raw output
+privately: Prisma diagnostics can include database connection metadata. A nonzero
+exit can indicate pending or failed migrations, divergent history, or a connection
+failure; inspect the diagnostic rather than assuming the schema is current.
+If the command cannot connect or its release context is unclear, stop;
+do not substitute `migrate deploy`, `migrate resolve`, `db push`, or a direct SQL update.
 
 Review `sudo nginx -T` **privately on the server**; it can contain sensitive
 configuration. Record existing virtual hosts, upstreams, API path rewriting,
@@ -124,12 +129,13 @@ through the same approved access arrangement as the rest of the file:
 
 - `WEB_PUBLIC_URL` — the customer URL a password-reset or invitation link must
   point at, e.g. `https://voice.truevinecloud.online`.
-- `TRUEVINE_API_URL` — the server-side API origin the Next.js web app calls.
-  The web process never reads the shared `.env`: Next.js loads `.env` only from
-  its own directory. PM2 supplies this value to `truevine-web` itself, derived
+- `TRUEVINE_API_URL` — the server-side API origin the Next.js web and admin apps call.
+  These processes do not load the shared root `.env`: Next.js loads `.env` from
+  each app's own directory. PM2 explicitly supplies this value to both apps, derived
   from `apiPort` in `deployment.json` (see
   `infrastructure/pm2/ecosystem.apps.js`). Keeping it in `.env` is harmless but
-  is not what the web app uses.
+  is not what these apps rely on. Admin remains bound to `127.0.0.1:3002`;
+  this API-origin setting does not publish an admin route.
 
 `EMAIL_TRANSPORT` is optional and defaults to `none`, which records that a send
 was requested without delivering it. Set it only once a provider account exists.

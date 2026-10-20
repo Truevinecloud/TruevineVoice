@@ -63,6 +63,8 @@ const ALLOWED_ROUTES: ReadonlyArray<{ readonly method: string; readonly pattern:
   { method: 'POST', pattern: /^\/organizations\/[^/]+\/invitations$/ },
   { method: 'DELETE', pattern: /^\/organizations\/[^/]+\/invitations\/[^/]+$/ },
   { method: 'POST', pattern: /^\/organizations\/[^/]+\/ownership\/transfer$/ },
+  { method: 'PATCH', pattern: /^\/organizations\/[^/]+\/billing$/ },
+  { method: 'POST', pattern: /^\/organizations\/[^/]+\/wallet\/top-ups$/ },
 
   // Invitation acceptance.
   { method: 'POST', pattern: /^\/invitations\/accept$/ },
