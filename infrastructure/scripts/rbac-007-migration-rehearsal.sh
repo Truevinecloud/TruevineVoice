@@ -46,7 +46,8 @@ if [[ "$rolled_back" != '0' ]]; then
 fi
 
 # Retry the exact reviewed SQL after PostgreSQL rolled back the failed attempt.
-psql_ci -d "$database" -f "$migration" >/dev/null
+docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U truevine -d "$database" -f - \
+  < "$migration" >/dev/null
 trigger_count="$(psql_ci -d "$database" -Atc "SELECT count(*) FROM pg_trigger WHERE tgname='campaigns_emergency_stop_guard' AND NOT tgisinternal;")"
 if [[ "$trigger_count" != '1' ]]; then
   echo "Retry did not install exactly one emergency-stop trigger." >&2
