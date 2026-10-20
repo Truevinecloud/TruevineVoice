@@ -32,6 +32,8 @@ The platform-admin app provides an Operations console at `/admin` on this
 branch. Its API independently enforces platform permissions. Emergency stop
 pauses and locks an active campaign record; no voice provider or call dispatch
 is connected. See [RBAC-007 implementation notes](./docs/rbac-007-operations-admin-progress-2026-10-20.md).
+Supported non-production account activation and the platform-role provisioning
+gap are documented in [the UAT runbook](./docs/runbooks/uat-account-provisioning.md).
 
 Every Node workspace is an **ES module**, because NestJS 12 is published
 ESM-only. See [ADR 0002](./docs/adr/0002-runtime-and-toolchain-versions.md).

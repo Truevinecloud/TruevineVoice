@@ -1,6 +1,6 @@
-# RBAC-007 — Platform Operations Admin
+﻿# RBAC-007 — Platform Operations Admin
 
-**Status: implemented locally; database E2E and release approval remain pending.**
+**Status: implemented, committed and pushed; PR #28 is open with all CI checks passing. Production migration approval and release remain pending.**
 
 ## Baseline and RBAC-006 evidence
 
@@ -49,15 +49,21 @@ that the platform does not implement.
 ## Migration and deployment gates
 
 Migration `20261020110000_rbac_007_emergency_stop` adds the marker column and
-compatibility trigger. It is **not** listed in `infrastructure/migrations-reviewed.json`.
-The PR CI migration rehearsal runs against disposable PostgreSQL; no production
-migration or manifest approval is authorized by this task. PR #27's pending
-RBAC-004 billing migration is timestamped earlier and uses independent tables,
-but its current SQL does not declare an explicit transaction. It must be
-reviewed/fixed and merged before a combined release; this branch does not change
-that PR.
+compatibility triggers. It is **not** listed in
+`infrastructure/migrations-reviewed.json`. On disposable PostgreSQL, CI verified
+the complete migration succeeds; a forced late error rolls back the DDL; retrying
+the exact SQL succeeds; and legacy updates/deletes cannot restart or erase a
+stopped campaign. No production migration or manifest approval is authorized by
+this task.
 
-Before controlled deployment, require green CI (including the new real database
+PR #27's pending RBAC-004 billing migration is timestamped earlier and creates
+independent tables, but its current SQL does not declare an explicit transaction.
+It must be reviewed/fixed before a combined production release. RBAC-007 CI ran
+against `main` without PR #27; integrate the branches in sequence and rerun CI
+against the combined schema before release. The two branches also touch
+`schema.prisma`, so resolve any integration conflict without rewriting history.
+
+Before controlled deployment, require green combined CI (including the new real database
 E2E suite), migration review and approval, and explicit provisioning of an
 Operations Admin account through the already authorized operator process. Set
 `TRUEVINE_API_URL` for the admin server. The admin site must be served on HTTPS
@@ -71,18 +77,9 @@ Operations Admin provisioning gap are documented in
 [`docs/runbooks/uat-account-provisioning.md`](./runbooks/uat-account-provisioning.md).
 Do not create production role assignments with ad-hoc SQL.
 
-## Verification to date
+## Verification and publication
 
-- `npm ci` — PASS; npm reported the repository's existing five high-severity
-  development dependency advisories.
-- `npm run prisma:generate`, `npm run prisma:validate` — PASS.
-- `npm run lint` — PASS.
-- `npm run typecheck` — PASS across workspaces.
-- `npm test` — PASS, all unit and deployment checks; POSIX-only runtime checks
-  are intentionally skipped on Windows by the existing scripts.
-- Focused real PostgreSQL E2E — BLOCKED before database connection because this
-  worktree has no `DATABASE_URL`, Docker CLI is unavailable, and no disposable
-  PostgreSQL listener is running on 127.0.0.1:55432. The suite includes an
-  allowlist check that refuses non-disposable database URLs.
-- Production `GET /health` — PASS; reported SHA matches the latest successful
-  protected deployment run as recorded above.
+- Branch head: `a6d801cf273a335521748fc8f6b613c5e9b02dcd`.
+- PR [#28](https://github.com/Truevinecloud/TruevineVoice/pull/28) is open and all checks pass. CI run [39368942753](https://github.com/Truevinecloud/TruevineVoice/actions/runs/39368942753) passed lint, typecheck, Prisma validation, unit tests, database-backed E2E, security remediation tests, and production build. Migration rehearsal run [39368942760](https://github.com/Truevinecloud/TruevineVoice/actions/runs/39368942760) and restore integration run [39368942864](https://github.com/Truevinecloud/TruevineVoice/actions/runs/39368942864) also passed.
+- Local `npm run prisma:generate`, `npm run prisma:validate`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check` passed. Windows skipped the existing POSIX-only backup/database-verification runtime checks; their required GitHub Linux CI checks passed.
+- No deployment, merge, production data access, or migration manifest change was made. The original dirty development worktree remains separate and untouched.
