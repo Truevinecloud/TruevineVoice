@@ -19,6 +19,10 @@ const read = (name: string): string => readFileSync(resolve(here, '..', 'backup'
 const common = read('lib/common.sh');
 const backup = read('backup.sh');
 const restore = read('restore.sh');
+const restoreWorkflow = readFileSync(
+  resolve(here, '..', '..', '.github', 'workflows', 'restore-integration.yml'),
+  'utf8',
+);
 
 /** All lines in `source` that contain `needle`. */
 const linesWith = (source: string, needle: string): string[] =>
@@ -136,6 +140,13 @@ describe('restore safety model', () => {
     const runtime = read('backup.test.sh');
     expect(runtime).not.toContain('docker rm -fv truevine-backup-src');
     expect(runtime).not.toContain('docker volume rm truevine-backup-src-vol');
+  });
+
+  it('runs required encrypted backup and isolated restore tests in Linux CI', () => {
+    expect(restoreWorkflow).toContain("BACKUP_TESTS_REQUIRED: '1'");
+    expect(restoreWorkflow).toContain('run: npm run test:backup');
+    expect(restoreWorkflow).toContain('infrastructure/backup/**');
+    expect(restoreWorkflow).toContain('sudo apt-get install --no-install-recommends --yes age');
   });
 
   it('never references the production database container', () => {
