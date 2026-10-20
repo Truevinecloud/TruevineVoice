@@ -36,6 +36,10 @@ import {
 } from './verify-deployment.mjs';
 
 const sha = 'a'.repeat(40);
+const deploymentWorkflow = readFileSync(
+  resolve(process.cwd(), '.github/workflows/deploy.yml'),
+  'utf8',
+);
 const requiredJobs = [
   'Lint, typecheck and Prisma validation',
   'Unit tests',
@@ -54,6 +58,22 @@ describe('deployment CI gates', () => {
       expect(() => assertCiJobs([...others, { ...job, conclusion }])).toThrow(job.name);
     }
     expect(() => assertCiJobs([...requiredJobs, job])).toThrow(job.name);
+  });
+});
+
+describe('production deployment approval gate', () => {
+  it('cannot start automatically after a main push or CI completion', () => {
+    expect(deploymentWorkflow).not.toMatch(/^\s+workflow_run:/m);
+    expect(deploymentWorkflow).not.toMatch(/^\s+push:/m);
+    expect(deploymentWorkflow).toMatch(/workflow_dispatch:\s*\n\s+inputs:/);
+  });
+
+  it('requires an explicit false-by-default production authorization input', () => {
+    expect(deploymentWorkflow).toMatch(
+      /authorize_production:[\s\S]*?required:\s*true[\s\S]*?type:\s*boolean[\s\S]*?default:\s*false/,
+    );
+    expect(deploymentWorkflow).toMatch(/inputs\.authorize_production\s*==\s*true/);
+    expect(deploymentWorkflow).toMatch(/environment:\s*production/);
   });
 });
 

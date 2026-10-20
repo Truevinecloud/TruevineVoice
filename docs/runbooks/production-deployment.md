@@ -34,6 +34,25 @@ sudo ls -l /etc/nginx/sites-enabled
 sudo ss -ltnp
 ```
 
+### Read-only Prisma migration inspection (after authorized SSH is restored)
+
+This command reads the active release's migration files and PostgreSQL
+`_prisma_migrations` ledger. It does not apply, resolve, reset, or modify
+migrations. Run it only after connecting through the authorized SSH identity,
+from the deployed release whose SHA was recorded in the preceding audit. Do not
+print `.env` or pass its URL as a command-line argument:
+
+```bash
+cd /var/www/TruevineVoice/current/packages/database
+env -u DATABASE_URL npm run prisma:migrate:status
+```
+
+The Prisma config loads the release's shared `.env` symlink, while `env -u`
+prevents an inherited shell value from overriding it. Capture only the command's
+migration names/status and exit code in the audit record. If the command cannot
+connect or its release context is unclear, stop; do not substitute `migrate
+deploy`, `migrate resolve`, `db push`, or a direct SQL update.
+
 Review `sudo nginx -T` **privately on the server**; it can contain sensitive
 configuration. Record existing virtual hosts, upstreams, API path rewriting,
 TLS certificate paths, access controls, and the PM2 owning OS account. Inspect
@@ -158,8 +177,9 @@ Review any remaining changes; no application edits are ignored by these rules.
 The new source .gitignore also contains these entries for future checkouts.
 
 If no managed processes exist in any service account and ports are free, the
-first automatic deploy can proceed. On failure it removes only newly created
-Truevine PM2 processes; unrelated PM2 applications are preserved.
+first explicitly approved manual deployment can proceed. On failure it removes
+only newly created Truevine PM2 processes; unrelated PM2 applications are
+preserved.
 
 For an existing installation, perform one supervised cutover first:
 
@@ -273,19 +293,23 @@ gh secret set VPS_SSH_KEY --repo Truevinecloud/TruevineVoice < /secure/local/dep
 gh secret set VPS_SSH_KNOWN_HOSTS --repo Truevinecloud/TruevineVoice < /secure/local/verified-known-hosts
 ```
 
-Ensure `main` is the repository default branch: workflow_run must exist on the
-default branch to trigger. Set variables `VPS_SSH_PORT` (default 22) and `DEPLOYMENT_READY=true` **after** the
-VPS, baseline and routing checks above pass. Configure the `production` GitHub
-environment to permit only `main`. Required reviewers are optional; omit them
-if automatic deployment on successful pushes is required. Protect `main` with
-all four CI job names in `ci.yml` and require reviews for deployment-code changes.
-No application secrets or database passwords are GitHub Actions inputs.
+Set variable `VPS_SSH_PORT` (default 22) and `DEPLOYMENT_READY=true` only after
+the VPS, baseline and routing checks above pass. The production workflow is
+manual-only: merging to `main` or successful CI does not start deployment. An
+authorized operator must dispatch `deploy.yml` with `authorize_production=true`
+after reviewing the exact SHA, migration approvals, backup/restore evidence and
+release runbook. Configure the `production` GitHub environment to permit only
+`main` and require designated reviewers as a separate defense-in-depth control;
+do not treat the workflow input as a replacement for environment reviewers.
+Protect `main` with all four CI job names in `ci.yml` and require reviews for
+deployment-code changes. No application secrets or database passwords are
+GitHub Actions inputs.
 
-Do not commit/push until the owner authorizes it. Once these reviewed changes
-are on `main`, CI runs for the push. `deploy.yml` listens for successful completion
-of the **whole CI workflow**, verifies each required job passed, rejects PR/fork
-runs, and deploys the CI run's exact SHA. Superseded commits are skipped. No
-privileged deployment artifacts are taken from pull requests.
+`deploy.yml` resolves a completed successful `push` CI run from this repository
+for the explicitly approved current-main SHA, verifies all required jobs, and
+refuses a superseded commit. It does not run from PR artifacts. A future release
+requires separate explicit approval; this workflow change itself does not
+authorize a production deployment.
 
 ## Routing and TLS
 
@@ -325,18 +349,18 @@ and PM2 uptime/cwd/version for all four processes. `current` switches atomically
 only after those checks pass, then PM2 state is saved. Both workflow concurrency
 and server-side `flock` serialize activation and rollback.
 
-### Manual redeploy
+### Explicitly approved deployment
 
-When the automatic path did not run — for example a deploy failed and `main` has
-not moved since — an operator with repository write access can click **Run
-workflow** on the **Production deployment** workflow in the GitHub Actions tab.
-The manual run deploys the current tip of `main`. It resolves the CI run for that
-exact commit and requires a completed, successful `push` run from this repository,
-so it cannot publish an unreviewed commit, a pull-request result or a fork. It
-still refuses a commit that is not the tip of `main`, and uses the same
-`production` environment, secrets, concurrency group and server-side checks as
-the automatic path.
-
+Merging or pushing to `main`, and successful CI completion, do not start
+production deployment. After the release approver has reviewed the exact current
+main SHA, passing CI, migration approvals, backup/restore evidence and recovery
+plan, an authorized repository operator can dispatch **Production deployment**
+with `authorize_production=true`. The default is `false`; without the explicit
+input the job does not run. It resolves a completed successful `push` CI run for
+that exact SHA and still refuses a commit that is not the tip of `main`.
+GitHub's `production` environment should independently require designated
+reviewers and allow only `main`; configuring those live settings is a separate
+operator action and is not part of the workflow code change.
 The switch deletes and restarts only the four managed processes; unrelated PM2
 applications on the deployment account's daemon are never touched. Process
 restarts briefly interrupt each application; this is not a zero-downtime
