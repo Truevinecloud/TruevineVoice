@@ -23,6 +23,14 @@ BACKUP="$HERE/backup.sh"
 RESTORE="$HERE/restore.sh"
 
 WORK=$(mktemp -d -t truevine-backup-tests-XXXXXX)
+TEST_RUN_ID="$$-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+TEST_CONTAINER="truevine-backup-src-$TEST_RUN_ID"
+TEST_VOLUME="${TEST_CONTAINER}-vol"
+TEST_CONTAINER_ID=""
+TEST_VOLUME_MOUNTPOINT=""
+FIXTURE_ID=""
+FIXTURE_VOLUME=""
+FIXTURE_VOLUME_MOUNTPOINT=""
 fails=0
 skipped=0
 ok()   { printf '  OK    %s\n' "$*"; }
@@ -51,21 +59,30 @@ skip_or_fail() {
   fi
 }
 
-# Test containers and volumes are removed on every exit path, including failure.
-# A leftover volume carries a stale postmaster.pid, and the next run would
-# silently reuse it and fail in a way that looks like a product bug.
+# Test containers and volumes have a unique run identity. Cleanup positively
+# verifies their labels and captured identity before removing them.
 cleanup() {
   command -v docker >/dev/null 2>&1 || { rm -rf "$WORK"; return; }
   docker info >/dev/null 2>&1 || { rm -rf "$WORK"; return; }
-  local c v
-  for c in $(docker ps -aq --filter "name=truevine-backup-src" 2>/dev/null) \
-           $(docker ps -aq --filter "name=truevine-restore-" 2>/dev/null); do
-    docker rm -fv "$c" >/dev/null 2>&1 || true
-  done
-  for v in $(docker volume ls -q --filter "name=truevine-backup-src-vol" 2>/dev/null) \
-           $(docker volume ls -q --filter "name=truevine-restore-" 2>/dev/null); do
-    docker volume rm -f "$v" >/dev/null 2>&1 || true
-  done
+  local label mountpoint
+  if [ -n "$TEST_CONTAINER_ID" ]; then
+    label=$(docker inspect --format '{{ index .Config.Labels "truevine.backup.test.run" }}' "$TEST_CONTAINER_ID" 2>/dev/null || true)
+    if [ "$label" = "$TEST_RUN_ID" ]; then docker rm -f "$TEST_CONTAINER_ID" >/dev/null 2>&1 || true; fi
+  fi
+  if [ -n "$FIXTURE_ID" ]; then
+    label=$(docker inspect --format '{{ index .Config.Labels "truevine.backup.test.conflict" }}' "$FIXTURE_ID" 2>/dev/null || true)
+    [ "$label" = "$TEST_RUN_ID" ] && docker rm -f "$FIXTURE_ID" >/dev/null 2>&1 || true
+  fi
+  label=$(docker volume inspect --format '{{ index .Labels "truevine.backup.test.run" }}' "$TEST_VOLUME" 2>/dev/null || true)
+  mountpoint=$(docker volume inspect --format '{{.Mountpoint}}' "$TEST_VOLUME" 2>/dev/null || true)
+  if [ "$label" = "$TEST_RUN_ID" ] && [ -n "$TEST_VOLUME_MOUNTPOINT" ] && [ "$mountpoint" = "$TEST_VOLUME_MOUNTPOINT" ]; then
+    docker volume rm "$TEST_VOLUME" >/dev/null 2>&1 || true
+  fi
+  label=$(docker volume inspect --format '{{ index .Labels "truevine.backup.test.conflict" }}' "${FIXTURE_VOLUME:-unused}" 2>/dev/null || true)
+  mountpoint=$(docker volume inspect --format '{{.Mountpoint}}' "${FIXTURE_VOLUME:-unused}" 2>/dev/null || true)
+  if [ "$label" = "$TEST_RUN_ID" ] && [ -n "$FIXTURE_VOLUME_MOUNTPOINT" ] && [ "$mountpoint" = "$FIXTURE_VOLUME_MOUNTPOINT" ]; then
+    docker volume rm "$FIXTURE_VOLUME" >/dev/null 2>&1 || true
+  fi
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -86,24 +103,58 @@ make_key() {
 # A standalone PostgreSQL instance plus a source database to dump from.
 # Isolated: no network, its own volume, its own name.
 start_test_pg() {
-  docker rm -fv truevine-backup-src >/dev/null 2>&1 || true
-  docker volume rm truevine-backup-src-vol >/dev/null 2>&1 || true
-  docker run -d --name truevine-backup-src --network none \
-    --mount "type=volume,src=truevine-backup-src-vol,dst=/var/lib/postgresql" \
-    --label "truevine.verify.run=backup-tests" \
+  if docker inspect "$TEST_CONTAINER" >/dev/null 2>&1 || docker volume inspect "$TEST_VOLUME" >/dev/null 2>&1; then
+    warn "random test resource name already exists; refusing to remove or reuse it"
+    return 1
+  fi
+  docker volume create --label "truevine.backup.test.run=$TEST_RUN_ID" "$TEST_VOLUME" >/dev/null || return 1
+  TEST_VOLUME_MOUNTPOINT=$(docker volume inspect --format '{{.Mountpoint}}' "$TEST_VOLUME") || return 1
+  [ -n "$TEST_VOLUME_MOUNTPOINT" ] || return 1
+  if ! docker run -d --name "$TEST_CONTAINER" --network none \
+    --mount "type=volume,src=$TEST_VOLUME,dst=/var/lib/postgresql" \
+    --label "truevine.backup.test.run=$TEST_RUN_ID" \
     -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=testdb \
-    postgres:18-alpine >/dev/null 2>&1 || return 1
+    postgres:18-alpine >"$WORK/container.id" 2>"$WORK/container.start.log"; then
+    warn "isolated test PostgreSQL container did not start:"
+    sed 's/^/          /' "$WORK/container.id"
+    sed 's/^/          /' "$WORK/container.start.log"
+    return 1
+  fi
+  TEST_CONTAINER_ID=$(tr -d '\r\n' < "$WORK/container.id")
+  if ! [[ "$TEST_CONTAINER_ID" =~ ^[0-9a-f]{64}$ ]]; then
+    warn "docker run did not return a single container id:"
+    sed 's/^/          /' "$WORK/container.id"
+    sed 's/^/          /' "$WORK/container.start.log"
+    return 1
+  fi
+  local actual_label actual_mount
+  actual_label=$(docker inspect --format '{{ index .Config.Labels "truevine.backup.test.run" }}' "$TEST_CONTAINER_ID") || {
+    warn "could not inspect isolated test PostgreSQL container identity:"
+    docker inspect "$TEST_CONTAINER_ID" 2>&1 | sed 's/^/          /' || true
+    return 1
+  }
+  actual_mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql"}}{{.Name}}{{end}}{{end}}' "$TEST_CONTAINER_ID") || {
+    warn "could not inspect isolated test PostgreSQL container mount"
+    return 1
+  }
+  if [ "$actual_label" != "$TEST_RUN_ID" ] || [ "$actual_mount" != "$TEST_VOLUME" ]; then
+    warn "isolated test PostgreSQL identity mismatch (label=$actual_label mount=$actual_mount)"
+    return 1
+  fi
   local i
   # A real query, not `pg_isready`. The image runs a temporary server while it
   # initialises and pg_isready succeeds against that, so seeding could start
   # while the real server was still coming up. Measured flake rate of the
   # pg_isready form: roughly 1 run in 3.
   for i in $(seq 1 90); do
-    if docker exec truevine-backup-src psql -U postgres -d testdb -tAc 'SELECT 1' >/dev/null 2>&1; then
+    if docker exec "$TEST_CONTAINER_ID" psql -U postgres -d testdb -tAc 'SELECT 1' >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
   done
+  warn "isolated test PostgreSQL did not become ready; container state follows:"
+  docker inspect --format '{{json .State}}' "$TEST_CONTAINER_ID" 2>/dev/null | sed 's/^/          /' || true
+  docker logs "$TEST_CONTAINER_ID" 2>&1 | tail -40 | sed 's/^/          /' || true
   return 1
 }
 
@@ -111,7 +162,7 @@ start_test_pg() {
 # heredoc below would never reach psql and seeding would silently do nothing.
 # The error is captured so a failure is diagnosable rather than just a skip.
 seed_test_data() {
-  docker exec -i truevine-backup-src psql -v ON_ERROR_STOP=1 -U postgres -d testdb -q \
+  docker exec -i "$TEST_CONTAINER_ID" psql -v ON_ERROR_STOP=1 -U postgres -d testdb -q \
     > /tmp/seed.out 2>&1 <<'SQL'
 CREATE TABLE IF NOT EXISTS widget (id serial PRIMARY KEY, name text NOT NULL, created_at timestamptz DEFAULT now());
 CREATE TABLE IF NOT EXISTS gadget (id serial PRIMARY KEY, label text);
@@ -171,7 +222,7 @@ fi
 
 if [ -z "$skip_reason" ]; then
   export BACKUP_KEYFILE="$WORK/key.txt"
-  export BACKUP_PG_CONTAINER=truevine-backup-src
+  export BACKUP_PG_CONTAINER="$TEST_CONTAINER_ID"
   export BACKUP_PG_DB=testdb
   # The throwaway instance has only the default superuser; production uses
   # `truevine`. Naming the role explicitly is what keeps this honest.
@@ -267,17 +318,184 @@ if [ -z "$skip_reason" ]; then
 
   echo
   echo "=== 7. restore into an ISOLATED instance reproduces the data ==="
-  out=$(bash "$RESTORE" --latest --restore 2>&1); rc=$?
+  REAL_DOCKER=$(command -v docker)
+  success_wrapper="$WORK/docker-check-restored-data"
+  mkdir -p "$success_wrapper"
+  RESTORED_DATA_CHECK="$WORK/restored-row-counts.txt"
+  cat > "$success_wrapper/docker" <<'WRAPPER'
+#!/usr/bin/env bash
+if [ "${1:-}" = rm ] && [ "${2:-}" = -f ]; then
+  container_id=${3:-}
+  label=$("$REAL_DOCKER" inspect --format '{{ index .Config.Labels "truevine.restore.run" }}' "$container_id" 2>/dev/null || true)
+  case "$label" in
+    truevine-restore-*)
+      rows=$("$REAL_DOCKER" exec "$container_id" psql -U postgres -d testdb -At -F '|' \
+        -c 'SELECT (SELECT count(*) FROM widget), (SELECT count(*) FROM gadget);' 2>/dev/null) || exit 1
+      [ "$rows" = '250|40' ] || { echo "restored row counts differ: $rows" >&2; exit 1; }
+      printf '%s\n' "$rows" > "$RESTORED_DATA_CHECK"
+      ;;
+  esac
+fi
+exec "$REAL_DOCKER" "$@"
+WRAPPER
+  chmod +x "$success_wrapper/docker"
+  TS=$(find "$WORK/store" -name '*.dump.age' | head -1 | xargs basename | sed 's/\.dump\.age$//')
+  LEGACY_CONTAINER="truevine-restore-$(echo "$TS" | tr -d 'Z')"
+  LEGACY_VOLUME="${LEGACY_CONTAINER}-vol"
+  FIXTURE_VOLUME="$LEGACY_VOLUME"
+  FIXTURE_LABEL="truevine.backup.test.conflict=$TEST_RUN_ID"
+  if docker inspect "$LEGACY_CONTAINER" >/dev/null 2>&1 || docker volume inspect "$LEGACY_VOLUME" >/dev/null 2>&1; then
+    bad "legacy conflict fixture name already exists; refusing to touch it"
+  else
+    docker volume create --label "$FIXTURE_LABEL" "$LEGACY_VOLUME" >/dev/null || bad "could not create unrelated volume fixture"
+    FIXTURE_MOUNT=$(docker volume inspect --format '{{.Mountpoint}}' "$LEGACY_VOLUME" 2>/dev/null || true)
+    FIXTURE_VOLUME_MOUNTPOINT="$FIXTURE_MOUNT"
+    docker run -d --name "$LEGACY_CONTAINER" --network none \
+      --mount "type=volume,src=$LEGACY_VOLUME,dst=/var/lib/postgresql" \
+      --label "$FIXTURE_LABEL" postgres:18-alpine sleep 600 >/dev/null 2>&1 \
+      && FIXTURE_ID=$(docker inspect --format '{{.Id}}' "$LEGACY_CONTAINER") || { bad "could not create unrelated container fixture"; FIXTURE_ID=""; }
+  fi
+  out=$(PATH="$success_wrapper:$PATH" REAL_DOCKER="$REAL_DOCKER" \
+    RESTORED_DATA_CHECK="$RESTORED_DATA_CHECK" bash "$RESTORE" --latest --restore 2>&1); rc=$?
   [ "$rc" = "0" ] && ok "isolated restore exits 0" || { bad "isolated restore failed (exit $rc)"; echo "$out" | sed 's/^/        /'; }
   # The seeded database holds exactly two tables (widget, gadget). There is no
   # Prisma migrations table here, so a correct restore reports 2, not 3.
   case "$out" in *"2 table(s)"*) ok "restored instance reports the 2 seeded tables" ;; *) bad "unexpected table count in: $out" ;; esac
   case "$out" in *"production untouched"*) ok "states production was untouched" ;; *) bad "missing safety statement" ;; esac
-  # The restore container must be gone.
-  if docker ps -a --format '{{.Names}}' | grep -q '^truevine-restore-'; then
-    bad "restore container was left behind"
+  [ "$(cat "$RESTORED_DATA_CHECK" 2>/dev/null)" = '250|40' ] \
+    && ok "restored synthetic database contains all 250 widgets and 40 gadgets" \
+    || bad "isolated restore did not reproduce the seeded synthetic rows"
+  SUCCESS_LABEL=$(printf '%s\n' "$out" | sed -n 's/.*isolated restore run label: //p' | head -1)
+  if [ -n "$SUCCESS_LABEL" ]; then
+    own_containers=$(docker ps -aq --filter "label=truevine.restore.run=$SUCCESS_LABEL")
+    own_volumes=$(docker volume ls -q --filter "label=truevine.restore.run=$SUCCESS_LABEL")
+    [ -z "$own_containers" ] && [ -z "$own_volumes" ] && ok "successful restore removed exactly its own labeled container and volume" \
+      || bad "successful restore left resources bearing its run label"
   else
-    ok "restore instance was discarded"
+    bad "restore did not report its unique ownership label"
+  fi
+  if [ -n "${FIXTURE_ID:-}" ]; then
+    kept_id=$(docker inspect --format '{{.Id}}' "$FIXTURE_ID" 2>/dev/null || true)
+    kept_label=$(docker inspect --format '{{ index .Config.Labels "truevine.backup.test.conflict" }}' "$FIXTURE_ID" 2>/dev/null || true)
+    kept_mount=$(docker volume inspect --format '{{.Mountpoint}}' "$LEGACY_VOLUME" 2>/dev/null || true)
+    kept_vlabel=$(docker volume inspect --format '{{ index .Labels "truevine.backup.test.conflict" }}' "$LEGACY_VOLUME" 2>/dev/null || true)
+    [ "$kept_id" = "$FIXTURE_ID" ] && [ "$kept_label" = "$TEST_RUN_ID" ] && [ "$kept_mount" = "$FIXTURE_MOUNT" ] && [ "$kept_vlabel" = "$TEST_RUN_ID" ] \
+      && ok "unrelated pre-existing container and volume survived unchanged" \
+      || bad "isolated restore changed or removed unrelated fixture resources"
+    if [ "$kept_label" = "$TEST_RUN_ID" ]; then
+      docker rm -f "$FIXTURE_ID" >/dev/null && [ -z "$(docker inspect "$FIXTURE_ID" 2>/dev/null || true)" ] && FIXTURE_ID=""
+    fi
+    if [ "$kept_vlabel" = "$TEST_RUN_ID" ] && [ "$kept_mount" = "$FIXTURE_MOUNT" ]; then
+      docker volume rm "$LEGACY_VOLUME" >/dev/null && [ -z "$(docker volume inspect "$LEGACY_VOLUME" 2>/dev/null || true)" ] && FIXTURE_VOLUME=""
+    fi
+  fi
+
+  echo
+  echo "=== 7a. name collisions fail closed before cleanup ==="
+  conflict_wrapper="$WORK/docker-conflict"
+  mkdir -p "$conflict_wrapper"
+  cat > "$conflict_wrapper/docker" <<'WRAPPER'
+#!/usr/bin/env bash
+if [ "${RESTORE_TEST_CONTAINER_CONFLICT:-0}" = 1 ] && [ "${1:-}" = inspect ] && [[ "${2:-}" == truevine-restore-* ]]; then
+  echo "forced unrelated container name conflict" >&2
+  exit 0
+fi
+if [ "${RESTORE_TEST_VOLUME_CONFLICT:-0}" = 1 ] && [ "${1:-}" = volume ] && [ "${2:-}" = inspect ] && [[ "${*: -1}" == truevine-restore-*-vol ]]; then
+  echo "forced unrelated volume name conflict" >&2
+  exit 0
+fi
+if [ "${1:-}" = rm ] || { [ "${1:-}" = volume ] && [ "${2:-}" = rm ]; }; then
+  printf '%s\n' "$*" >> "$DOCKER_CALL_LOG"
+fi
+exec "$REAL_DOCKER" "$@"
+WRAPPER
+  chmod +x "$conflict_wrapper/docker"
+  DOCKER_CALL_LOG="$WORK/conflict.docker.log"
+  out=$(PATH="$conflict_wrapper:$PATH" REAL_DOCKER="$REAL_DOCKER" DOCKER_CALL_LOG="$DOCKER_CALL_LOG" RESTORE_TEST_CONTAINER_CONFLICT=1 bash "$RESTORE" --latest --restore 2>&1); rc=$?
+  [ "$rc" = "6" ] && ok "container name conflict exits 6" || bad "expected conflict refusal (exit 6), got $rc"
+  case "$out" in *"name already exists"*) ok "collision refusal is explicit" ;; *) bad "collision refusal was not explicit" ;; esac
+  case "$out" in *"isolated restore run label:"*) bad "conflict unexpectedly created an isolated restore run" ;; *) ok "conflict created no labeled resource" ;; esac
+  [ ! -s "$DOCKER_CALL_LOG" ] && ok "container conflict triggered no Docker delete" || bad "container conflict attempted deletion"
+  rm -f "$DOCKER_CALL_LOG"
+  out=$(PATH="$conflict_wrapper:$PATH" REAL_DOCKER="$REAL_DOCKER" DOCKER_CALL_LOG="$DOCKER_CALL_LOG" RESTORE_TEST_VOLUME_CONFLICT=1 bash "$RESTORE" --latest --restore 2>&1); rc=$?
+  [ "$rc" = "6" ] && ok "volume name conflict exits 6" || bad "expected volume conflict refusal (exit 6), got $rc"
+  case "$out" in *"restore volume name already exists"*) ok "volume collision refusal is explicit" ;; *) bad "volume collision refusal was not explicit" ;; esac
+  [ ! -s "$DOCKER_CALL_LOG" ] && ok "volume conflict triggered no Docker delete" || bad "volume conflict attempted deletion"
+
+  echo
+  echo "=== 7b. failed restore cleans only positively owned resources ==="
+  failure_wrapper="$WORK/docker-fail-restore"
+  mkdir -p "$failure_wrapper"
+  cat > "$failure_wrapper/docker" <<'WRAPPER'
+#!/usr/bin/env bash
+if [ "${1:-}" = exec ] && [[ " ${*:2} " == *" pg_restore "* ]]; then
+  echo "forced disposable pg_restore failure" >&2
+  exit 9
+fi
+exec "$REAL_DOCKER" "$@"
+WRAPPER
+  chmod +x "$failure_wrapper/docker"
+  out=$(PATH="$failure_wrapper:$PATH" REAL_DOCKER="$REAL_DOCKER" bash "$RESTORE" --latest --restore 2>&1); rc=$?
+  [ "$rc" = "6" ] && ok "forced pg_restore failure exits 6" || bad "forced restore failure returned $rc"
+  FAILURE_LABEL=$(printf '%s\n' "$out" | sed -n 's/.*isolated restore run label: //p' | head -1)
+  after_owned=$(docker ps -aq --filter "label=truevine.restore.run=$FAILURE_LABEL" | sort)
+  [ -n "$FAILURE_LABEL" ] && [ -z "$after_owned" ] && ok "failed restore cleaned its owned container" || bad "failed restore left or changed a labeled container"
+  remaining_volumes=$(docker volume ls -q --filter "label=truevine.restore.run=$FAILURE_LABEL" | sort)
+  [ -z "$remaining_volumes" ] && ok "failed restore cleaned its owned volume" || bad "failed restore left a labeled volume"
+
+  echo
+  echo "=== 7c. ownership mismatch fails closed during failure cleanup ==="
+  mismatch_wrapper="$WORK/docker-mismatch-ownership"
+  mkdir -p "$mismatch_wrapper"
+  cat > "$mismatch_wrapper/docker" <<'WRAPPER'
+#!/usr/bin/env bash
+if [ "${1:-}" = exec ] && [[ " ${*:2} " == *" pg_restore "* ]]; then
+  : > "$OWNERSHIP_MISMATCH_MARKER"
+  echo "forced disposable pg_restore failure" >&2
+  exit 9
+fi
+if [ -f "$OWNERSHIP_MISMATCH_MARKER" ] && [ "${1:-}" = inspect ] && [[ " ${*:2} " == *"truevine.restore.run"* ]]; then
+  echo "foreign-run-label"
+  exit 0
+fi
+if [ -f "$OWNERSHIP_MISMATCH_MARKER" ] && [ "${1:-}" = volume ] && [ "${2:-}" = inspect ] && [[ " ${*:3} " == *"truevine.restore.run"* ]]; then
+  echo "foreign-run-label"
+  exit 0
+fi
+if [ "${1:-}" = rm ] || { [ "${1:-}" = volume ] && [ "${2:-}" = rm ]; }; then
+  printf '%s\n' "$*" >> "$DOCKER_CALL_LOG"
+fi
+exec "$REAL_DOCKER" "$@"
+WRAPPER
+  chmod +x "$mismatch_wrapper/docker"
+  DOCKER_CALL_LOG="$WORK/mismatch.docker.log"
+  : > "$DOCKER_CALL_LOG"
+  MISMATCH_MARKER="$WORK/ownership-mismatch.marker"
+  out=$(PATH="$mismatch_wrapper:$PATH" REAL_DOCKER="$REAL_DOCKER" \
+    DOCKER_CALL_LOG="$DOCKER_CALL_LOG" OWNERSHIP_MISMATCH_MARKER="$MISMATCH_MARKER" \
+    bash "$RESTORE" --latest --restore 2>&1); rc=$?
+  [ "$rc" != "0" ] && ok "ownership mismatch makes cleanup fail" || bad "ownership mismatch did not fail the restore"
+  case "$out" in *"ownership could not be verified"*) ok "ownership mismatch is reported" ;; *) bad "ownership mismatch was not reported" ;; esac
+  if [ ! -s "$DOCKER_CALL_LOG" ]; then
+    ok "ownership mismatch triggered no Docker deletion"
+  else
+    bad "ownership mismatch attempted Docker deletion: $(tr '\n' ' ' < "$DOCKER_CALL_LOG")"
+  fi
+  MISMATCH_LABEL=$(printf '%s\n' "$out" | sed -n 's/.*isolated restore run label: //p' | head -1)
+  kept_container=$(docker ps -aq --filter "label=truevine.restore.run=$MISMATCH_LABEL" | head -1)
+  kept_volume=$(docker volume ls -q --filter "label=truevine.restore.run=$MISMATCH_LABEL" | head -1)
+  if [ -n "$MISMATCH_LABEL" ] && [ -n "$kept_container" ] && [ -n "$kept_volume" ]; then
+    actual_clabel=$(docker inspect --format '{{ index .Config.Labels "truevine.restore.run" }}' "$kept_container")
+    actual_vlabel=$(docker volume inspect --format '{{ index .Labels "truevine.restore.run" }}' "$kept_volume")
+    [ "$actual_clabel" = "$MISMATCH_LABEL" ] && [ "$actual_vlabel" = "$MISMATCH_LABEL" ] \
+      && ok "both resources remain intact after ownership could not be verified" \
+      || bad "a mismatched resource was changed during cleanup"
+    # Test-only cleanup: discover candidates by the unpredictable run label and
+    # re-check ownership before removing them. Never clean by a shared prefix.
+    [ "$actual_clabel" = "$MISMATCH_LABEL" ] && docker rm -f "$kept_container" >/dev/null
+    [ "$actual_vlabel" = "$MISMATCH_LABEL" ] && docker volume rm "$kept_volume" >/dev/null
+  else
+    bad "could not locate both retained resources for ownership-mismatch cleanup"
   fi
 
   echo
@@ -413,7 +631,8 @@ printf '{\n  "webUrl": "https://voice.truevinecloud.online/",\n  "region": "eu-w
           && ok "container entries are structured objects, not joined strings" || bad "container entries are not structured"
         node -e 'const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(Array.isArray(m.volumes)?0:1)' \
           "$WORK/cfgx/metadata.json" >/dev/null 2>&1 \
-          && ok "volume inventory is captured as an array" || bad "volume inventory missing"
+          && ok "volume inventory is captured as an array" \
+          || bad "volume inventory missing"
       else
         bad "metadata.json was not captured"
       fi
@@ -436,8 +655,6 @@ printf '{\n  "webUrl": "https://voice.truevinecloud.online/",\n  "region": "eu-w
     bad "no encrypted configuration archive found"
   fi
 
-  docker rm -fv truevine-backup-src >/dev/null 2>&1 || true
-  docker volume rm truevine-backup-src-vol >/dev/null 2>&1 || true
 else
   skip_or_fail "$skip_reason" "database-backed tests"
 fi
