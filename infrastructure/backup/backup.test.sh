@@ -350,7 +350,9 @@ WRAPPER
     docker volume create --label "$FIXTURE_LABEL" "$LEGACY_VOLUME" >/dev/null || bad "could not create unrelated volume fixture"
     FIXTURE_MOUNT=$(docker volume inspect --format '{{.Mountpoint}}' "$LEGACY_VOLUME" 2>/dev/null || true)
     FIXTURE_VOLUME_MOUNTPOINT="$FIXTURE_MOUNT"
-    docker run -d --name "$LEGACY_CONTAINER" --network none --label "$FIXTURE_LABEL" postgres:18-alpine sleep 600 >/dev/null 2>&1 \
+    docker run -d --name "$LEGACY_CONTAINER" --network none \
+      --mount "type=volume,src=$LEGACY_VOLUME,dst=/var/lib/postgresql" \
+      --label "$FIXTURE_LABEL" postgres:18-alpine sleep 600 >/dev/null 2>&1 \
       && FIXTURE_ID=$(docker inspect --format '{{.Id}}' "$LEGACY_CONTAINER") || { bad "could not create unrelated container fixture"; FIXTURE_ID=""; }
   fi
   out=$(PATH="$success_wrapper:$PATH" REAL_DOCKER="$REAL_DOCKER" \
