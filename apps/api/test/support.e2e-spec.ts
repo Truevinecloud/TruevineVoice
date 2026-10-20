@@ -34,12 +34,14 @@ const RUN = randomUUID().replace(/-/g, '').slice(0, 8);
 const ORG_A = randomUUID();
 const ORG_B = randomUUID();
 const OWNER_A = randomUUID();
+const OWNER_B = randomUUID();
 const MEMBER_B = randomUUID();
 const SUPPORT_ADMIN = randomUUID();
 const BILLING_ADMIN = randomUUID();
 const AUDITOR = randomUUID();
 const CAMPAIGN = randomUUID();
 const EMAIL_OWNER_A = `support-owner-a-${RUN}@example.invalid`;
+const EMAIL_OWNER_B = `support-owner-b-${RUN}@example.invalid`;
 const EMAIL_MEMBER_B = `support-member-b-${RUN}@example.invalid`;
 const EMAIL_SUPPORT = `support-admin-${RUN}@example.invalid`;
 const EMAIL_BILLING = `support-billing-${RUN}@example.invalid`;
@@ -98,6 +100,7 @@ beforeAll(async () => {
     await tx.$executeRaw`
       INSERT INTO users (id, email, password_hash, updated_at) VALUES
         (${OWNER_A}::uuid, ${EMAIL_OWNER_A}, ${passwordHash}, now()),
+        (${OWNER_B}::uuid, ${EMAIL_OWNER_B}, ${passwordHash}, now()),
         (${MEMBER_B}::uuid, ${EMAIL_MEMBER_B}, ${passwordHash}, now()),
         (${SUPPORT_ADMIN}::uuid, ${EMAIL_SUPPORT}, ${passwordHash}, now()),
         (${BILLING_ADMIN}::uuid, ${EMAIL_BILLING}, ${passwordHash}, now()),
@@ -105,6 +108,7 @@ beforeAll(async () => {
     await tx.$executeRaw`
       INSERT INTO memberships (organization_id, user_id, role, updated_at) VALUES
         (${ORG_A}::uuid, ${OWNER_A}::uuid, 'OWNER', now()),
+        (${ORG_B}::uuid, ${OWNER_B}::uuid, 'OWNER', now()),
         (${ORG_B}::uuid, ${MEMBER_B}::uuid, 'VIEWER', now())`;
     await tx.$executeRaw`
       INSERT INTO platform_role_assignments (user_id, role) VALUES
@@ -141,10 +145,10 @@ beforeAll(async () => {
 afterAll(async () => {
   if (!database) return;
   await database.session.deleteMany({
-    where: { userId: { in: [OWNER_A, MEMBER_B, SUPPORT_ADMIN, BILLING_ADMIN, AUDITOR] } },
+    where: { userId: { in: [OWNER_A, OWNER_B, MEMBER_B, SUPPORT_ADMIN, BILLING_ADMIN, AUDITOR] } },
   });
   await database.termsAcceptance.deleteMany({
-    where: { userId: { in: [OWNER_A, MEMBER_B, SUPPORT_ADMIN, BILLING_ADMIN, AUDITOR] } },
+    where: { userId: { in: [OWNER_A, OWNER_B, MEMBER_B, SUPPORT_ADMIN, BILLING_ADMIN, AUDITOR] } },
   });
   await app?.close();
   await database.$disconnect();
