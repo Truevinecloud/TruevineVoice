@@ -115,9 +115,9 @@ beforeAll(async () => {
       INSERT INTO campaigns (organization_id, id, name, status, created_by_user_id, updated_at)
       VALUES (${ORG_A}::uuid, ${CAMPAIGN}::uuid, 'Support diagnostics campaign', 'ACTIVE', ${OWNER_A}::uuid, now())`;
     await tx.$executeRaw`
-      INSERT INTO wallet_entries (organization_id, amount_minor, currency, reference, description, created_at) VALUES
-        (${ORG_A}::uuid, 5000, 'UGX', ${`support-credit-${RUN}`}, 'Credit', now()),
-        (${ORG_A}::uuid, -2000, 'UGX', ${`support-debit-${RUN}`}, 'Debit', now())`;
+      INSERT INTO wallet_entries (organization_id, id, amount_minor, currency, reference, description, created_at) VALUES
+        (${ORG_A}::uuid, ${randomUUID()}::uuid, 5000, 'UGX', ${`support-credit-${RUN}`}, 'Credit', now()),
+        (${ORG_A}::uuid, ${randomUUID()}::uuid, -2000, 'UGX', ${`support-debit-${RUN}`}, 'Debit', now())`;
     await tx.$executeRaw`
       INSERT INTO top_up_requests (organization_id, id, idempotency_key, amount_minor, currency, created_by_user_id, created_at)
       VALUES (${ORG_A}::uuid, ${randomUUID()}::uuid, ${randomUUID()}::uuid, 10000, 'UGX', ${OWNER_A}::uuid, now())`;
