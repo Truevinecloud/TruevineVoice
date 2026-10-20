@@ -7,15 +7,17 @@ Naming: `NNNN-short-kebab-title.md`, numbered sequentially and never reused.
 
 ## Index
 
-| #                                                | Decision                                         | Status                         |
-| ------------------------------------------------ | ------------------------------------------------ | ------------------------------ |
-| [0001](./0001-modular-monolith.md)               | Start as a modular monolith                      | Accepted                       |
-| [0002](./0002-runtime-and-toolchain-versions.md) | Node, TypeScript and framework version policy    | Accepted                       |
-| [0003](./0003-postgresql-system-of-record.md)    | PostgreSQL is the system of record; Redis is not | Accepted                       |
-| [0004](./0004-github-actions-ci.md)              | CI E2E tests run the real Compose stack          | Accepted                       |
-| [0005](./0005-production-deployment.md)          | CI-gated release directories and PM2 deployment  | Accepted; VPS adoption pending |
-| [0006](./0006-tenancy-core-schema.md)            | Tenancy enforced by composite keys, not queries  | Accepted                       |
-| [0011](./0011-reviewed-deployment-migrations.md) | Apply reviewed migrations before activation | Accepted |
+| #                                                | Decision                                            | Status                         |
+| ------------------------------------------------ | --------------------------------------------------- | ------------------------------ |
+| [0001](./0001-modular-monolith.md)               | Start as a modular monolith                         | Accepted                       |
+| [0002](./0002-runtime-and-toolchain-versions.md) | Node, TypeScript and framework version policy       | Accepted                       |
+| [0003](./0003-postgresql-system-of-record.md)    | PostgreSQL is the system of record; Redis is not    | Accepted                       |
+| [0004](./0004-github-actions-ci.md)              | CI E2E tests run the real Compose stack             | Accepted                       |
+| [0005](./0005-production-deployment.md)          | CI-gated release directories and PM2 deployment     | Accepted; VPS adoption pending |
+| [0006](./0006-tenancy-core-schema.md)            | Tenancy enforced by composite keys, not queries     | Accepted                       |
+| [0011](./0011-reviewed-deployment-migrations.md) | Apply reviewed migrations before activation         | Accepted                       |
+| [0012](./0012-customer-billing-ledger.md)        | Customer billing ledger and pending top-up requests | Proposed                       |
+| [0013](./0013-platform-operations-admin.md)      | Platform Operations Admin emergency stops         | Accepted for implementation   |
 
 ## When to write an ADR
 

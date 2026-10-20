@@ -92,6 +92,18 @@ async function AppNavigation({
       <PermissionLink membership={selected} href="/app" label="Dashboard" permission={null} />
       <PermissionLink
         membership={selected}
+        href={`/app/campaigns?organization=${encodeURIComponent(selected.organizationId)}`}
+        label="Campaigns"
+        permission="campaign:read"
+      />
+      <PermissionLink
+        membership={selected}
+        href={`/app/reports?organization=${encodeURIComponent(selected.organizationId)}`}
+        label="Reports"
+        permission="reporting:read"
+      />
+      <PermissionLink
+        membership={selected}
         href="/app/settings"
         label="Organization"
         permission="organization:read"
@@ -109,6 +121,16 @@ async function AppNavigation({
         permission="invitation:read"
       />
       <PermissionLink membership={selected} href="/app/account" label="Account" permission={null} />
+      {memberships
+        .filter((entry) => entry.permissions.includes('billing:read'))
+        .map((entry) => (
+          <a
+            key={entry.organizationId}
+            href={`/app/billing?organization=${encodeURIComponent(entry.organizationId)}`}
+          >
+            Billing — {entry.organizationName}
+          </a>
+        ))}
 
       {memberships.length > 1 && (
         <span style={{ alignSelf: 'center', marginLeft: 'auto', fontSize: '0.82rem' }}>

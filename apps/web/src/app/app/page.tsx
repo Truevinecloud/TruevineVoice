@@ -4,12 +4,8 @@ import { fetchInvitations, fetchMembers, fetchOrganization } from '../../lib/org
 import { currentSession, hasPermission } from '../../lib/session';
 
 /**
- * Organization Owner dashboard.
- *
- * Shows what is real. Campaigns, call volumes and billing do not exist yet, so
- * this screen does not draw placeholder cards for them - a dashboard full of
- * invented numbers is worse than an empty one, because it teaches a reader what
- * the product is supposed to look like.
+ * Organization dashboard. Shows actual organization data and points authorized
+ * members to the billing journey; no invented usage or wallet figures.
  */
 export default async function DashboardPage({
   searchParams,
@@ -31,7 +27,18 @@ export default async function DashboardPage({
   // organization id from the URL without checking it is the cross-tenant bug
   // this whole task exists to prevent.
   const membership =
-    memberships.find((entry) => entry.organizationId === requested) ?? memberships[0];
+    requested === undefined
+      ? memberships[0]
+      : memberships.find((entry) => entry.organizationId === requested);
+
+  if (requested !== undefined && !membership) {
+    return (
+      <>
+        <h1 className="page-title">Dashboard</h1>
+        <p role="alert">You do not have access to the selected organization.</p>
+      </>
+    );
+  }
 
   if (!membership) {
     return (
@@ -97,9 +104,10 @@ export default async function DashboardPage({
       <div className="card-section">
         <h2>Not built yet</h2>
         <p>
-          Campaigns, contacts, call history, billing and wallet are not available. This dashboard
-          deliberately shows nothing for them rather than placeholder figures. The permissions that
-          will govern them already exist in the registry.
+          Contacts and call history are not available. Billing and wallet are accessible to
+          authorized billing users through the Billing link. This dashboard deliberately shows
+          nothing for them rather than placeholder figures. The permissions that will govern them
+          already exist in the registry.
         </p>
       </div>
     </>

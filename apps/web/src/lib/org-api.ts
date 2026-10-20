@@ -42,6 +42,22 @@ export interface Invitation {
   readonly outstanding: boolean;
 }
 
+/** Read-only campaign fields available to organization campaign readers. */
+export interface Campaign {
+  readonly id: string;
+  readonly name: string;
+  readonly status: 'DRAFT' | 'ACTIVE' | 'COMPLETED';
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CampaignStatusReport {
+  readonly total: number;
+  readonly draft: number;
+  readonly active: number;
+  readonly completed: number;
+}
+
 /** Forwards the session cookie to the API. */
 async function authorizedFetch(path: string): Promise<Response> {
   const store = await cookies();
@@ -84,6 +100,16 @@ export async function fetchInvitations(
   organizationId: string,
 ): Promise<readonly Invitation[] | null> {
   return readJson<readonly Invitation[]>(`/organizations/${organizationId}/invitations`);
+}
+
+export async function fetchCampaigns(organizationId: string): Promise<readonly Campaign[] | null> {
+  return readJson<readonly Campaign[]>(`/organizations/${organizationId}/campaigns`);
+}
+
+export async function fetchCampaignStatusReport(
+  organizationId: string,
+): Promise<CampaignStatusReport | null> {
+  return readJson<CampaignStatusReport>(`/organizations/${organizationId}/reports/campaign-status`);
 }
 
 /** Whether the caller may read a resource, for rendering a refusal rather than a 404. */

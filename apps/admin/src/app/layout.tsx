@@ -6,7 +6,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: `${ADMIN_APP_INFO.product} - Admin`,
-  description: `${ADMIN_APP_INFO.surface} - foundation placeholder`,
+  description: `${ADMIN_APP_INFO.surface} - operations console`,
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

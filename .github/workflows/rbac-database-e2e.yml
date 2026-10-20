@@ -1,0 +1,101 @@
+name: Isolated RBAC database E2E
+
+on:
+  push:
+    branches:
+      - ci/isolated-rbac-database-e2e
+      - test/rbac-database-e2e
+  pull_request:
+    paths:
+      - '.github/workflows/rbac-database-e2e.yml'
+      - 'apps/api/src/billing/**'
+      - 'apps/api/test/billing.e2e-spec.ts'
+      - 'apps/api/test/campaigns.e2e-spec.ts'
+      - 'packages/database/prisma/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rbac-database-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The CI-only branch contains no pending application files. Its checks
+  # validate the workflow; the test snapshot branch runs both real suites.
+  workflow-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm run ci:setup-npm
+      - run: npm ci
+      - run: npm run test:rbac-ci:checks
+
+  database-e2e:
+    if: github.ref != 'refs/heads/ci/isolated-rbac-database-e2e' && github.head_ref != 'ci/isolated-rbac-database-e2e'
+    needs: workflow-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [billing, campaigns]
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: rbac_test
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: rbac_e2e_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U rbac_test -d rbac_e2e_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379/tcp
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    env:
+      NODE_ENV: test
+      BILLING_E2E_DISPOSABLE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm run ci:setup-npm
+      - run: npm ci
+      - name: Configure disposable service endpoints
+        env:
+          POSTGRES_TEST_PORT: ${{ job.services.postgres.ports[5432] }}
+          REDIS_TEST_PORT: ${{ job.services.redis.ports[6379] }}
+        run: |
+          printf 'DATABASE_URL=postgresql://rbac_test:disposable_ci_only@localhost:%s/rbac_e2e_test?schema=public\n' "$POSTGRES_TEST_PORT" >> "$GITHUB_ENV"
+          printf 'REDIS_URL=redis://localhost:%s\n' "$REDIS_TEST_PORT" >> "$GITHUB_ENV"
+      - name: Require the actual candidate suites
+        run: |
+          test -f apps/api/test/billing.e2e-spec.ts
+          test -f apps/api/test/campaigns.e2e-spec.ts
+          test ! -f .env
+      - run: npm run prisma:generate
+      - run: npm run prisma:validate
+      - run: npm run build:packages
+      # Only the disposable service database above is migrated. No environment
+      # or repository secret is referenced; service containers die with the job.
+      - run: npm run prisma:migrate:deploy
+      - name: Run the complete selected suite
+        run: npm run test:e2e --workspace @truevine/api -- ${{ matrix.suite }}.e2e-spec.ts

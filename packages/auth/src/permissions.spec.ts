@@ -94,6 +94,12 @@ describe('an Organization Owner is confined to its own organization', () => {
 });
 
 describe('a Viewer cannot mutate data', () => {
+  it('has exactly the approved dashboard, campaign, report, and team read permissions', () => {
+    expect([...ORGANIZATION_ROLE_PERMISSIONS.VIEWER].sort()).toEqual(
+      ['campaign:read', 'member:read', 'organization:read', 'reporting:read'].sort(),
+    );
+  });
+
   it('holds no mutating permission', () => {
     const held = ORGANIZATION_ROLE_PERMISSIONS.VIEWER;
 
@@ -183,7 +189,9 @@ describe('the Campaign Manager matrix is exactly as specified', () => {
       'reporting:read',
     ];
 
-    expect([...ORGANIZATION_ROLE_PERMISSIONS.CAMPAIGN_MANAGER].sort()).toEqual([...expected].sort());
+    expect([...ORGANIZATION_ROLE_PERMISSIONS.CAMPAIGN_MANAGER].sort()).toEqual(
+      [...expected].sort(),
+    );
   });
 
   it('withholds membership, ownership, money and profile control by omission', () => {
@@ -217,7 +225,12 @@ describe('a Billing member cannot reach campaigns', () => {
   // money, not to run campaigns, and no `campaign:*` permission may creep into
   // its row. The guard/e2e suites assert the same property as HTTP 403s.
   it('holds none of the campaign permissions', () => {
-    for (const permission of ['campaign:read', 'campaign:create', 'campaign:update', 'campaign:delete'] as const) {
+    for (const permission of [
+      'campaign:read',
+      'campaign:create',
+      'campaign:update',
+      'campaign:delete',
+    ] as const) {
       expect(can('BILLING', permission)).toBe(false);
     }
   });
@@ -331,6 +344,32 @@ describe('delegation is capped by the delegator own authority', () => {
 });
 
 describe('platform roles stay inside their scope', () => {
+  it('limits Operations Admin to operational reads, writes, and tenant suspension', () => {
+    const held = PLATFORM_ROLE_PERMISSIONS.OPERATIONS_ADMIN;
+
+    expect(held).toEqual([
+      'platform:tenant:read',
+      'platform:tenant:suspend',
+      'platform:operations:read',
+      'platform:operations:write',
+    ]);
+    expect(held).not.toContain('platform:billing:read');
+    expect(held).not.toContain('platform:billing:refund');
+    expect(held).not.toContain('platform:admin:manage');
+    expect(held).not.toContain('platform:technical:write');
+  });
+
+  it('does not grant operational writes to customer or non-operations platform roles', () => {
+    for (const role of PLATFORM_ROLES.filter(
+      (candidate) => candidate !== 'PLATFORM_OWNER' && candidate !== 'OPERATIONS_ADMIN',
+    )) {
+      expect(canActAsPlatform(role, 'platform:operations:write')).toBe(false);
+    }
+    for (const role of ORGANIZATION_ROLES) {
+      expect(ORGANIZATION_ROLE_PERMISSIONS[role]).not.toContain('platform:operations:write');
+    }
+  });
+
   it('keeps a support admin away from tenant content and money', () => {
     const held = PLATFORM_ROLE_PERMISSIONS.SUPPORT_ADMIN as readonly string[];
 

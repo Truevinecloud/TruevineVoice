@@ -42,9 +42,18 @@ import { CAMPAIGN_STORE } from './tokens.js';
 export interface CampaignView {
   readonly id: string;
   readonly name: string;
-  readonly status: CampaignStatus;
+  readonly status: CampaignStatus | 'PAUSED';
+  readonly emergencyStoppedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+/** Aggregated read-only report over campaign records for one organization. */
+export interface CampaignStatusReport {
+  readonly total: number;
+  readonly draft: number;
+  readonly active: number;
+  readonly completed: number;
 }
 
 @Injectable()
@@ -59,6 +68,18 @@ export class CampaignsService {
     const campaigns = await this.campaigns.listCampaigns(organizationId);
 
     return campaigns.map((campaign) => this.toView(campaign));
+  }
+
+  /** Summarizes campaign record states without exposing write operations. */
+  async statusReport(organizationId: string): Promise<CampaignStatusReport> {
+    const campaigns = await this.campaigns.listCampaigns(organizationId);
+
+    return {
+      total: campaigns.length,
+      draft: campaigns.filter((campaign) => campaign.status === 'DRAFT').length,
+      active: campaigns.filter((campaign) => campaign.status === 'ACTIVE').length,
+      completed: campaigns.filter((campaign) => campaign.status === 'COMPLETED').length,
+    };
   }
 
   /** Reads one campaign, scoped to the organization. */
@@ -159,7 +180,8 @@ export class CampaignsService {
     return {
       id: campaign.id,
       name: campaign.name,
-      status: campaign.status,
+      status: campaign.emergencyStoppedAt ? 'PAUSED' : campaign.status,
+      emergencyStoppedAt: campaign.emergencyStoppedAt?.toISOString() ?? null,
       createdAt: campaign.createdAt.toISOString(),
       updatedAt: campaign.updatedAt.toISOString(),
     };

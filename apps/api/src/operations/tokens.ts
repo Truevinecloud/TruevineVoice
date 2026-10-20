@@ -1,0 +1,1 @@
+export const OPERATIONS_STORE = Symbol('OPERATIONS_STORE');

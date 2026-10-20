@@ -47,9 +47,7 @@ class FakeCampaignStore implements CampaignStore {
     campaignId: string,
   ): Promise<CampaignRecord | undefined> {
     this.scopedCalls.push(organizationId);
-    return this.campaigns.find(
-      (c) => c.organizationId === organizationId && c.id === campaignId,
-    );
+    return this.campaigns.find((c) => c.organizationId === organizationId && c.id === campaignId);
   }
 
   async updateCampaign(
@@ -115,6 +113,27 @@ function lastAudit(audit: FakeAuditStore): AuditEventInput | undefined {
 }
 
 describe('CampaignsService', () => {
+  it('presents an emergency-stopped persisted COMPLETED record as PAUSED', async () => {
+    const { service, store } = buildService();
+    store.campaigns.push({
+      organizationId: ORG,
+      id: 'stopped',
+      name: 'Stopped campaign',
+      status: 'COMPLETED',
+      emergencyStoppedAt: new Date('2026-10-20T00:00:00Z'),
+      createdById: ACTOR,
+      createdAt: new Date('2026-10-19T00:00:00Z'),
+      updatedAt: new Date('2026-10-20T00:00:00Z'),
+    });
+
+    const [campaign] = await service.list(ORG);
+
+    expect(campaign).toMatchObject({
+      status: 'PAUSED',
+      emergencyStoppedAt: '2026-10-20T00:00:00.000Z',
+    });
+  });
+
   describe('create', () => {
     it('creates a campaign in DRAFT owned by the caller and returns a view', async () => {
       const { service } = buildService();
@@ -248,6 +267,41 @@ describe('CampaignsService', () => {
     });
   });
 
+  describe('statusReport', () => {
+    it('counts campaign statuses only within the requested organization', async () => {
+      const { service, store } = buildService();
+      const createdAt = new Date('2026-10-19T00:00:00Z');
+      store.campaigns.push(
+        ...(['DRAFT', 'ACTIVE', 'COMPLETED'] as const).map((status, index) => ({
+          organizationId: ORG,
+          id: `campaign-${index}`,
+          name: `Campaign ${index}`,
+          status,
+          createdById: ACTOR,
+          createdAt,
+          updatedAt: createdAt,
+        })),
+        {
+          organizationId: 'org-foreign',
+          id: 'foreign',
+          name: 'Foreign',
+          status: 'ACTIVE',
+          createdById: ACTOR,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      );
+
+      await expect(service.statusReport(ORG)).resolves.toEqual({
+        total: 3,
+        draft: 1,
+        active: 1,
+        completed: 1,
+      });
+      expect(store.scopedCalls).toEqual([ORG]);
+    });
+  });
+
   describe('update', () => {
     it('renames a campaign and writes a campaign.updated audit row', async () => {
       const { service, store, audit } = buildService();
@@ -325,7 +379,11 @@ describe('CampaignsService', () => {
     it('refuses an empty name with a 400', async () => {
       const { service } = buildService();
 
-      await expectAuthError(service.update(ORG, ACTOR, 'c1', { name: '  ' }), 'invalid_campaign', 400);
+      await expectAuthError(
+        service.update(ORG, ACTOR, 'c1', { name: '  ' }),
+        'invalid_campaign',
+        400,
+      );
     });
 
     it('answers 404 campaign_not_found for an unknown campaign, without auditing success', async () => {

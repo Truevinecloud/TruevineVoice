@@ -3,11 +3,11 @@
 Multi-tenant automated customer engagement SaaS. The first channel is **outbound
 Voice in Uganda**.
 
-> **Status: engineering foundation.**
-> This repository currently contains the build, test and infrastructure skeleton
-> only. **No product functionality has been implemented.** There are no
-> contacts, campaigns, audio, wallet, billing, voice, SMS, WhatsApp, RBAC,
-> authentication or admin features yet. See
+> **Status: engineering foundation with organization RBAC and campaign records.**
+> This branch adds the RBAC-007 Operations Admin console and campaign emergency
+> stop. RBAC-004/005 remain in separate draft development work, and production
+> payment collection, wallet settlement, voice dispatch, SMS, and customer
+> notifications are not implemented. See
 > [Deliberately deferred](#deliberately-deferred).
 
 ---
@@ -28,13 +28,20 @@ package boundaries.
 | Async         | Redis + BullMQ                                                |
 | Tooling       | TypeScript 6, ESLint 10, Prettier 3, Vitest 5, npm workspaces |
 
+The platform-admin app provides an Operations console at `/admin` on this
+branch. Its API independently enforces platform permissions. Emergency stop
+pauses and locks an active campaign record; no voice provider or call dispatch
+is connected. See [RBAC-007 implementation notes](./docs/rbac-007-operations-admin-progress-2026-10-20.md).
+Supported non-production account activation and the platform-role provisioning
+gap are documented in [the UAT runbook](./docs/runbooks/uat-account-provisioning.md).
+
 Every Node workspace is an **ES module**, because NestJS 12 is published
 ESM-only. See [ADR 0002](./docs/adr/0002-runtime-and-toolchain-versions.md).
 
 ```
 truevine-voice/
 ├── apps/
-│   ├── admin/          Platform-admin frontend (placeholder only)
+│   ├── admin/          Platform-admin Operations console
 │   ├── api/            NestJS REST API  -> GET /health
 │   ├── web/            Customer web application (public marketing homepage)
 │   └── worker/         Background worker (no business queues yet)
@@ -76,6 +83,31 @@ Full rules for coding agents live in [`AGENTS.md`](./AGENTS.md). Decisions and
 their rationale live in [`docs/adr/`](./docs/adr/).
 
 ---
+
+## RBAC-004 customer billing (development)
+
+The customer Billing page at `/app/billing` supports wallet balance, paginated
+transaction history, billing details, and pending top-up requests for OWNER and
+BILLING memberships. API routes are organization-scoped and recheck permissions,
+terms and CSRF. Amounts are UGX integer strings; balance is derived from an
+append-only PostgreSQL ledger. A billing role grants no campaign/contact access.
+
+**Payment collection is not integrated.** Requests remain pending and never
+credit a wallet. Invoices and usage charging are not implemented. See
+[ADR 0012](./docs/adr/0012-customer-billing-ledger.md). The additive RBAC-004 migration
+is unapproved and must not be applied to production with this change.
+
+`npm test` covers service/HTTP permission and customer-page tests without Docker.
+`npm run test:billing:e2e` runs the focused real PostgreSQL billing journey
+(also included in `npm run test:e2e`): use a disposable
+loopback test database with the new migration applied, `NODE_ENV=test`, and
+`BILLING_E2E_DISPOSABLE=1` (GitHub CI already uses disposable infrastructure).
+Tests fail loudly if those requirements are missing. Do not point them at
+production or a database whose test records cannot be discarded.
+
+## RBAC-005 customer Viewer (development)
+
+VIEWER memberships can open the organization dashboard, read campaign status and dates, and view a campaign status summary at `/app/reports`. API reads are scoped to the authorized organization and guarded by `campaign:read` or `reporting:read`; the role has no campaign, billing, wallet, organization, or membership write permission. Reports currently summarize campaign records only. Campaign execution, call outcomes, and performance reporting are not implemented.
 
 ## Requirements
 
@@ -607,3 +639,13 @@ See [production setup, secrets, routing and rollback](./docs/runbooks/production
 server-local `deployment.json`, existing readable `.env`, matching Node/npm,
 and PM2. Deploy applies approved migrations before activation; rollback changes code only.
 They never reset Git or run development Compose. See [ADR 0011](./docs/adr/0011-reviewed-deployment-migrations.md).
+
+## Isolated RBAC database CI
+
+Run `npm run test:rbac-ci:checks` for workflow safety checks. See [isolated RBAC database CI](docs/rbac-database-ci-preparation.md) for disposable hosted billing/reporting E2E and the remaining release prerequisites. This does not approve migrations or deploy.
+
+For non-production Operations Admin UAT, use the audited
+`npm run provision:operations-admin-uat` command documented in [the UAT
+account provisioning runbook](docs/runbooks/uat-account-provisioning.md). It
+requires an isolated staging database, explicit opt-in, an active platform
+owner, and a reviewed UAT request; it refuses production accounts.

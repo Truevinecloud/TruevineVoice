@@ -488,7 +488,7 @@ describe('OrganizationGuard', () => {
       });
     });
 
-    it('refuses a CAMPAIGN_MANAGER of one tenant reaching another tenant\'s campaigns', async () => {
+    it("refuses a CAMPAIGN_MANAGER of one tenant reaching another tenant's campaigns", async () => {
       // Being a campaign manager of *your own* organization is not a pass
       // anywhere else. The role is only ever read after the membership lookup,
       // so a foreign path never even reaches the permission check.
@@ -500,7 +500,9 @@ describe('OrganizationGuard', () => {
         suspendedAt: null,
       });
 
-      await expect(guard.canActivate(probe('campaign:read', 'org-b').context)).rejects.toMatchObject({
+      await expect(
+        guard.canActivate(probe('campaign:read', 'org-b').context),
+      ).rejects.toMatchObject({
         status: 403,
         code: 'permission_denied',
       });
@@ -716,6 +718,25 @@ describe('PlatformGuard', () => {
     });
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it('allows Operations Admin emergency-stop permission and denies billing/customer roles', async () => {
+    const allowed = httpContext({
+      handler: handlerRequiring(PLATFORM_PERMISSION, 'platform:operations:write'),
+      principal: { userId: 'operator-1', platformRole: 'OPERATIONS_ADMIN' },
+    });
+    await expect(guard.canActivate(allowed.context)).resolves.toBe(true);
+
+    for (const principal of [
+      { userId: 'billing-1', platformRole: 'BILLING_ADMIN' as const },
+      { userId: 'owner-1', platformRole: null },
+    ]) {
+      const denied = httpContext({
+        handler: handlerRequiring(PLATFORM_PERMISSION, 'platform:operations:write'),
+        principal,
+      });
+      await expect(guard.canActivate(denied.context)).rejects.toMatchObject({ status: 403 });
+    }
   });
 
   it('records a platform denial against the caller own organization', async () => {

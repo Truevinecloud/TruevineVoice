@@ -4,24 +4,18 @@ import { describe, expect, it } from 'vitest';
 import AdminHomePage from './page';
 import { ADMIN_APP_INFO } from '../lib/app-info';
 
-describe('admin placeholder page', () => {
-  it('renders the product name and the admin surface', () => {
+describe('Operations Admin page', () => {
+  it('renders the operations console', () => {
     const markup = renderToStaticMarkup(<AdminHomePage />);
 
-    expect(markup).toContain('Truevine Voice Admin');
-    expect(markup).toContain(ADMIN_APP_INFO.surface);
+    expect(markup).toContain('Operations');
+    expect(markup).toContain('Platform sign in');
   });
 
-  it('states that no admin functionality exists yet', () => {
+  it('retains the platform-admin audience metadata', () => {
     const markup = renderToStaticMarkup(<AdminHomePage />);
 
-    expect(markup).toContain('Foundation');
-    expect(markup).toContain('No admin functionality yet');
-  });
-
-  it('names its intended audience', () => {
-    const markup = renderToStaticMarkup(<AdminHomePage />);
-
-    expect(markup).toContain('internal operators');
+    expect(ADMIN_APP_INFO.audience).toContain('internal operators');
+    expect(markup).toContain('Checking platform access');
   });
 });
