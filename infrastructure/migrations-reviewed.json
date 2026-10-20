@@ -26,6 +26,9 @@
     "20261016171000_invitation_origin",
     "20261019120000_campaigns_rbac_003",
     "20261019160000_customer_billing_rbac_004",
-    "20261020110000_rbac_007_emergency_stop"
+    "20261020110000_rbac_007_emergency_stop",
+    "20261020180000_platform_owner_bootstrap",
+    "20261020181000_platform_owner_bootstrap_no_truncate",
+    "20261020182000_platform_owner_bootstrap_search_path"
   ]
 }
