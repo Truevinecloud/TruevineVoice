@@ -192,7 +192,8 @@ capture_configuration() {
       echo -n '  "containers": ['
       local first=1 c
       for c in $(docker ps -a --format '{{.Names}}' | sort); do
-        docker inspect "$c" 2>/dev/null \
+        local entry
+        entry=$(docker inspect "$c" 2>/dev/null \
           | node -e '
               let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
                 const i=JSON.parse(s)[0];
@@ -203,23 +204,26 @@ capture_configuration() {
                   restart_policy: i.HostConfig.RestartPolicy.Name,
                   mounts: i.Mounts.map(m=>`${m.Type}:${m.Name||m.Source}`),
                 }));
-              });' || continue
+              });') || continue
         [ $first -eq 1 ] || echo -n ','
         first=0
+        printf '%s' "$entry"
       done
       echo '],'
       echo -n '  "volumes": ['
       first=1
       local v
       for v in $(docker volume ls -q | sort); do
-        docker volume inspect "$v" 2>/dev/null \
+        local entry
+        entry=$(docker volume inspect "$v" 2>/dev/null \
           | node -e '
               let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
                 const v=JSON.parse(s)[0];
                 process.stdout.write(JSON.stringify({name:v.Name,driver:v.Driver,mountpoint:v.Mountpoint}));
-              });' || continue
+              });') || continue
         [ $first -eq 1 ] || echo -n ','
         first=0
+        printf '%s' "$entry"
       done
       echo '],'
       echo -n '  "published_ports": ['
@@ -247,10 +251,6 @@ capture_configuration() {
     node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$bundle/metadata.json" \
       || {
         warn "object metadata is not valid JSON; recording an empty inventory"
-        # Preserve only in the private staging directory for diagnostics. The
-        # automatically-created directory is removed by the EXIT trap; a
-        # caller-supplied work directory remains caller-owned by contract.
-        cp "$bundle/metadata.json" "$BACKUP_WORK_DIR/metadata.invalid.json" 2>/dev/null || true
         echo '{}' > "$bundle/metadata.json"
       }
   fi
