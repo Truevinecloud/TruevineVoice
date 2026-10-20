@@ -245,7 +245,14 @@ capture_configuration() {
     # so a restore review can see that the metadata is absent rather than trust
     # a silently-truncated file.
     node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$bundle/metadata.json" \
-      || { warn "object metadata is not valid JSON; recording an empty inventory"; echo '{}' > "$bundle/metadata.json"; }
+      || {
+        warn "object metadata is not valid JSON; recording an empty inventory"
+        # Preserve only in the private staging directory for diagnostics. The
+        # automatically-created directory is removed by the EXIT trap; a
+        # caller-supplied work directory remains caller-owned by contract.
+        cp "$bundle/metadata.json" "$BACKUP_WORK_DIR/metadata.invalid.json" 2>/dev/null || true
+        echo '{}' > "$bundle/metadata.json"
+      }
   fi
 
   # Defence in depth. The archive is encrypted below, so the bucket never sees
