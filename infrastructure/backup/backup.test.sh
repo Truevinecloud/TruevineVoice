@@ -318,6 +318,7 @@ if [ -z "$skip_reason" ]; then
 
   echo
   echo "=== 7. restore into an ISOLATED instance reproduces the data ==="
+  REAL_DOCKER=$(command -v docker)
   success_wrapper="$WORK/docker-check-restored-data"
   mkdir -p "$success_wrapper"
   RESTORED_DATA_CHECK="$WORK/restored-row-counts.txt"
@@ -391,7 +392,6 @@ WRAPPER
   echo "=== 7a. name collisions fail closed before cleanup ==="
   conflict_wrapper="$WORK/docker-conflict"
   mkdir -p "$conflict_wrapper"
-  REAL_DOCKER=$(command -v docker)
   cat > "$conflict_wrapper/docker" <<'WRAPPER'
 #!/usr/bin/env bash
 if [ "${RESTORE_TEST_CONTAINER_CONFLICT:-0}" = 1 ] && [ "${1:-}" = inspect ] && [[ "${2:-}" == truevine-restore-* ]]; then
@@ -463,13 +463,18 @@ exec "$REAL_DOCKER" "$@"
 WRAPPER
   chmod +x "$mismatch_wrapper/docker"
   DOCKER_CALL_LOG="$WORK/mismatch.docker.log"
+  : > "$DOCKER_CALL_LOG"
   MISMATCH_MARKER="$WORK/ownership-mismatch.marker"
   out=$(PATH="$mismatch_wrapper:$PATH" REAL_DOCKER="$REAL_DOCKER" \
     DOCKER_CALL_LOG="$DOCKER_CALL_LOG" OWNERSHIP_MISMATCH_MARKER="$MISMATCH_MARKER" \
     bash "$RESTORE" --latest --restore 2>&1); rc=$?
   [ "$rc" != "0" ] && ok "ownership mismatch makes cleanup fail" || bad "ownership mismatch did not fail the restore"
   case "$out" in *"ownership could not be verified"*) ok "ownership mismatch is reported" ;; *) bad "ownership mismatch was not reported" ;; esac
-  [ ! -s "$DOCKER_CALL_LOG" ] && ok "ownership mismatch triggered no Docker deletion" || bad "ownership mismatch attempted Docker deletion"
+  if [ ! -s "$DOCKER_CALL_LOG" ]; then
+    ok "ownership mismatch triggered no Docker deletion"
+  else
+    bad "ownership mismatch attempted Docker deletion: $(tr '\n' ' ' < "$DOCKER_CALL_LOG")"
+  fi
   MISMATCH_LABEL=$(printf '%s\n' "$out" | sed -n 's/.*isolated restore run label: //p' | head -1)
   kept_container=$(docker ps -aq --filter "label=truevine.restore.run=$MISMATCH_LABEL" | head -1)
   kept_volume=$(docker volume ls -q --filter "label=truevine.restore.run=$MISMATCH_LABEL" | head -1)
@@ -620,7 +625,8 @@ printf '{\n  "webUrl": "https://voice.truevinecloud.online/",\n  "region": "eu-w
           && ok "container entries are structured objects, not joined strings" || bad "container entries are not structured"
         node -e 'const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(Array.isArray(m.volumes)?0:1)' \
           "$WORK/cfgx/metadata.json" >/dev/null 2>&1 \
-          && ok "volume inventory is captured as an array" || bad "volume inventory missing"
+          && ok "volume inventory is captured as an array" \
+          || { bad "volume inventory missing"; node -e 'const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.error("metadata keys:",Object.keys(m).join(","))' "$WORK/cfgx/metadata.json"; }
       else
         bad "metadata.json was not captured"
       fi
