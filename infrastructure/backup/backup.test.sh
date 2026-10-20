@@ -234,6 +234,10 @@ if [ -z "$skip_reason" ]; then
   out_backup=$(bash "$BACKUP" 2>&1); rc=$?
   out="$out_backup"
   [ "$rc" = "0" ] && ok "backup completed (exit 0)" || { bad "backup failed (exit $rc)"; echo "$out_backup" | sed 's/^/        /'; }
+  case "$out_backup" in
+    *"Docker object inventory capture failed"*|*"object metadata is not valid JSON"*)
+      printf '%s\n' "$out_backup" | grep -E 'metadata|inventory|ERROR|WARN' | sed 's/^/        /' ;;
+  esac
 
   # The dump contained 'widget' and 'gadget'; no object in the store may.
   leaked=0
@@ -586,8 +590,12 @@ printf '{\n  "webUrl": "https://voice.truevinecloud.online/",\n  "region": "eu-w
   echo "=== 13. status file is written where monitoring can read it ==="
   export BACKUP_STATUS_FILE="$WORK/status.json"
   rm -f "$BACKUP_STATUS_FILE"
-  bash "$BACKUP" >/dev/null 2>&1; rc=$?
+  status_backup_out=$(bash "$BACKUP" 2>&1); rc=$?
   [ "$rc" = "0" ] && ok "backup exits 0" || bad "backup failed (exit $rc)"
+  case "$status_backup_out" in
+    *"Docker object inventory capture failed"*|*"object metadata is not valid JSON"*)
+      printf '%s\n' "$status_backup_out" | grep -E 'metadata|inventory|ERROR|WARN' | sed 's/^/        /' ;;
+  esac
   if [ -f "$BACKUP_STATUS_FILE" ]; then
     ok "BACKUP_STATUS_FILE is written"
     state=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).state||"")' "$BACKUP_STATUS_FILE")
@@ -630,7 +638,7 @@ printf '{\n  "webUrl": "https://voice.truevinecloud.online/",\n  "region": "eu-w
         node -e 'const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(Array.isArray(m.volumes)?0:1)' \
           "$WORK/cfgx/metadata.json" >/dev/null 2>&1 \
           && ok "volume inventory is captured as an array" \
-          || { bad "volume inventory missing"; node -e 'const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));console.error("metadata keys:",Object.keys(m).join(","))' "$WORK/cfgx/metadata.json"; }
+          || { bad "volume inventory missing"; cat "$WORK/cfgx/metadata.json"; }
       else
         bad "metadata.json was not captured"
       fi
