@@ -344,6 +344,32 @@ describe('delegation is capped by the delegator own authority', () => {
 });
 
 describe('platform roles stay inside their scope', () => {
+  it('limits Operations Admin to operational reads, writes, and tenant suspension', () => {
+    const held = PLATFORM_ROLE_PERMISSIONS.OPERATIONS_ADMIN;
+
+    expect(held).toEqual([
+      'platform:tenant:read',
+      'platform:tenant:suspend',
+      'platform:operations:read',
+      'platform:operations:write',
+    ]);
+    expect(held).not.toContain('platform:billing:read');
+    expect(held).not.toContain('platform:billing:refund');
+    expect(held).not.toContain('platform:admin:manage');
+    expect(held).not.toContain('platform:technical:write');
+  });
+
+  it('does not grant operational writes to customer or non-operations platform roles', () => {
+    for (const role of PLATFORM_ROLES.filter(
+      (candidate) => candidate !== 'PLATFORM_OWNER' && candidate !== 'OPERATIONS_ADMIN',
+    )) {
+      expect(canActAsPlatform(role, 'platform:operations:write')).toBe(false);
+    }
+    for (const role of ORGANIZATION_ROLES) {
+      expect(ORGANIZATION_ROLE_PERMISSIONS[role]).not.toContain('platform:operations:write');
+    }
+  });
+
   it('keeps a support admin away from tenant content and money', () => {
     const held = PLATFORM_ROLE_PERMISSIONS.SUPPORT_ADMIN as readonly string[];
 

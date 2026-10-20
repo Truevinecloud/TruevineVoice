@@ -40,6 +40,35 @@ main {
   padding: 4rem 1.5rem;
 }
 
+.operations-shell { max-width: 76rem; }
+.topbar, .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.topbar { margin-bottom: 1.5rem; }
+.eyebrow, .health-card > span { color: var(--muted-fg); font-size: .75rem; font-weight: 700; letter-spacing: .08em; }
+.notice { border: 1px solid var(--card-border); border-radius: .6rem; padding: .8rem 1rem; }
+.health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .8rem; margin: 1rem 0; }
+.health-card { display: grid; gap: .35rem; min-height: 6rem; padding: 1rem; border: 1px solid var(--card-border); border-radius: .75rem; background: var(--card-bg); }
+.health-card strong { font-size: 1.2rem; text-transform: uppercase; }
+.health-card small, td small { display: block; color: var(--muted-fg); font-size: .8rem; }
+.card { margin: 1rem 0; }
+.section-heading { margin-bottom: 1rem; }
+.section-heading h2 { margin: 0; }
+.section-heading span, .footnote { color: var(--muted-fg); font-size: .85rem; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+th, td { padding: .75rem .6rem; border-bottom: 1px solid var(--card-border); }
+th { color: var(--muted-fg); font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; }
+.status { display: inline-block; border: 1px solid var(--card-border); border-radius: 999px; padding: .1rem .55rem; font-size: .75rem; }
+.status-active, .status-completed, .status-ok { color: #8de0ae; }
+.status-suspended, .status-paused, .status-not_integrated { color: #f0b429; }
+.sign-in { display: grid; gap: 1rem; max-width: 28rem; }
+.sign-in h2 { margin: 0; }
+.sign-in label { display: grid; gap: .35rem; color: var(--muted-fg); }
+input { min-height: 2.7rem; border: 1px solid var(--card-border); border-radius: .45rem; background: #111318; color: var(--page-fg); padding: .5rem .7rem; }
+button { border: 0; border-radius: .45rem; background: var(--accent); color: #17191d; cursor: pointer; font: inherit; font-weight: 700; padding: .55rem .8rem; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+.quiet-button { background: transparent; color: var(--page-fg); border: 1px solid var(--card-border); }
+.danger-button { background: #b83c39; color: white; }
+
 h1 {
   margin: 0 0 0.5rem;
   font-size: 2rem;

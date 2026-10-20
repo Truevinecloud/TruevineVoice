@@ -46,6 +46,8 @@
                     "infra:reset":  "docker compose down --volumes",
                     "db:reset":  "npm run infra:reset \u0026\u0026 npm run infra:up",
                     "provision:owner":  "node infrastructure/scripts/provision-owner-cli.mjs",
+                    "provision:operations-admin-uat": "node infrastructure/scripts/provision-operations-admin-uat.mjs",
+                    "test:uat-provisioning": "node infrastructure/scripts/rbac-007-provisioning-rehearsal.mjs",
                      "verify:journey":  "node infrastructure/scripts/verify-activation-journey.mjs",
                      "verify:boundaries":  "node infrastructure/scripts/verify-security-boundaries.mjs",
                      "verify:frontend":  "node infrastructure/scripts/verify-frontend.mjs",

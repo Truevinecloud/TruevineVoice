@@ -113,6 +113,27 @@ function lastAudit(audit: FakeAuditStore): AuditEventInput | undefined {
 }
 
 describe('CampaignsService', () => {
+  it('presents an emergency-stopped persisted COMPLETED record as PAUSED', async () => {
+    const { service, store } = buildService();
+    store.campaigns.push({
+      organizationId: ORG,
+      id: 'stopped',
+      name: 'Stopped campaign',
+      status: 'COMPLETED',
+      emergencyStoppedAt: new Date('2026-10-20T00:00:00Z'),
+      createdById: ACTOR,
+      createdAt: new Date('2026-10-19T00:00:00Z'),
+      updatedAt: new Date('2026-10-20T00:00:00Z'),
+    });
+
+    const [campaign] = await service.list(ORG);
+
+    expect(campaign).toMatchObject({
+      status: 'PAUSED',
+      emergencyStoppedAt: '2026-10-20T00:00:00.000Z',
+    });
+  });
+
   describe('create', () => {
     it('creates a campaign in DRAFT owned by the caller and returns a view', async () => {
       const { service } = buildService();

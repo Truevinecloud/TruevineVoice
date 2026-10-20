@@ -27,6 +27,7 @@ export interface CampaignRecord {
   readonly id: string;
   readonly name: string;
   readonly status: CampaignStatus;
+  readonly emergencyStoppedAt?: Date | null;
   readonly createdById: string;
   readonly createdAt: Date;
   readonly updatedAt: Date;

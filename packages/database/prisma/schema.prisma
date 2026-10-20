@@ -17,12 +17,9 @@
 // Contact and Audio remain deliberately absent - they need permission-registry
 // decisions (contact:*, audio:*) that RBAC-003 does not make.
 //
-// Deliberately absent: Contact, Call, Audio, Wallet, LedgerEntry,
-// Billing, Voice, SMS, WhatsApp and every Africa's Talking concept. Money rules
-// (AGENTS.md 6-7) and idempotency (AGENTS.md 9) are not yet expressed anywhere
-// in this schema, so no financial table is introduced before they are. The
-// `billing:*` and `wallet:read` permissions exist in @truevine/auth and have no
-// consumer yet; that is reported as a dependency, not stubbed with fake logic.
+// Billing (RBAC-004) includes an append-only UGX wallet ledger and durable
+// top-up requests only; it does not collect payments or settle wallet balances.
+// Voice, SMS, WhatsApp and provider-specific data remain absent.
 //
 // DEPLOYMENT INTERLOCK
 // -------------------
@@ -148,7 +145,6 @@ model User {
   auditEvents          SecurityAuditEvent[]
   identityAuditEvents  IdentityAuditEvent[]
   campaignsCreated     Campaign[]
-  topUpRequests        TopUpRequest[]
 
   @@map("users")
 }
@@ -401,6 +397,7 @@ model Membership {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topUpRequests TopUpRequest[]
 
   @@id([organizationId, userId])
   @@unique([userId, organizationId])
@@ -441,6 +438,8 @@ model Campaign {
   /// 1-200 characters, validated in the service before the row is written.
   name           String         @db.VarChar(200)
   status         CampaignStatus @default(DRAFT)
+  /// Set by platform emergency stop. Customer role mutations cannot clear it.
+  emergencyStoppedAt DateTime? @map("emergency_stopped_at") @db.Timestamptz(3)
   /// Provenance. `RESTRICT` rather than `SET NULL`: a campaign without a
   /// recorded creator is not a state this codebase can produce, and no
   /// user-deletion path exists that would need the softer constraint.
@@ -514,7 +513,7 @@ model TopUpRequest {
   createdById String @map("created_by_user_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  createdByMembership Membership @relation(fields: [organizationId, createdById], references: [organizationId, userId], onDelete: Restrict)
   @@id([organizationId, id])
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, createdAt, id])

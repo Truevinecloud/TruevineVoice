@@ -235,5 +235,17 @@ describe('RBAC-004 disposable PostgreSQL journey', () => {
         },
       }),
     ).rejects.toThrow();
+    await expect(
+      database.topUpRequest.create({
+        data: {
+          organizationId: org,
+          id: randomUUID(),
+          idempotencyKey: randomUUID(),
+          amountMinor: 100n,
+          currency: 'UGX',
+          createdById: foreign,
+        },
+      }),
+    ).rejects.toThrow();
   });
 });

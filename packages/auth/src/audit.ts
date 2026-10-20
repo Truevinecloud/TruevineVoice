@@ -39,6 +39,8 @@ export const AUDIT_ACTIONS = [
   'campaign.created',
   'campaign.updated',
   'campaign.deleted',
+  'platform.campaign.emergency_stopped',
+  'platform.operations_admin.provisioned',
 
   // Membership and invitations.
   'organization.member.invited',

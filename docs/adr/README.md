@@ -17,6 +17,7 @@ Naming: `NNNN-short-kebab-title.md`, numbered sequentially and never reused.
 | [0006](./0006-tenancy-core-schema.md)            | Tenancy enforced by composite keys, not queries     | Accepted                       |
 | [0011](./0011-reviewed-deployment-migrations.md) | Apply reviewed migrations before activation         | Accepted                       |
 | [0012](./0012-customer-billing-ledger.md)        | Customer billing ledger and pending top-up requests | Proposed                       |
+| [0013](./0013-platform-operations-admin.md)      | Platform Operations Admin emergency stops         | Accepted for implementation   |
 
 ## When to write an ADR
 
