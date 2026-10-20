@@ -370,13 +370,30 @@ describe('platform roles stay inside their scope', () => {
     }
   });
 
-  it('keeps a support admin away from tenant content and money', () => {
-    const held = PLATFORM_ROLE_PERMISSIONS.SUPPORT_ADMIN as readonly string[];
+  it('grants the support admin exactly lookup, diagnostics, and audit reads', () => {
+    // Exact, not a denylist: a permission added to SUPPORT_ADMIN has to be
+    // decided here, and `platform:support:diagnostics` is the only permission
+    // in the registry that reaches read-only tenant content for this role.
+    expect(PLATFORM_ROLE_PERMISSIONS.SUPPORT_ADMIN).toEqual([
+      'platform:tenant:read',
+      'platform:support:read',
+      'platform:support:diagnostics',
+      'platform:audit:read',
+    ]);
+    // Diagnostics is read-only by construction: it must never pair with a
+    // mutation, suspension or refund capability.
+    expect(PLATFORM_ROLE_PERMISSIONS.SUPPORT_ADMIN).not.toContain('platform:billing:refund');
+    expect(PLATFORM_ROLE_PERMISSIONS.SUPPORT_ADMIN).not.toContain('platform:operations:write');
+    expect(PLATFORM_ROLE_PERMISSIONS.SUPPORT_ADMIN).not.toContain('platform:admin:manage');
+    expect(PLATFORM_ROLE_PERMISSIONS.SUPPORT_ADMIN).not.toContain('platform:tenant:suspend');
+  });
 
-    expect(held).not.toContain('platform:billing:refund');
-    expect(held).not.toContain('platform:operations:write');
-    expect(held).not.toContain('platform:admin:manage');
-    expect(held).not.toContain('platform:tenant:suspend');
+  it('reserves tenant-content diagnostics for the platform owner and support admin alone', () => {
+    const holders = ALL_PLATFORM_ROLES.filter((role) =>
+      canActAsPlatform(role, 'platform:support:diagnostics'),
+    );
+
+    expect(holders).toEqual(['PLATFORM_OWNER', 'SUPPORT_ADMIN']);
   });
 
   it('keeps a billing admin away from operations and support', () => {

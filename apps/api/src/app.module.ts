@@ -8,6 +8,7 @@ import { HealthModule } from './health/health.module.js';
 import { InfrastructureModule } from './infrastructure/infrastructure.module.js';
 import { OrganizationsModule } from './organizations/organizations.module.js';
 import { OperationsModule } from './operations/operations.module.js';
+import { SupportModule } from './support/support.module.js';
 
 /**
  * Root API module.
@@ -27,6 +28,7 @@ import { OperationsModule } from './operations/operations.module.js';
     CampaignsModule,
     BillingModule,
     OperationsModule,
+    SupportModule,
   ],
 })
 export class AppModule {}
