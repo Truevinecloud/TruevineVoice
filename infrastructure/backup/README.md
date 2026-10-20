@@ -233,7 +233,7 @@ away.
 The age identity file is the only thing that can decrypt the backups. If it is
 lost, **every backup is permanently unreadable.**
 
-- Generated with `age-keygen`, stored **mode 600**, owned by the backup user.
+- Generated with `age-keygen`, stored **mode 600**, owned by the approved job identity.
 - **Both** scripts refuse to run if the key file is readable by group or other.
 - The private key never appears in a log, in `stdout`, or in the bucket. A
   redaction filter is applied to every log line as a backstop.
@@ -309,6 +309,7 @@ The runtime suite proves, end to end:
 - the configuration archive is **encrypted**, and no `.tar.gz` is uploaded
 - verify-only restore touches no database
 - restore into an isolated instance reproduces the seeded tables
+- the isolated restore contains the exact seeded row counts before cleanup
 - a **wrong key** fails with exit 6 and says so
 - a **tampered object** is rejected
 - a **manifest that does not match its object** is rejected — the check is real,

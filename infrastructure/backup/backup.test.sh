@@ -294,6 +294,26 @@ if [ -z "$skip_reason" ]; then
 
   echo
   echo "=== 7. restore into an ISOLATED instance reproduces the data ==="
+  success_wrapper="$WORK/docker-check-restored-data"
+  mkdir -p "$success_wrapper"
+  RESTORED_DATA_CHECK="$WORK/restored-row-counts.txt"
+  cat > "$success_wrapper/docker" <<'WRAPPER'
+#!/usr/bin/env bash
+if [ "${1:-}" = rm ] && [ "${2:-}" = -f ]; then
+  container_id=${3:-}
+  label=$("$REAL_DOCKER" inspect --format '{{ index .Config.Labels "truevine.restore.run" }}' "$container_id" 2>/dev/null || true)
+  case "$label" in
+    truevine-restore-*)
+      rows=$("$REAL_DOCKER" exec "$container_id" psql -U postgres -d testdb -At -F '|' \
+        -c 'SELECT (SELECT count(*) FROM widget), (SELECT count(*) FROM gadget);' 2>/dev/null) || exit 1
+      [ "$rows" = '250|40' ] || { echo "restored row counts differ: $rows" >&2; exit 1; }
+      printf '%s\n' "$rows" > "$RESTORED_DATA_CHECK"
+      ;;
+  esac
+fi
+exec "$REAL_DOCKER" "$@"
+WRAPPER
+  chmod +x "$success_wrapper/docker"
   TS=$(find "$WORK/store" -name '*.dump.age' | head -1 | xargs basename | sed 's/\.dump\.age$//')
   LEGACY_CONTAINER="truevine-restore-$(echo "$TS" | tr -d 'Z')"
   LEGACY_VOLUME="${LEGACY_CONTAINER}-vol"
@@ -308,12 +328,16 @@ if [ -z "$skip_reason" ]; then
     docker run -d --name "$LEGACY_CONTAINER" --network none --label "$FIXTURE_LABEL" postgres:18-alpine sleep 600 >/dev/null 2>&1 \
       && FIXTURE_ID=$(docker inspect --format '{{.Id}}' "$LEGACY_CONTAINER") || { bad "could not create unrelated container fixture"; FIXTURE_ID=""; }
   fi
-  out=$(bash "$RESTORE" --latest --restore 2>&1); rc=$?
+  out=$(PATH="$success_wrapper:$PATH" REAL_DOCKER="$REAL_DOCKER" \
+    RESTORED_DATA_CHECK="$RESTORED_DATA_CHECK" bash "$RESTORE" --latest --restore 2>&1); rc=$?
   [ "$rc" = "0" ] && ok "isolated restore exits 0" || { bad "isolated restore failed (exit $rc)"; echo "$out" | sed 's/^/        /'; }
   # The seeded database holds exactly two tables (widget, gadget). There is no
   # Prisma migrations table here, so a correct restore reports 2, not 3.
   case "$out" in *"2 table(s)"*) ok "restored instance reports the 2 seeded tables" ;; *) bad "unexpected table count in: $out" ;; esac
   case "$out" in *"production untouched"*) ok "states production was untouched" ;; *) bad "missing safety statement" ;; esac
+  [ "$(cat "$RESTORED_DATA_CHECK" 2>/dev/null)" = '250|40' ] \
+    && ok "restored synthetic database contains all 250 widgets and 40 gadgets" \
+    || bad "isolated restore did not reproduce the seeded synthetic rows"
   SUCCESS_LABEL=$(printf '%s\n' "$out" | sed -n 's/.*isolated restore run label: //p' | head -1)
   if [ -n "$SUCCESS_LABEL" ]; then
     own_containers=$(docker ps -aq --filter "label=truevine.restore.run=$SUCCESS_LABEL")
@@ -392,6 +416,52 @@ WRAPPER
   [ -n "$FAILURE_LABEL" ] && [ -z "$after_owned" ] && ok "failed restore cleaned its owned container" || bad "failed restore left or changed a labeled container"
   remaining_volumes=$(docker volume ls -q --filter "label=truevine.restore.run=$FAILURE_LABEL" | sort)
   [ -z "$remaining_volumes" ] && ok "failed restore cleaned its owned volume" || bad "failed restore left a labeled volume"
+
+  echo
+  echo "=== 7c. ownership mismatch fails closed during failure cleanup ==="
+  mismatch_wrapper="$WORK/docker-mismatch-ownership"
+  mkdir -p "$mismatch_wrapper"
+  cat > "$mismatch_wrapper/docker" <<'WRAPPER'
+#!/usr/bin/env bash
+if [ "${1:-}" = exec ] && [[ " ${*:2} " == *" pg_restore "* ]]; then
+  : > "$OWNERSHIP_MISMATCH_MARKER"
+  echo "forced disposable pg_restore failure" >&2
+  exit 9
+fi
+if [ -f "$OWNERSHIP_MISMATCH_MARKER" ] && [ "${1:-}" = inspect ] && [[ " ${*:2} " == *"truevine.restore.run"* ]]; then
+  echo "foreign-run-label"
+  exit 0
+fi
+if [ "${1:-}" = rm ] || { [ "${1:-}" = volume ] && [ "${2:-}" = rm ]; }; then
+  printf '%s\n' "$*" >> "$DOCKER_CALL_LOG"
+fi
+exec "$REAL_DOCKER" "$@"
+WRAPPER
+  chmod +x "$mismatch_wrapper/docker"
+  DOCKER_CALL_LOG="$WORK/mismatch.docker.log"
+  MISMATCH_MARKER="$WORK/ownership-mismatch.marker"
+  out=$(PATH="$mismatch_wrapper:$PATH" REAL_DOCKER="$REAL_DOCKER" \
+    DOCKER_CALL_LOG="$DOCKER_CALL_LOG" OWNERSHIP_MISMATCH_MARKER="$MISMATCH_MARKER" \
+    bash "$RESTORE" --latest --restore 2>&1); rc=$?
+  [ "$rc" != "0" ] && ok "ownership mismatch makes cleanup fail" || bad "ownership mismatch did not fail the restore"
+  case "$out" in *"ownership could not be verified"*) ok "ownership mismatch is reported" ;; *) bad "ownership mismatch was not reported" ;; esac
+  [ ! -s "$DOCKER_CALL_LOG" ] && ok "ownership mismatch triggered no Docker deletion" || bad "ownership mismatch attempted Docker deletion"
+  MISMATCH_LABEL=$(printf '%s\n' "$out" | sed -n 's/.*isolated restore run label: //p' | head -1)
+  kept_container=$(docker ps -aq --filter "label=truevine.restore.run=$MISMATCH_LABEL" | head -1)
+  kept_volume=$(docker volume ls -q --filter "label=truevine.restore.run=$MISMATCH_LABEL" | head -1)
+  if [ -n "$MISMATCH_LABEL" ] && [ -n "$kept_container" ] && [ -n "$kept_volume" ]; then
+    actual_clabel=$(docker inspect --format '{{ index .Config.Labels "truevine.restore.run" }}' "$kept_container")
+    actual_vlabel=$(docker volume inspect --format '{{ index .Labels "truevine.restore.run" }}' "$kept_volume")
+    [ "$actual_clabel" = "$MISMATCH_LABEL" ] && [ "$actual_vlabel" = "$MISMATCH_LABEL" ] \
+      && ok "both resources remain intact after ownership could not be verified" \
+      || bad "a mismatched resource was changed during cleanup"
+    # Test-only cleanup: discover candidates by the unpredictable run label and
+    # re-check ownership before removing them. Never clean by a shared prefix.
+    [ "$actual_clabel" = "$MISMATCH_LABEL" ] && docker rm -f "$kept_container" >/dev/null
+    [ "$actual_vlabel" = "$MISMATCH_LABEL" ] && docker volume rm "$kept_volume" >/dev/null
+  else
+    bad "could not locate both retained resources for ownership-mismatch cleanup"
+  fi
 
   echo
   echo "=== 8. a wrong key must fail loudly, not silently ==="
@@ -549,8 +619,6 @@ printf '{\n  "webUrl": "https://voice.truevinecloud.online/",\n  "region": "eu-w
     bad "no encrypted configuration archive found"
   fi
 
-  docker rm -fv truevine-backup-src >/dev/null 2>&1 || true
-  docker volume rm truevine-backup-src-vol >/dev/null 2>&1 || true
 else
   skip_or_fail "$skip_reason" "database-backed tests"
 fi

@@ -74,7 +74,9 @@ reconciled with lifecycle expiration and tested on a non-production bucket.
 
 - Generate one age identity on a trusted administrator workstation or the VPS
   through an approved secure procedure. Install it at `/etc/truevine/backup.key`
-  owned by the dedicated backup account and mode `0600`.
+  owned by the approved backup job identity and mode `0600`. The current script
+  requires Docker socket access, which is root-equivalent; see the production
+  backup runbook before selecting an identity or granting Docker access.
 - Keep two encrypted offline recovery copies in separate physical locations,
   with separate custodians. Test decryptability during a restore drill. R2
   cannot recover a lost age private key.

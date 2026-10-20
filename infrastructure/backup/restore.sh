@@ -73,6 +73,7 @@ umask 077
 # Staging holds the DECRYPTED production dump. Remove it on every exit path so a
 # plaintext database is never left sitting in /tmp after a routine verification.
 RESTORE_VOLUME_MOUNTPOINT=""
+RESTORE_VOLUME_CREATED_AT=""
 RESTORE_CONTAINER_ID=""
 RESTORE_VOLUME_OWNED=0
 RESTORE_CONTAINER_OWNED=0
@@ -215,12 +216,19 @@ container_is_owned() {
 }
 
 volume_is_owned() {
-  local inspected_label inspected_mountpoint
+  local inspected_name inspected_label inspected_mountpoint inspected_created_at inspected_driver inspected_scope
   [ "$RESTORE_VOLUME_OWNED" = 1 ] || return 1
+  inspected_name=$(docker volume inspect --format '{{.Name}}' "$VOLUME" 2>/dev/null) || return 1
   inspected_label=$(docker volume inspect --format '{{ index .Labels "truevine.restore.run" }}' "$VOLUME" 2>/dev/null) || return 1
   inspected_mountpoint=$(docker volume inspect --format '{{.Mountpoint}}' "$VOLUME" 2>/dev/null) || return 1
-  [ "$inspected_label" = "$RUN_LABEL" ] && [ "$inspected_mountpoint" = "$RESTORE_VOLUME_MOUNTPOINT" ] \
-    && [ -n "$inspected_mountpoint" ]
+  inspected_created_at=$(docker volume inspect --format '{{.CreatedAt}}' "$VOLUME" 2>/dev/null) || return 1
+  inspected_driver=$(docker volume inspect --format '{{.Driver}}' "$VOLUME" 2>/dev/null) || return 1
+  inspected_scope=$(docker volume inspect --format '{{.Scope}}' "$VOLUME" 2>/dev/null) || return 1
+  [ "$inspected_name" = "$VOLUME" ] && [ "$inspected_label" = "$RUN_LABEL" ] \
+    && [ "$inspected_mountpoint" = "$RESTORE_VOLUME_MOUNTPOINT" ] \
+    && [ "$inspected_created_at" = "$RESTORE_VOLUME_CREATED_AT" ] \
+    && [ "$inspected_driver" = "local" ] && [ "$inspected_scope" = "local" ] \
+    && [ -n "$inspected_mountpoint" ] && [ -n "$inspected_created_at" ]
 }
 
 cleanup_restore_resources() {
@@ -257,9 +265,11 @@ require_cmd docker
 
 # --network none: no route to or from anywhere, least of all production.
 docker volume create --label "truevine.restore.run=$RUN_LABEL" "$VOLUME" >/dev/null
+RESTORE_VOLUME_OWNED=1
 RESTORE_VOLUME_MOUNTPOINT=$(docker volume inspect --format '{{.Mountpoint}}' "$VOLUME") \
   || die "$EXIT_VERIFY" "could not inspect newly created restore volume"
-RESTORE_VOLUME_OWNED=1
+RESTORE_VOLUME_CREATED_AT=$(docker volume inspect --format '{{.CreatedAt}}' "$VOLUME") \
+  || die "$EXIT_VERIFY" "could not inspect newly created restore volume identity"
 volume_is_owned || die "$EXIT_VERIFY" "new restore volume ownership could not be verified"
 RESTORE_CONTAINER_ID=$(docker run -d --name "$CONTAINER" --network none \
   --mount "type=volume,src=$VOLUME,dst=/var/lib/postgresql" \

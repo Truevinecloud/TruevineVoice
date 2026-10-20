@@ -120,6 +120,9 @@ describe('restore safety model', () => {
     expect(restore).toContain('inspected_label" = "$RUN_LABEL"');
     expect(restore).toContain('network" = "none"');
     expect(restore).toContain('inspected_mountpoint" = "$RESTORE_VOLUME_MOUNTPOINT"');
+    expect(restore).toContain('inspected_created_at" = "$RESTORE_VOLUME_CREATED_AT"');
+    expect(restore).toContain('inspected_driver" = "local"');
+    expect(restore).toContain('inspected_scope" = "local"');
     expect(restore).toContain('docker rm -f "$RESTORE_CONTAINER_ID"');
     expect(restore).toContain(
       'refusing to remove restore container: ownership could not be verified',
@@ -127,6 +130,12 @@ describe('restore safety model', () => {
     expect(restore).toContain('refusing to remove restore volume: ownership could not be verified');
     expect(restore).not.toContain('docker rm -fv "$CONTAINER"');
     expect(restore).not.toContain('docker volume rm "$VOLUME" >/dev/null 2>&1 || true');
+  });
+
+  it('never cleans test resources by a shared hard-coded Docker name', () => {
+    const runtime = read('backup.test.sh');
+    expect(runtime).not.toContain('docker rm -fv truevine-backup-src');
+    expect(runtime).not.toContain('docker volume rm truevine-backup-src-vol');
   });
 
   it('never references the production database container', () => {
