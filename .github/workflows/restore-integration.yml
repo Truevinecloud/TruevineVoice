@@ -8,12 +8,14 @@ on:
       - '.github/workflows/restore-integration.yml'
       - 'infrastructure/scripts/*db-verify*'
       - 'infrastructure/scripts/*restore-integration*'
+      - 'infrastructure/backup/**'
       - 'package.json'
   pull_request:
     paths:
       - '.github/workflows/restore-integration.yml'
       - 'infrastructure/scripts/*db-verify*'
       - 'infrastructure/scripts/*restore-integration*'
+      - 'infrastructure/backup/**'
       - 'package.json'
 
 permissions:
@@ -35,6 +37,16 @@ jobs:
           cache: npm
       - run: npm run ci:setup-npm
       - run: npm ci
+      - name: Install age for encrypted backup tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes age
+          age --version
+          age-keygen --version
+      - name: Test encrypted backup upload and isolated restore
+        env:
+          BACKUP_TESTS_REQUIRED: '1'
+        run: npm run test:backup
       - name: Check integration safety contracts
         run: npm run test:restore-integration:checks
       - name: Run Docker stub regressions

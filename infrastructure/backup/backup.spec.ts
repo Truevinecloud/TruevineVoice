@@ -19,6 +19,10 @@ const read = (name: string): string => readFileSync(resolve(here, '..', 'backup'
 const common = read('lib/common.sh');
 const backup = read('backup.sh');
 const restore = read('restore.sh');
+const restoreWorkflow = readFileSync(
+  resolve(here, '..', '..', '.github', 'workflows', 'restore-integration.yml'),
+  'utf8',
+);
 
 /** All lines in `source` that contain `needle`. */
 const linesWith = (source: string, needle: string): string[] =>
@@ -104,7 +108,45 @@ describe('restore safety model', () => {
 
   it('restores only into a labelled, network-isolated throwaway instance', () => {
     expect(restore).toContain('--network none');
-    expect(restore).toMatch(/--label "truevine\.verify\.run=\$RUN_LABEL"/);
+    expect(restore).toMatch(/--label "truevine\.restore\.run=\$RUN_LABEL"/);
+  });
+
+  it('uses a unique restore identity and refuses existing resource names', () => {
+    expect(restore).toContain('RUN_NONCE=$(od -An -N16 -tx1 /dev/urandom');
+    expect(restore).toContain(
+      'restore container name already exists; refusing to use or remove it',
+    );
+    expect(restore).toContain('restore volume name already exists; refusing to use or remove it');
+  });
+
+  it('only removes resources after checking their captured identity, label and isolation', () => {
+    expect(restore).toContain('inspected_id" = "$RESTORE_CONTAINER_ID"');
+    expect(restore).toContain('inspected_label" = "$RUN_LABEL"');
+    expect(restore).toContain('network" = "none"');
+    expect(restore).toContain('inspected_mountpoint" = "$RESTORE_VOLUME_MOUNTPOINT"');
+    expect(restore).toContain('inspected_created_at" = "$RESTORE_VOLUME_CREATED_AT"');
+    expect(restore).toContain('inspected_driver" = "local"');
+    expect(restore).toContain('inspected_scope" = "local"');
+    expect(restore).toContain('docker rm -f "$RESTORE_CONTAINER_ID"');
+    expect(restore).toContain(
+      'refusing to remove restore container: ownership could not be verified',
+    );
+    expect(restore).toContain('refusing to remove restore volume: ownership could not be verified');
+    expect(restore).not.toContain('docker rm -fv "$CONTAINER"');
+    expect(restore).not.toContain('docker volume rm "$VOLUME" >/dev/null 2>&1 || true');
+  });
+
+  it('never cleans test resources by a shared hard-coded Docker name', () => {
+    const runtime = read('backup.test.sh');
+    expect(runtime).not.toContain('docker rm -fv truevine-backup-src');
+    expect(runtime).not.toContain('docker volume rm truevine-backup-src-vol');
+  });
+
+  it('runs required encrypted backup and isolated restore tests in Linux CI', () => {
+    expect(restoreWorkflow).toContain("BACKUP_TESTS_REQUIRED: '1'");
+    expect(restoreWorkflow).toContain('run: npm run test:backup');
+    expect(restoreWorkflow).toContain('infrastructure/backup/**');
+    expect(restoreWorkflow).toContain('sudo apt-get install --no-install-recommends --yes age');
   });
 
   it('never references the production database container', () => {
@@ -290,7 +332,9 @@ describe('integrity verification is real', () => {
     expect(restore).toMatch(/toc_rc=\$\?/);
     expect(restore).toMatch(/local pg_restore cannot read this archive/);
     // The warning must not be the thing that ends the run.
-    expect(restore).not.toMatch(/die "\$EXIT_VERIFY" "archive table of contents is empty or unreadable"/);
+    expect(restore).not.toMatch(
+      /die "\$EXIT_VERIFY" "archive table of contents is empty or unreadable"/,
+    );
   });
 
   it('keeps the isolated restore as the authoritative readability proof', () => {
