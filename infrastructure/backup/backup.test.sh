@@ -114,15 +114,23 @@ start_test_pg() {
     --mount "type=volume,src=$TEST_VOLUME,dst=/var/lib/postgresql" \
     --label "truevine.backup.test.run=$TEST_RUN_ID" \
     -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=testdb \
-    postgres:18-alpine >"$WORK/container.id" 2>&1; then
+    postgres:18-alpine >"$WORK/container.id" 2>"$WORK/container.start.log"; then
     warn "isolated test PostgreSQL container did not start:"
     sed 's/^/          /' "$WORK/container.id"
+    sed 's/^/          /' "$WORK/container.start.log"
     return 1
   fi
-  TEST_CONTAINER_ID=$(cat "$WORK/container.id")
+  TEST_CONTAINER_ID=$(tr -d '\r\n' < "$WORK/container.id")
+  if ! [[ "$TEST_CONTAINER_ID" =~ ^[0-9a-f]{64}$ ]]; then
+    warn "docker run did not return a single container id:"
+    sed 's/^/          /' "$WORK/container.id"
+    sed 's/^/          /' "$WORK/container.start.log"
+    return 1
+  fi
   local actual_label actual_mount
   actual_label=$(docker inspect --format '{{ index .Config.Labels "truevine.backup.test.run" }}' "$TEST_CONTAINER_ID") || {
-    warn "could not inspect isolated test PostgreSQL container identity"
+    warn "could not inspect isolated test PostgreSQL container identity:"
+    docker inspect "$TEST_CONTAINER_ID" 2>&1 | sed 's/^/          /' || true
     return 1
   }
   actual_mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql"}}{{.Name}}{{end}}{{end}}' "$TEST_CONTAINER_ID") || {
