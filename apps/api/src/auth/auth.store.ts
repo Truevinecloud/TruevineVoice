@@ -271,6 +271,10 @@ export interface OrganizationStore {
     newOwnerId: string,
   ): Promise<MembershipChangeResult>;
 
+  findInvitationState(
+    organizationId: string,
+    id: string,
+  ): Promise<Pick<InvitationRecord, 'role' | 'acceptedAt' | 'revokedAt'> | undefined>;
   listInvitations(organizationId: string): Promise<readonly InvitationRecord[]>;
   findOutstandingInvitationByEmail(
     organizationId: string,

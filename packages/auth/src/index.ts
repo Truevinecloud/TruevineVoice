@@ -76,3 +76,10 @@ export {
   unauthenticated,
   type AuthErrorCode,
 } from './errors.js';
+
+export {
+  auditReason,
+  auditJustification,
+  sensitiveAudit,
+  type AuditReason,
+} from './sensitive-audit.js';

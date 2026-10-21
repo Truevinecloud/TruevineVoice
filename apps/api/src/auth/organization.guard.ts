@@ -32,6 +32,7 @@
  * containing only successes cannot answer "was this an attack?".
  */
 
+import { mutationAudit } from './sensitive-audit.js';
 import {
   ForbiddenException,
   Inject,
@@ -171,7 +172,18 @@ export class OrganizationGuard implements CanActivate {
         action: 'authorization.denied',
         scope: 'ORGANIZATION',
         outcome: 'DENIED',
-        metadata: { permission, reason },
+        metadata: {
+          permission,
+          reason,
+          ...mutationAudit({
+            targetType: 'organization',
+            targetId: organizationId,
+            before: null,
+            change: { attemptedPermission: permission },
+            after: null,
+            reasonCode: reason,
+          }),
+        },
       });
     } catch {
       // An audit failure must not become a 500 in place of a correct 403: the
@@ -231,34 +243,41 @@ export class PlatformGuard implements CanActivate {
     userId: string,
     permission: PlatformPermission,
   ): Promise<void> {
-    // `security_audit_events.organization_id` is NOT NULL and carries a foreign
-    // key, by the ADR 0006 rule. A platform denial by a caller with no
-    // organization context therefore has nowhere legitimate to be written, and
-    // inventing a row with an empty organization would break the very
-    // constraint that keeps the audit trail tenant-scoped.
-    //
-    // KNOWN GAP, stated rather than hidden: a platform denial by a caller with no
-    // organization context is not recorded. The case RBAC-001 names - an
-    // Organization Owner probing platform administration - is recorded, because
-    // an owner arriving from their own organization has that context. Closing the
-    // general case needs a platform-scoped audit table, which is RBAC-002 work.
+    // Preserve tenant-scoped records where available; otherwise use the existing
+    // identity trail. Never fabricate a tenant merely to record a platform refusal.
     const organization = request[ORGANIZATION_CONTEXT];
-
-    if (!organization) return;
-
+    const metadata = {
+      permission,
+      ...mutationAudit({
+        targetType: 'platform_permission',
+        targetId: permission,
+        before: null,
+        change: { attemptedPermission: permission },
+        after: null,
+        reasonCode: 'platform_permission_denied',
+      }),
+    };
     try {
       assertKnownAuditAction('platform.access.denied');
+      if (!organization) {
+        await this.auditStore.recordIdentity({
+          actorUserId: userId,
+          action: 'platform.access.denied',
+          outcome: 'DENIED',
+          metadata,
+        });
+        return;
+      }
       await this.auditStore.record({
         organizationId: organization.organizationId,
         actorUserId: userId,
         action: 'platform.access.denied',
         scope: 'PLATFORM',
         outcome: 'DENIED',
-        metadata: { permission },
+        metadata,
       });
     } catch {
-      // Same reasoning as OrganizationGuard#deny: the refusal stands regardless,
-      // and losing the audit row is visible in the application error log.
+      process.stderr.write('[audit] Platform denial recording unavailable.\n');
     }
   }
 }

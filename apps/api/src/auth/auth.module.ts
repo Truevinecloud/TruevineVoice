@@ -1,3 +1,4 @@
+import { AuditContextMiddleware } from './audit-context.js';
 import { SECURITY_TRANSACTION } from './security-transaction.js';
 /**
  * Authentication and authorization module.
@@ -132,6 +133,7 @@ function emailSender(): EmailSender {
     PlatformGuard,
     CsrfGuard,
     CsrfTokenMiddleware,
+    AuditContextMiddleware,
     // Bound with `APP_FILTER`, not merely listed in `providers`. A `@Catch()`
     // class sitting in the provider array is never applied by Nest: it has to be
     // bound to the filter slot, or the exception reaches the default handler and
@@ -165,6 +167,8 @@ function emailSender(): EmailSender {
 })
 export class AuthModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(CsrfTokenMiddleware).forRoutes({ path: '*path', method: RequestMethod.ALL });
+    consumer
+      .apply(AuditContextMiddleware, CsrfTokenMiddleware)
+      .forRoutes({ path: '*path', method: RequestMethod.ALL });
   }
 }

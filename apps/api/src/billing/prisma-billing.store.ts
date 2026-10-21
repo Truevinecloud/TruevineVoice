@@ -2,10 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@truevine/database';
 import { authorizeTenantWrite, type TenantWriteSql } from '../auth/tenant-write.js';
+import { billingAuditState, writeMutationAudit, mutationRefused } from '../auth/sensitive-audit.js';
 import { DATABASE_CLIENT } from '../tokens.js';
 import type { BillingProfile, BillingStore } from './billing.store.js';
 
-type BillingClient = Pick<PrismaClient, 'walletEntry' | 'topUpRequest' | 'billingProfile'> &
+type BillingClient = Pick<
+  PrismaClient,
+  'walletEntry' | 'topUpRequest' | 'billingProfile' | 'securityAuditEvent'
+> &
   TenantWriteSql;
 type BillingDatabase = BillingClient & {
   $transaction<T>(work: (tx: BillingClient) => Promise<T>): Promise<T>;
@@ -55,15 +59,46 @@ export class PrismaBillingStore implements BillingStore {
     });
   }
   saveProfile(organizationId: string, profile: BillingProfile, actorUserId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      await authorizeTenantWrite(tx, organizationId, actorUserId, 'billing:update');
-      return tx.billingProfile.upsert({
-        where: { organizationId },
-        create: { organizationId, ...profile },
-        update: profile,
-        select: { name: true, email: true, address: true },
-      });
-    });
+    return this.prisma
+      .$transaction(async (tx) => {
+        await authorizeTenantWrite(tx, organizationId, actorUserId, 'billing:update');
+        const before = await tx.billingProfile.findUnique({
+          where: { organizationId },
+          select: { name: true, email: true, address: true },
+        });
+        const beforeState = billingAuditState(before);
+        const after = await tx.billingProfile.upsert({
+          where: { organizationId },
+          create: { organizationId, ...profile },
+          update: profile,
+          select: { name: true, email: true, address: true },
+        });
+        await writeMutationAudit(tx, {
+          organizationId,
+          actorUserId,
+          action: 'billing.profile_updated',
+          targetType: 'billing_profile',
+          targetId: organizationId,
+          before: beforeState,
+          change: { fields: ['name', 'email', 'address'] },
+          after: billingAuditState(after),
+          reasonCode: 'billing_details_update',
+        });
+        return after;
+      })
+      .catch((error) =>
+        mutationRefused(
+          this.prisma,
+          {
+            organizationId: organizationId,
+            actorUserId: actorUserId,
+            action: 'billing.profile_updated',
+            targetType: 'billing_profile',
+            targetId: organizationId,
+          },
+          error,
+        ),
+      );
   }
   topUps(organizationId: string) {
     return this.prisma.topUpRequest.findMany({
@@ -78,21 +113,61 @@ export class PrismaBillingStore implements BillingStore {
     amountMinor: bigint;
     idempotencyKey: string;
   }) {
-    return this.prisma.$transaction(async (tx) => {
-      await authorizeTenantWrite(tx, input.organizationId, input.createdById, 'billing:update');
-      // Unique constraint arbitrates concurrent retries; never update an existing request's payload.
-      await tx.topUpRequest.createMany({
-        data: [{ ...input, id: randomUUID(), currency: 'UGX' }],
-        skipDuplicates: true,
-      });
-      return tx.topUpRequest.findUniqueOrThrow({
-        where: {
-          organizationId_idempotencyKey: {
-            organizationId: input.organizationId,
-            idempotencyKey: input.idempotencyKey,
+    return this.prisma
+      .$transaction(async (tx) => {
+        await authorizeTenantWrite(tx, input.organizationId, input.createdById, 'billing:update');
+        // Unique constraint arbitrates concurrent retries; never update an existing request's payload.
+        const created = await tx.topUpRequest.createMany({
+          data: [{ ...input, id: randomUUID(), currency: 'UGX' }],
+          skipDuplicates: true,
+        });
+        const row = await tx.topUpRequest.findUniqueOrThrow({
+          where: {
+            organizationId_idempotencyKey: {
+              organizationId: input.organizationId,
+              idempotencyKey: input.idempotencyKey,
+            },
           },
-        },
-      });
-    });
+        });
+        if (created.count === 1)
+          await writeMutationAudit(tx, {
+            organizationId: input.organizationId,
+            actorUserId: input.createdById,
+            action: 'billing.top_up_requested',
+            targetType: 'top_up_request',
+            targetId: row.id,
+            before: null,
+            change: { requestedMinor: input.amountMinor.toString(), currency: 'UGX' },
+            after: { status: 'PENDING' },
+            reasonCode: 'customer_top_up_request',
+          });
+        else if (row.amountMinor !== input.amountMinor || row.currency !== 'UGX')
+          await writeMutationAudit(tx, {
+            organizationId: input.organizationId,
+            actorUserId: input.createdById,
+            action: 'authorization.denied',
+            targetType: 'top_up_request',
+            targetId: row.id,
+            before: null,
+            change: { attemptedAction: 'billing.top_up_requested' },
+            after: null,
+            reasonCode: 'idempotency_conflict',
+            outcome: 'DENIED',
+          });
+        return row;
+      })
+      .catch((error) =>
+        mutationRefused(
+          this.prisma,
+          {
+            organizationId: input.organizationId,
+            actorUserId: input.createdById,
+            action: 'billing.top_up_requested',
+            targetType: 'top_up_request',
+            targetId: input.idempotencyKey,
+          },
+          error,
+        ),
+      );
   }
 }

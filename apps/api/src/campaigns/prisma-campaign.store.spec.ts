@@ -13,7 +13,13 @@ function database(campaign: object) {
 describe('PrismaCampaignStore emergency-stop lock', () => {
   it('refuses customer reactivation when a campaign has an emergency-stop marker', async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
-    const findUnique = vi.fn();
+    const findUnique = vi
+      .fn()
+      .mockResolvedValue({
+        name: 'Synthetic',
+        status: 'COMPLETED',
+        emergencyStoppedAt: new Date(),
+      });
     const store = new PrismaCampaignStore(database({ updateMany, findUnique }));
 
     const result = await store.updateCampaign(
@@ -28,12 +34,25 @@ describe('PrismaCampaignStore emergency-stop lock', () => {
       where: { organizationId: 'org-id', id: 'campaign-id', emergencyStoppedAt: null },
       data: { status: 'ACTIVE' },
     });
-    expect(findUnique).not.toHaveBeenCalled();
+    expect(findUnique).toHaveBeenCalledWith({
+      where: { organizationId_id: { organizationId: 'org-id', id: 'campaign-id' } },
+    });
   });
 
   it('refuses customer deletion of an emergency-stopped campaign', async () => {
     const deleteMany = vi.fn(async () => ({ count: 0 }));
-    const store = new PrismaCampaignStore(database({ deleteMany }));
+    const store = new PrismaCampaignStore(
+      database({
+        deleteMany,
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({
+            name: 'Synthetic',
+            status: 'COMPLETED',
+            emergencyStoppedAt: new Date(),
+          }),
+      }),
+    );
 
     await expect(store.deleteCampaign('org-id', 'campaign-id', 'actor-id')).resolves.toBe(false);
 

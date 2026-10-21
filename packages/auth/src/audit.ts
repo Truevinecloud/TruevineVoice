@@ -39,6 +39,10 @@ export const AUDIT_ACTIONS = [
   'campaign.created',
   'campaign.updated',
   'campaign.deleted',
+  'billing.profile_updated',
+  'billing.top_up_requested',
+  'organization.owner.provisioned',
+  'auth.owner_provisioned',
   'platform.campaign.emergency_stopped',
   'platform.operations_admin.provisioned',
   'platform.owner.bootstrapped',
@@ -119,6 +123,12 @@ export function assertKnownAuditAction(action: string): asserts action is AuditA
  * writer checks metadata keys against this list.
  */
 export const FORBIDDEN_AUDIT_METADATA_KEYS: ReadonlySet<string> = new Set([
+  'accesstoken',
+  'clientsecret',
+  'connectionstring',
+  'cardnumber',
+  'cvv',
+  'paymentcredentials',
   'password',
   'newpassword',
   'currentpassword',
@@ -138,17 +148,33 @@ export const FORBIDDEN_AUDIT_METADATA_KEYS: ReadonlySet<string> = new Set([
 
 /** Whether a metadata key is safe to record. */
 export function isSafeAuditMetadataKey(key: string): boolean {
-  return !FORBIDDEN_AUDIT_METADATA_KEYS.has(key.toLowerCase());
+  return !FORBIDDEN_AUDIT_METADATA_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, ''));
 }
 
 /**
  * Whether a metadata object is safe to record.
  *
- * Checks keys only. Values are written by this codebase's own services, and
- * inventing a deep content scanner here would be theatre: the real protection
- * is that callers never pass the secret in the first place, which is what the
- * audit-service tests assert for each writer.
+ * Checks normalized keys at every object depth and bounds JSON values.
+ * Callers must still project safe values; this is not proof that arbitrary
+ * free text cannot contain a secret.
  */
 export function isSafeAuditMetadata(metadata: Readonly<Record<string, unknown>>): boolean {
-  return Object.keys(metadata).every(isSafeAuditMetadataKey);
+  const seen = new Set<object>();
+  const safe = (value: unknown, depth: number): boolean => {
+    if (depth > 12) return false;
+    if (value === null || typeof value === 'boolean') return true;
+    if (typeof value === 'string') return value.length <= 2048;
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (typeof value !== 'object' || seen.has(value)) return false;
+    seen.add(value);
+    const result = Array.isArray(value)
+      ? value.length <= 100 && value.every((item) => safe(item, depth + 1))
+      : Object.getPrototypeOf(value) === Object.prototype &&
+        Object.entries(value).every(
+          ([name, item]) => isSafeAuditMetadataKey(name) && safe(item, depth + 1),
+        );
+    seen.delete(value);
+    return result;
+  };
+  return safe(metadata, 0);
 }

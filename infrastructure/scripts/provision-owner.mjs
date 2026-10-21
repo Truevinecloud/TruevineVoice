@@ -41,8 +41,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { userInfo } from 'node:os';
 
-import { checkEmail, generateToken, hashToken } from '@truevine/auth';
+import { checkEmail, generateToken, hashToken, sensitiveAudit } from '@truevine/auth';
 import { hashPassword } from '@truevine/auth/passwords';
 import { createDatabaseClient } from '@truevine/database';
 
@@ -165,7 +166,21 @@ export async function provisionOwner(options, dependencies) {
           actorUserId: userId,
           action: 'auth.owner_provisioned',
           outcome: 'SUCCESS',
-          metadata: { organizationId, organizationSlug: options.organizationSlug },
+          metadata: {
+            organizationId,
+            organizationSlug: options.organizationSlug,
+            actorKind: 'local_operator',
+            operatorReference: userInfo().username,
+            actorAuthentication: 'operating_system',
+            ...sensitiveAudit({
+              targetType: 'membership',
+              targetId: userId,
+              before: null,
+              change: { role: 'OWNER' },
+              after: { role: 'OWNER', organizationId },
+              reasonCode: 'operator_owner_provisioning',
+            }),
+          },
         },
       });
     });

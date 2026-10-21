@@ -716,3 +716,13 @@ Run `npm run test:tenant-isolation:e2e` on the disposable loopback test stack
 with `NODE_ENV=test` and `TENANT_ISOLATION_DISPOSABLE=1` (or hosted CI).
 The suite is also included in `npm run test:e2e` and `npm run test:security`;
 missing infrastructure fails loudly. No frontend, migration or deployment change.
+
+## RBAC-013 sensitive action audit (backend development)
+
+The [assessment and coverage matrix](docs/rbac-013-sensitive-action-audit.md)
+records supported sensitive mutations, transactional audit controls and limits.
+Run `npm run test:sensitive-audit:e2e` against the disposable loopback stack with
+`NODE_ENV=test` and `SENSITIVE_AUDIT_DISPOSABLE=1`, or hosted CI. The suite is also
+included in ordinary E2E/security runs and fails loudly without infrastructure.
+The additive audit-integrity migration remains unapproved for production.
+No frontend, real financial operation, plan or provider execution is added.

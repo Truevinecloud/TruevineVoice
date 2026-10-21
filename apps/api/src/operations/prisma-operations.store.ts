@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { PrismaClient } from '@truevine/database';
 
+import { authorizeEmergencyWrite, type TenantWriteSql } from '../auth/tenant-write.js';
+import { mutationAudit, mutationRefused } from '../auth/sensitive-audit.js';
 import { assertKnownAuditAction, isSafeAuditMetadata } from '@truevine/auth';
 import { DATABASE_CLIENT } from '../tokens.js';
 import type {
@@ -10,7 +12,8 @@ import type {
   OperationsStore,
 } from './operations.store.js';
 
-type OperationsClient = Pick<PrismaClient, 'organization' | 'campaign' | 'securityAuditEvent'>;
+type OperationsClient = Pick<PrismaClient, 'organization' | 'campaign' | 'securityAuditEvent'> &
+  TenantWriteSql;
 type OperationsDatabase = OperationsClient & {
   $transaction<T>(work: (tx: OperationsClient) => Promise<T>): Promise<T>;
 };
@@ -71,22 +74,74 @@ export class PrismaOperationsStore implements OperationsStore {
 
   async emergencyStop(input: EmergencyStopInput): Promise<EmergencyStopResult> {
     assertKnownAuditAction('platform.campaign.emergency_stopped');
-    const metadata = { reasonCode: input.reasonCode };
+    const metadata = {
+      ...mutationAudit({
+        targetType: 'campaign',
+        targetId: input.campaignId,
+        before: { status: 'ACTIVE', emergencyStoppedAt: null },
+        change: { status: 'COMPLETED', emergencyStoppedAt: input.stoppedAt.toISOString() },
+        after: { status: 'COMPLETED', emergencyStoppedAt: input.stoppedAt.toISOString() },
+        reasonCode: input.reasonCode,
+        reasonSource: 'caller',
+        justification: input.justification ?? null,
+      }),
+    };
     if (!isSafeAuditMetadata(metadata)) throw new Error('Unsafe emergency-stop audit metadata.');
 
-    return this.prisma.$transaction(async (tx) => {
-      const result = await tx.campaign.updateMany({
-        where: {
-          organizationId: input.organizationId,
-          id: input.campaignId,
-          status: 'ACTIVE',
-          emergencyStoppedAt: null,
-        },
-        data: { status: 'COMPLETED', emergencyStoppedAt: input.stoppedAt },
-      });
+    return this.prisma
+      .$transaction<EmergencyStopResult>(async (tx) => {
+        await authorizeEmergencyWrite(tx, input.actorUserId);
+        // Match campaign/membership lock ordering before updating a child row.
+        await tx.$queryRaw`SELECT id FROM organizations WHERE id=${input.organizationId}::uuid FOR UPDATE`;
+        const result = await tx.campaign.updateMany({
+          where: {
+            organizationId: input.organizationId,
+            id: input.campaignId,
+            status: 'ACTIVE',
+            emergencyStoppedAt: null,
+          },
+          data: { status: 'COMPLETED', emergencyStoppedAt: input.stoppedAt },
+        });
 
-      if (result.count !== 1) {
-        const existing = await tx.campaign.findUnique({
+        if (result.count !== 1) {
+          const existing = await tx.campaign.findUnique({
+            where: {
+              organizationId_id: {
+                organizationId: input.organizationId,
+                id: input.campaignId,
+              },
+            },
+            select: {
+              organizationId: true,
+              id: true,
+              name: true,
+              status: true,
+              emergencyStoppedAt: true,
+              updatedAt: true,
+              organization: { select: { name: true, slug: true } },
+            },
+          });
+          if (!existing) return { kind: 'not_found' };
+          const campaign = this.toCampaignRecord(existing);
+          return existing.emergencyStoppedAt
+            ? { kind: 'already_stopped', campaign }
+            : { kind: 'not_active' };
+        }
+
+        await tx.securityAuditEvent.create({
+          data: {
+            organizationId: input.organizationId,
+            actorUserId: input.actorUserId,
+            action: 'platform.campaign.emergency_stopped',
+            scope: 'PLATFORM',
+            outcome: 'SUCCESS',
+            targetType: 'campaign',
+            targetId: input.campaignId,
+            metadata: metadata as never,
+          },
+        });
+
+        const stopped = await tx.campaign.findUniqueOrThrow({
           where: {
             organizationId_id: {
               organizationId: input.organizationId,
@@ -103,46 +158,23 @@ export class PrismaOperationsStore implements OperationsStore {
             organization: { select: { name: true, slug: true } },
           },
         });
-        if (!existing) return { kind: 'not_found' };
-        const campaign = this.toCampaignRecord(existing);
-        return existing.emergencyStoppedAt
-          ? { kind: 'already_stopped', campaign }
-          : { kind: 'not_active' };
-      }
 
-      await tx.securityAuditEvent.create({
-        data: {
-          organizationId: input.organizationId,
-          actorUserId: input.actorUserId,
-          action: 'platform.campaign.emergency_stopped',
-          scope: 'PLATFORM',
-          outcome: 'SUCCESS',
-          targetType: 'campaign',
-          targetId: input.campaignId,
-          metadata,
-        },
-      });
-
-      const stopped = await tx.campaign.findUniqueOrThrow({
-        where: {
-          organizationId_id: {
+        return { kind: 'stopped', campaign: this.toCampaignRecord(stopped) };
+      })
+      .catch((error) =>
+        mutationRefused(
+          this.prisma,
+          {
             organizationId: input.organizationId,
-            id: input.campaignId,
+            actorUserId: input.actorUserId,
+            action: 'platform.campaign.emergency_stopped',
+            targetType: 'campaign',
+            targetId: input.campaignId,
+            scope: 'PLATFORM',
           },
-        },
-        select: {
-          organizationId: true,
-          id: true,
-          name: true,
-          status: true,
-          emergencyStoppedAt: true,
-          updatedAt: true,
-          organization: { select: { name: true, slug: true } },
-        },
-      });
-
-      return { kind: 'stopped', campaign: this.toCampaignRecord(stopped) };
-    });
+          error,
+        ),
+      );
   }
 
   private toCampaignRecord(campaign: {

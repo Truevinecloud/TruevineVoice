@@ -19,6 +19,7 @@ import {
   generateToken,
   hashToken,
   isSafeAuditMetadata,
+  sensitiveAudit,
 } from '@truevine/auth';
 import { hashPassword } from '@truevine/auth/passwords';
 import { createDatabaseClient } from '@truevine/database';
@@ -282,6 +283,15 @@ export async function bootstrapPlatformOwner(options, dependencies = {}) {
           data: { userId, tokenHash: hashToken(rawToken), expiresAt },
         });
         const metadata = {
+          ...sensitiveAudit({
+            targetType: 'platform_role_assignment',
+            targetId: userId,
+            before: null,
+            change: { role: 'PLATFORM_OWNER' },
+            after: { role: 'PLATFORM_OWNER', revoked: false },
+            reasonCode: 'approved_first_owner_bootstrap',
+            requestId: options.operationId,
+          }),
           actorKind: 'external_operator',
           operatorReference: approval.operatorReference,
           approvalReference: approval.approvalReference,

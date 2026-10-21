@@ -17,15 +17,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Inject, Injectable } from '@nestjs/common';
-import {
-  assertKnownAuditAction,
-  campaignNotFound,
-  invalidCampaign,
-  isSafeAuditMetadata,
-} from '@truevine/auth';
-
-import type { AuditStore } from '../auth/auth.store.js';
-import { AUDIT_STORE } from '../auth/tokens.js';
+import { campaignNotFound, invalidCampaign } from '@truevine/auth';
 
 import {
   CAMPAIGN_STATUSES,
@@ -55,10 +47,7 @@ export interface CampaignStatusReport {
 
 @Injectable()
 export class CampaignsService {
-  constructor(
-    @Inject(CAMPAIGN_STORE) private readonly campaigns: CampaignStore,
-    @Inject(AUDIT_STORE) private readonly auditStore: AuditStore,
-  ) {}
+  constructor(@Inject(CAMPAIGN_STORE) private readonly campaigns: CampaignStore) {}
 
   /** Lists an organization's campaigns. */
   async list(organizationId: string): Promise<readonly CampaignView[]> {
@@ -98,11 +87,6 @@ export class CampaignsService {
       createdById: actorUserId,
     });
 
-    await this.audit(organizationId, actorUserId, 'campaign.created', 'SUCCESS', {
-      organizationId,
-      campaignId: created.id,
-    });
-
     return this.toView(created);
   }
 
@@ -127,14 +111,14 @@ export class CampaignsService {
     if (hasName) data.name = this.validateName(changes.name);
     if (hasStatus) data.status = this.validateStatus(changes.status);
 
-    const updated = await this.campaigns.updateCampaign(organizationId, campaignId, data, actorUserId);
-
-    if (!updated) throw campaignNotFound();
-
-    await this.audit(organizationId, actorUserId, 'campaign.updated', 'SUCCESS', {
+    const updated = await this.campaigns.updateCampaign(
       organizationId,
       campaignId,
-    });
+      data,
+      actorUserId,
+    );
+
+    if (!updated) throw campaignNotFound();
 
     return this.toView(updated);
   }
@@ -144,11 +128,6 @@ export class CampaignsService {
     const deleted = await this.campaigns.deleteCampaign(organizationId, campaignId, actorUserId);
 
     if (!deleted) throw campaignNotFound();
-
-    await this.audit(organizationId, actorUserId, 'campaign.deleted', 'SUCCESS', {
-      organizationId,
-      campaignId,
-    });
   }
 
   /** Trims and bounds a campaign name. Never echoes the offending value. */
@@ -182,28 +161,5 @@ export class CampaignsService {
       createdAt: campaign.createdAt.toISOString(),
       updatedAt: campaign.updatedAt.toISOString(),
     };
-  }
-
-  private async audit(
-    organizationId: string,
-    actorUserId: string,
-    action: string,
-    outcome: 'SUCCESS' | 'DENIED',
-    metadata: Readonly<Record<string, unknown>>,
-  ): Promise<void> {
-    assertKnownAuditAction(action);
-
-    if (!isSafeAuditMetadata(metadata)) {
-      throw new Error('Refusing to write audit metadata containing a credential-shaped key.');
-    }
-
-    await this.auditStore.record({
-      organizationId,
-      actorUserId,
-      action,
-      scope: 'ORGANIZATION',
-      outcome,
-      metadata,
-    });
   }
 }

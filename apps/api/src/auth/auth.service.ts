@@ -1,3 +1,4 @@
+import { mutationAudit } from './sensitive-audit.js';
 import { SECURITY_TRANSACTION, type SecurityTransaction } from './security-transaction.js';
 /**
  * Sign-in, sign-out, password reset and terms acceptance.
@@ -137,6 +138,10 @@ export class AuthService {
       const locked = current.lockedUntil !== null && current.lockedUntil > now;
       if (!matches || current.passwordHash !== verifiedHash || locked) {
         if (!locked && current.passwordHash === verifiedHash) {
+          const beforeLock = {
+            failedLoginCount: current.failedLoginCount,
+            lockedUntil: current.lockedUntil?.toISOString() ?? null,
+          };
           const updated = await stores.auth.recordFailedSignIn(
             user.id,
             this.failureLimit,
@@ -146,6 +151,17 @@ export class AuthService {
           if (updated.lockedUntil)
             await scoped.auditIdentity(user.id, 'auth.account_locked', 'DENIED', {
               until: updated.lockedUntil.toISOString(),
+              ...mutationAudit({
+                targetType: 'user',
+                targetId: user.id,
+                before: beforeLock,
+                change: { accessLocked: true },
+                after: {
+                  failedLoginCount: updated.failedLoginCount,
+                  lockedUntil: updated.lockedUntil.toISOString(),
+                },
+                reasonCode: 'invalid_credentials_threshold',
+              }),
             });
         }
         await scoped.auditIdentity(user.id, 'auth.sign_in.failed', 'DENIED', {
@@ -188,6 +204,14 @@ export class AuthService {
       if (revoked)
         await scoped.auditIdentity(userId, 'auth.session_revoked', 'SUCCESS', {
           reason: 'signed_out',
+          ...mutationAudit({
+            targetType: 'session',
+            targetId: sessionId,
+            before: { revoked: false },
+            change: { revoked: true },
+            after: { revoked: true },
+            reasonCode: 'self_sign_out',
+          }),
         });
     });
   }
@@ -294,6 +318,8 @@ export class AuthService {
         });
         return 'used';
       }
+      const before = await stores.auth.findUserById(token.userId);
+      const previousCredentialTime = before?.passwordChangedAt.toISOString() ?? null;
       await stores.auth.setPasswordHash(token.userId, passwordHash, now);
       await stores.auth.revokeAllPasswordResetTokens(token.userId);
       await stores.auth.revokeAllSessionsForUser(token.userId, 'password_changed', now);
@@ -301,7 +327,17 @@ export class AuthService {
         actorUserId: token.userId,
         action: 'auth.password_reset_completed',
         outcome: 'SUCCESS',
-        metadata: {},
+        metadata: {
+          ...mutationAudit({
+            targetType: 'user',
+            targetId: token.userId,
+            before: { credentialChangedAt: previousCredentialTime },
+            change: { credentialsReplaced: true, sessionsRevoked: true },
+            after: { credentialChangedAt: now.toISOString() },
+            reasonCode: 'credential_recovery',
+          }),
+          actorKind: 'recovery_capability',
+        },
       });
       return 'ok';
     });
@@ -330,8 +366,19 @@ export class AuthService {
         this.transactions,
       );
 
+      const acceptedBefore = await stores.auth.hasAcceptedTerms(userId, termsVersion);
       await stores.auth.recordTermsAcceptance(userId, termsVersion, ipPrefix);
-      await scoped.auditIdentity(userId, 'terms.accepted', 'SUCCESS', { termsVersion });
+      await scoped.auditIdentity(userId, 'terms.accepted', 'SUCCESS', {
+        termsVersion,
+        ...mutationAudit({
+          targetType: 'user',
+          targetId: userId,
+          before: { termsAccepted: acceptedBefore },
+          change: { termsVersion },
+          after: { termsAccepted: true },
+          reasonCode: 'terms_acceptance',
+        }),
+      });
     });
   }
 
@@ -366,12 +413,22 @@ export class AuthService {
       );
       await stores.lockUser(userId);
 
+      const before = await stores.auth.findUserById(userId);
+      const beforeStatus = before?.status ?? null;
       await stores.auth.setUserSuspended(userId, true);
       await stores.auth.revokeAllSessionsForUser(userId, 'account_deactivated', new Date());
 
       await scoped.auditIdentity(userId, 'auth.account_deactivated', 'SUCCESS', {
         // Reversible, so the reason is recorded for whoever reviews it later.
         reversible: true,
+        ...mutationAudit({
+          targetType: 'user',
+          targetId: userId,
+          before: { status: beforeStatus },
+          change: { status: 'SUSPENDED', sessionsRevoked: true },
+          after: { status: 'SUSPENDED' },
+          reasonCode: 'self_deactivation',
+        }),
       });
     });
   }

@@ -357,6 +357,14 @@ export class FakeOrganizationStore implements OrganizationStore {
     return { ok: true };
   }
 
+  async findInvitationState(organizationId: string, id: string) {
+    const row = this.invitations.find(
+      (value) => value.organizationId === organizationId && value.id === id,
+    );
+    return row
+      ? { role: row.role, acceptedAt: row.acceptedAt, revokedAt: row.revokedAt }
+      : undefined;
+  }
   async listInvitations(organizationId: string) {
     return this.invitations.filter((invitation) => invitation.organizationId === organizationId);
   }
