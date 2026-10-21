@@ -55,13 +55,21 @@ export default function OperationsDashboard() {
       const status = (error as Error & { status?: number }).status;
       setOperator(null);
       // A Support Admin has no operations access. Rather than a dead end,
-      // check whether this account belongs in the support workspace.
+      // check whether this account belongs in the support workspace, then the
+      // technical workspace, before showing an access error.
       if (status === 403) {
         const supportAccess = await api<{ platformRole: string } | null>(
           '/platform/support/me',
         ).catch(() => null);
         if (supportAccess) {
           router.push('/support');
+          return;
+        }
+        const technicalAccess = await api<{ platformRole: string } | null>(
+          '/platform/technical/me',
+        ).catch(() => null);
+        if (technicalAccess) {
+          router.push('/technical');
           return;
         }
       }

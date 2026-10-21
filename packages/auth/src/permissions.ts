@@ -176,7 +176,13 @@ export const PLATFORM_ROLE_PERMISSIONS: Readonly<
     'platform:audit:read',
   ],
 
-  TECHNICAL_ADMIN: ['platform:technical:read', 'platform:technical:write', 'platform:audit:read'],
+  // RBAC-010, deliberately read-only. `platform:technical:write` exists in the
+  // vocabulary and is granted to PLATFORM_OWNER alone, so a future technical
+  // mutation (restarting a job, clearing a queue) has a permission to claim -
+  // but TECHNICAL_ADMIN does not hold it yet, because nothing the role can do
+  // today requires a write and a permission nobody consumes is a permission
+  // nobody reviews.
+  TECHNICAL_ADMIN: ['platform:technical:read', 'platform:audit:read'],
 
   AUDITOR: [
     'platform:tenant:read',

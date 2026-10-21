@@ -27,6 +27,7 @@ import { AuthController } from '../src/auth/auth.controller.js';
 import { OrganizationsController } from '../src/organizations/organizations.controller.js';
 import { SessionGuard } from '../src/auth/session.guard.js';
 import { SupportController } from '../src/support/support.controller.js';
+import { TechnicalController } from '../src/technical/technical.controller.js';
 
 type AnyController = new (...args: never[]) => object;
 
@@ -111,6 +112,7 @@ const ROUTES = [
   ...handlersOf(AuthController),
   ...handlersOf(OrganizationsController),
   ...handlersOf(SupportController),
+  ...handlersOf(TechnicalController),
 ];
 
 describe('route guard coverage', () => {
@@ -337,6 +339,82 @@ describe('support route declarations (RBAC-009)', () => {
     for (const name of supportHandlers()) {
       const path = Reflect.getMetadata(PATH_METADATA, supportHandler(name)) as string;
       expect(path, name).not.toMatch(/impersonat|act-as|switch[-_]user|sudo/i);
+    }
+  });
+});
+
+describe('technical route declarations (RBAC-010)', () => {
+  /**
+   * The platform permission each technical route must declare, written
+   * literally. Both directions of the comparison run, so a renamed or newly
+   * added route must be decided here. `PlatformGuard` reads this metadata at
+   * runtime; the guard suite asserts the allow/deny matrix for each pair.
+   */
+  const EXPECTED: Record<string, string> = {
+    operatorContext: 'platform:technical:read',
+    overview: 'platform:technical:read',
+    providers: 'platform:technical:read',
+    queues: 'platform:technical:read',
+    logs: 'platform:technical:read',
+    audit: 'platform:audit:read',
+  };
+
+  function technicalHandlers(): string[] {
+    return Object.getOwnPropertyNames(TechnicalController.prototype).filter(
+      (name) =>
+        name !== 'constructor' &&
+        Reflect.getMetadata(
+          PATH_METADATA,
+          (TechnicalController.prototype as unknown as Record<string, object>)[name]!,
+        ) !== undefined,
+    );
+  }
+
+  function technicalHandler(name: string): object {
+    return (TechnicalController.prototype as unknown as Record<string, object>)[name]!;
+  }
+
+  it('finds handlers, so an empty map cannot pass vacuously', () => {
+    expect(technicalHandlers().length).toBe(6);
+  });
+
+  it('declares the expected permission on every technical route', () => {
+    const handlers = technicalHandlers();
+
+    expect([...handlers].sort()).toEqual(Object.keys(EXPECTED).sort());
+
+    for (const name of handlers) {
+      expect(Reflect.getMetadata(PLATFORM_PERMISSION, technicalHandler(name)), name).toBe(
+        EXPECTED[name],
+      );
+    }
+  });
+
+  it('declares only GET routes, so technical views cannot mutate through this controller', () => {
+    for (const name of technicalHandlers()) {
+      expect(Reflect.getMetadata(METHOD_METADATA, technicalHandler(name)), name).toBe(
+        RequestMethod.GET,
+      );
+    }
+  });
+
+  it('declares no technical write permission on any route', () => {
+    // RBAC-010 is read-only. `platform:technical:write` exists in the
+    // vocabulary but nothing consumes it; a route claiming it would be the
+    // first consumer and must be a deliberate, reviewed change.
+    for (const name of technicalHandlers()) {
+      expect(Reflect.getMetadata(PLATFORM_PERMISSION, technicalHandler(name)), name).not.toBe(
+        'platform:technical:write',
+      );
+    }
+  });
+
+  it('declares no organization permission on any technical route', () => {
+    for (const name of technicalHandlers()) {
+      expect(
+        Reflect.getMetadata(ORGANIZATION_PERMISSION, technicalHandler(name)),
+        name,
+      ).toBeUndefined();
     }
   });
 });

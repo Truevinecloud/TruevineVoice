@@ -63,6 +63,16 @@ export const AUDIT_ACTIONS = [
   'platform.support.user_viewed',
   'platform.support.audit_viewed',
 
+  // Technical diagnostics (RBAC-010). Read-only infrastructure facts - health,
+  // provider and queue availability, log-storage availability, the platform
+  // audit trail - but recorded like any other operator read, so "who was
+  // looking at the platform's internals?" has an answer.
+  'platform.technical.overview_viewed',
+  'platform.technical.providers_viewed',
+  'platform.technical.queues_viewed',
+  'platform.technical.logs_viewed',
+  'platform.technical.audit_viewed',
+
   // Authorization denials. A trail of successes alone cannot answer "was this an
   // attack?", so refusals are recorded too.
   'authorization.denied',

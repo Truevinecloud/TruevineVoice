@@ -9,6 +9,7 @@ import { InfrastructureModule } from './infrastructure/infrastructure.module.js'
 import { OrganizationsModule } from './organizations/organizations.module.js';
 import { OperationsModule } from './operations/operations.module.js';
 import { SupportModule } from './support/support.module.js';
+import { TechnicalModule } from './technical/technical.module.js';
 
 /**
  * Root API module.
@@ -29,6 +30,7 @@ import { SupportModule } from './support/support.module.js';
     BillingModule,
     OperationsModule,
     SupportModule,
+    TechnicalModule,
   ],
 })
 export class AppModule {}

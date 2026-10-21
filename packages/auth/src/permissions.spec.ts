@@ -388,6 +388,49 @@ describe('platform roles stay inside their scope', () => {
     expect(PLATFORM_ROLE_PERMISSIONS.SUPPORT_ADMIN).not.toContain('platform:tenant:suspend');
   });
 
+  it('grants the technical admin exactly technical reads and audit reads', () => {
+    // RBAC-010: read-only by construction. The exact row rather than a
+    // denylist, so adding a permission to TECHNICAL_ADMIN - or restoring
+    // `platform:technical:write` - fails here instead of quietly widening
+    // what a technical operator may do.
+    expect(PLATFORM_ROLE_PERMISSIONS.TECHNICAL_ADMIN).toEqual([
+      'platform:technical:read',
+      'platform:audit:read',
+    ]);
+    expect(PLATFORM_ROLE_PERMISSIONS.TECHNICAL_ADMIN).not.toContain('platform:tenant:suspend');
+    expect(PLATFORM_ROLE_PERMISSIONS.TECHNICAL_ADMIN).not.toContain('platform:operations:write');
+    expect(PLATFORM_ROLE_PERMISSIONS.TECHNICAL_ADMIN).not.toContain('platform:billing:refund');
+    expect(PLATFORM_ROLE_PERMISSIONS.TECHNICAL_ADMIN).not.toContain('platform:admin:manage');
+    expect(PLATFORM_ROLE_PERMISSIONS.TECHNICAL_ADMIN).not.toContain('platform:support:diagnostics');
+  });
+
+  it('limits technical reads to the platform owner and the technical admin alone', () => {
+    const holders = ALL_PLATFORM_ROLES.filter((role) =>
+      canActAsPlatform(role, 'platform:technical:read'),
+    );
+
+    expect(holders).toEqual(['PLATFORM_OWNER', 'TECHNICAL_ADMIN']);
+  });
+
+  it('reserves technical writes for the platform owner alone', () => {
+    // The write permission exists in the vocabulary but nothing consumes it
+    // yet; these two assertions are what stop it from creeping into a role
+    // before a route decides it needs it.
+    const holders = ALL_PLATFORM_ROLES.filter((role) =>
+      canActAsPlatform(role, 'platform:technical:write'),
+    );
+
+    expect(holders).toEqual(['PLATFORM_OWNER']);
+  });
+
+  it('grants audit reads to exactly the roles that answer for actions', () => {
+    const holders = ALL_PLATFORM_ROLES.filter((role) =>
+      canActAsPlatform(role, 'platform:audit:read'),
+    );
+
+    expect(holders).toEqual(['PLATFORM_OWNER', 'SUPPORT_ADMIN', 'TECHNICAL_ADMIN', 'AUDITOR']);
+  });
+
   it('reserves tenant-content diagnostics for the platform owner and support admin alone', () => {
     const holders = ALL_PLATFORM_ROLES.filter((role) =>
       canActAsPlatform(role, 'platform:support:diagnostics'),
