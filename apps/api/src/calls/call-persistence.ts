@@ -101,7 +101,17 @@ export class CallPersistence {
       if (replay[0]) {
         if (replay[0].fingerprint_version !== 1 || replay[0].fingerprint !== request.fingerprint)
           throw new CallPersistenceError('idempotency_conflict');
-        return replay[0].result;
+        // JSONB reorders keys; reconstruct the original response field order for stable replay.
+        const result = replay[0].result;
+        return {
+          organizationId: result.organizationId,
+          attemptId: result.attemptId,
+          executionId: result.executionId,
+          recipientId: result.recipientId,
+          destination: result.destination,
+          attemptNumber: result.attemptNumber,
+          state: result.state,
+        };
       }
       const campaigns = await tx.$queryRaw<
         { id: string; suspended_at: Date | null; emergency_stopped_at: Date | null }[]

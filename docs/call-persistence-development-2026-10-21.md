@@ -1,4 +1,4 @@
-# Recipient/call persistence development progress — 2026-10-21
+# Recipient/call persistence development progress ï¿½ 2026-10-21
 
 Canonical workplan task ID: **UNVERIFIED**.
 
@@ -59,8 +59,17 @@ PowerShell file-write commands created only the files listed by the PR diff.
 14. npm.cmd run test:call-persistence:e2e: failed locally in setup because
     DATABASE_URL is absent; no local PostgreSQL listener or usable Docker/WSL
     runtime was found. No test was weakened or silently skipped.
-15. npm.cmd run build: in progress at initial PR creation.
-16. GitHub Actions CI, including real disposable PostgreSQL: pending initial PR.
+15. npm.cmd run build: passed for packages, API, worker, web and admin.
+16. Opened PR #42 at a8ad666. Initial Actions lint/typecheck/Prisma, unit,
+    production build, migration rehearsal, restore and billing/campaign matrix
+    checks passed. Disposable PostgreSQL applied the new migration successfully;
+    11 of 13 new contracts passed. Two failures exposed JSONB property ordering
+    during serialized replay and an invalid draft-campaign emergency-stop fixture.
+17. Reconstructed replay response fields in original order (unchanged strict
+    serialized-equality assertion). Corrected the fixture to activate then stop
+    the campaign, retaining the existing database stop constraint and assertion.
+    No assertion or guard was removed or relaxed. Reran local lint/typecheck/unit
+    checks and pushed a follow-up commit for a full CI rerun.
 
 Final CI/build results will be recorded in the delivery report and PR checks.
 

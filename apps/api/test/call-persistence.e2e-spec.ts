@@ -389,7 +389,11 @@ describe('call persistence on disposable PostgreSQL', () => {
     await db.organization.update({ where: { id: f.org }, data: { suspendedAt: null } });
     await db.campaign.update({
       where: { organizationId_id: { organizationId: f.org, id: f.campaign } },
-      data: { emergencyStoppedAt: new Date() },
+      data: { status: 'ACTIVE' },
+    });
+    await db.campaign.update({
+      where: { organizationId_id: { organizationId: f.org, id: f.campaign } },
+      data: { status: 'COMPLETED', emergencyStoppedAt: new Date() },
     });
     await expect(store.accept(f.input)).rejects.toMatchObject({ code: 'invalid_request' });
     expect(await db.callAttempt.count({ where: { organizationId: f.org } })).toBe(0);
