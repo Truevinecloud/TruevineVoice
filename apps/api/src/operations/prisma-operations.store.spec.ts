@@ -34,6 +34,7 @@ function fixture(status: 'ACTIVE' | 'COMPLETED' = 'ACTIVE', emergencyStopped = f
       const nextCampaign = campaign ? { ...campaign } : null;
       const nextEvents: Record<string, unknown>[] = [];
       const tx = {
+        $queryRaw: vi.fn().mockResolvedValue([{ role: 'PLATFORM_OWNER' }]),
         campaign: {
           updateMany: async ({
             where,
@@ -123,7 +124,12 @@ describe('PrismaOperationsStore emergency stop', () => {
         outcome: 'SUCCESS',
         targetType: 'campaign',
         targetId: CAMPAIGN_ID,
-        metadata: { reasonCode: 'provider_incident' },
+        metadata: expect.objectContaining({
+          reasonCode: 'provider_incident',
+          auditVersion: 1,
+          before: { status: 'ACTIVE', emergencyStoppedAt: null },
+          after: { status: 'COMPLETED', emergencyStoppedAt: '2026-10-20T01:00:00.000Z' },
+        }),
       }),
     ]);
   });

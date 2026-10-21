@@ -37,6 +37,7 @@ export const AUTH_ERROR_CODES = [
   'cannot_delegate_beyond_own_authority',
   'campaign_not_found',
   'invalid_campaign',
+  'invalid_audit_reason',
 ] as const;
 
 export type AuthErrorCode = (typeof AUTH_ERROR_CODES)[number];

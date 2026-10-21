@@ -32,3 +32,5 @@ routine implementation choices.
 - [0018: Call recipient persistence and durable idempotency](0018-call-recipient-persistence-and-idempotency.md)
 
 - [0019: Tenant isolation write authorization](0019-tenant-isolation-write-authorization.md)
+
+- [0020: Sensitive action audit](0020-sensitive-action-audit.md)

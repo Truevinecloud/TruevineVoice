@@ -25,6 +25,17 @@ import { CampaignsService } from './campaigns.service.js';
 
 /** An in-memory {@link CampaignStore} that records every call's organization scope. */
 class FakeCampaignStore implements CampaignStore {
+  constructor(private readonly audit: FakeAuditStore) {}
+  private record(org: string, actor: string, action: string, id: string) {
+    return this.audit.record({
+      organizationId: org,
+      actorUserId: actor,
+      action,
+      scope: 'ORGANIZATION',
+      outcome: 'SUCCESS',
+      metadata: { organizationId: org, campaignId: id },
+    });
+  }
   campaigns: CampaignRecord[] = [];
   /** Every organization id handed to a method, for "was it scoped?" assertions. */
   scopedCalls: string[] = [];
@@ -34,6 +45,12 @@ class FakeCampaignStore implements CampaignStore {
     const now = new Date('2026-10-19T00:00:00Z');
     const created: CampaignRecord = { ...campaign, createdAt: now, updatedAt: now };
     this.campaigns.push(created);
+    await this.record(
+      campaign.organizationId,
+      campaign.createdById,
+      'campaign.created',
+      created.id,
+    );
     return created;
   }
 
@@ -54,6 +71,7 @@ class FakeCampaignStore implements CampaignStore {
     organizationId: string,
     campaignId: string,
     changes: CampaignChanges,
+    actorUserId: string,
   ): Promise<CampaignRecord | undefined> {
     this.scopedCalls.push(organizationId);
     const campaign = this.campaigns.find(
@@ -66,16 +84,22 @@ class FakeCampaignStore implements CampaignStore {
       updatedAt: new Date('2026-10-19T01:00:00Z'),
     };
     this.campaigns[this.campaigns.indexOf(campaign)] = updated;
+    await this.record(organizationId, actorUserId, 'campaign.updated', campaignId);
     return updated;
   }
 
-  async deleteCampaign(organizationId: string, campaignId: string): Promise<boolean> {
+  async deleteCampaign(
+    organizationId: string,
+    campaignId: string,
+    actorUserId: string,
+  ): Promise<boolean> {
     this.scopedCalls.push(organizationId);
     const index = this.campaigns.findIndex(
       (c) => c.organizationId === organizationId && c.id === campaignId,
     );
     if (index === -1) return false;
     this.campaigns.splice(index, 1);
+    await this.record(organizationId, actorUserId, 'campaign.deleted', campaignId);
     return true;
   }
 }
@@ -88,9 +112,9 @@ function buildService(): {
   store: FakeCampaignStore;
   audit: FakeAuditStore;
 } {
-  const store = new FakeCampaignStore();
   const audit = new FakeAuditStore();
-  return { service: new CampaignsService(store, audit), store, audit };
+  const store = new FakeCampaignStore(audit);
+  return { service: new CampaignsService(store), store, audit };
 }
 
 async function expectAuthError(

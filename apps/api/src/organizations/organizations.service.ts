@@ -1,3 +1,5 @@
+import { auditReason } from '@truevine/auth';
+import { mutationAudit, auditDigest } from '../auth/sensitive-audit.js';
 import { SECURITY_TRANSACTION, type SecurityTransaction } from '../auth/security-transaction.js';
 /**
  * Organization profile, membership, invitations and ownership.
@@ -136,6 +138,7 @@ export class OrganizationsService {
     organizationId: string,
     actorUserId: string,
     name: string,
+    reason?: unknown,
   ): Promise<OrganizationView> {
     return this.transactions
       .run(async (stores) => {
@@ -169,10 +172,20 @@ export class OrganizationsService {
           );
         }
 
+        const audit = auditReason(reason, 'organization_profile_update');
+        const beforeNameDigest = auditDigest(freshOrg.name);
         const updated = await stores.organizations.updateName(organizationId, trimmed);
 
         await scoped.audit(organizationId, actorUserId, 'organization.profile_updated', 'SUCCESS', {
           organizationId,
+          ...mutationAudit({
+            targetType: 'organization',
+            targetId: organizationId,
+            before: { nameDigest: beforeNameDigest },
+            change: { fields: ['name'] },
+            after: { nameDigest: auditDigest(updated.name) },
+            ...audit,
+          }),
         });
 
         return updated;
@@ -181,7 +194,9 @@ export class OrganizationsService {
         if (error instanceof AuthError)
           await this.audit(organizationId, actorUserId, 'authorization.denied', 'DENIED', {
             reason: error.code,
-          });
+            attemptedAction: 'organization.profile_updated',
+            claimedTarget: { type: 'organization', id: organizationId },
+          }).catch(() => process.stderr.write('[audit] Denial recording unavailable.\n'));
         throw error;
       });
   }
@@ -219,6 +234,7 @@ export class OrganizationsService {
     actor: { readonly userId: string; readonly role: OrganizationRole },
     targetUserId: string,
     nextRole: OrganizationRole,
+    reason?: unknown,
   ): Promise<void> {
     return this.transactions
       .run(async (stores) => {
@@ -256,6 +272,11 @@ export class OrganizationsService {
           );
         }
 
+        const before = await stores.organizations.findMembership(organizationId, targetUserId);
+        if (before && actor.role !== 'OWNER' && !canDelegate(actor.role, before.role))
+          throw cannotDelegate();
+        const priorRole = before?.role ?? null;
+        const audit = auditReason(reason, 'membership_role_change');
         const result = await stores.organizations.changeMembershipRole(
           organizationId,
           targetUserId,
@@ -273,6 +294,14 @@ export class OrganizationsService {
             organizationId,
             targetUserId,
             role: nextRole,
+            ...mutationAudit({
+              targetType: 'membership',
+              targetId: targetUserId,
+              before: priorRole === null ? null : { role: priorRole },
+              change: { role: nextRole },
+              after: { role: nextRole },
+              ...audit,
+            }),
           },
         );
       })
@@ -280,7 +309,9 @@ export class OrganizationsService {
         if (error instanceof AuthError)
           await this.audit(organizationId, actor.userId, 'authorization.denied', 'DENIED', {
             reason: error.code,
-          });
+            attemptedAction: 'organization.member.role_changed',
+            claimedTarget: { type: 'membership', id: targetUserId },
+          }).catch(() => process.stderr.write('[audit] Denial recording unavailable.\n'));
         throw error;
       });
   }
@@ -290,6 +321,7 @@ export class OrganizationsService {
     organizationId: string,
     actor: { readonly userId: string; readonly role: OrganizationRole },
     targetUserId: string,
+    reason?: unknown,
   ): Promise<void> {
     return this.transactions
       .run(async (stores) => {
@@ -338,6 +370,7 @@ export class OrganizationsService {
           throw cannotDelegate();
         }
 
+        const audit = auditReason(reason, 'membership_removal');
         const result = await stores.organizations.removeMembership(organizationId, targetUserId);
 
         if (!result.ok) this.throwForMembershipFailure(result.reason);
@@ -345,13 +378,23 @@ export class OrganizationsService {
         await scoped.audit(organizationId, actor.userId, 'organization.member.removed', 'SUCCESS', {
           organizationId,
           targetUserId,
+          ...mutationAudit({
+            targetType: 'membership',
+            targetId: targetUserId,
+            before: { role: target.role },
+            change: { removed: true },
+            after: null,
+            ...audit,
+          }),
         });
       })
       .catch(async (error) => {
         if (error instanceof AuthError)
           await this.audit(organizationId, actor.userId, 'authorization.denied', 'DENIED', {
             reason: error.code,
-          });
+            attemptedAction: 'organization.member.removed',
+            claimedTarget: { type: 'membership', id: targetUserId },
+          }).catch(() => process.stderr.write('[audit] Denial recording unavailable.\n'));
         throw error;
       });
   }
@@ -368,6 +411,7 @@ export class OrganizationsService {
     actor: { readonly userId: string; readonly role: OrganizationRole },
     email: string,
     role: OrganizationRole,
+    reason?: unknown,
   ): Promise<InvitationView> {
     const issued = await this.transactions
       .run(async (stores) => {
@@ -414,6 +458,7 @@ export class OrganizationsService {
           );
         }
 
+        const audit = auditReason(reason, 'membership_invitation');
         const raw = generateToken();
         const created = await stores.organizations.createInvitation({
           organizationId,
@@ -429,8 +474,16 @@ export class OrganizationsService {
 
         await scoped.audit(organizationId, actor.userId, 'organization.member.invited', 'SUCCESS', {
           organizationId,
-          email: normalized.value,
+          emailDigest: auditDigest(normalized.value),
           role,
+          ...mutationAudit({
+            targetType: 'invitation',
+            targetId: created.id,
+            before: null,
+            change: { role },
+            after: { role, accepted: false, revoked: false },
+            ...audit,
+          }),
         });
 
         return { created, raw, email: normalized.value };
@@ -439,7 +492,9 @@ export class OrganizationsService {
         if (error instanceof AuthError)
           await this.audit(organizationId, actor.userId, 'authorization.denied', 'DENIED', {
             reason: error.code,
-          });
+            attemptedAction: 'organization.member.invited',
+            claimedTarget: { type: 'organization', id: organizationId },
+          }).catch(() => process.stderr.write('[audit] Denial recording unavailable.\n'));
         throw error;
       });
     await this.sendInvitationEmail(issued.created, issued.email, role, issued.raw);
@@ -495,6 +550,7 @@ export class OrganizationsService {
     organizationId: string,
     actorUserId: string,
     invitationId: string,
+    reason?: unknown,
   ): Promise<void> {
     return this.transactions
       .run(async (stores) => {
@@ -518,6 +574,15 @@ export class OrganizationsService {
         )
           throw cannotDelegate();
 
+        const before = await stores.organizations.findInvitationState(organizationId, invitationId);
+        const priorInvitation = before
+          ? {
+              role: before.role,
+              revoked: before.revokedAt !== null,
+              accepted: before.acceptedAt !== null,
+            }
+          : null;
+        const audit = auditReason(reason, 'invitation_revocation');
         const revoked = await stores.organizations.revokeInvitation(
           organizationId,
           invitationId,
@@ -536,6 +601,14 @@ export class OrganizationsService {
           {
             organizationId,
             invitationId,
+            ...mutationAudit({
+              targetType: 'invitation',
+              targetId: invitationId,
+              before: priorInvitation,
+              change: { revoked: true },
+              after: { role: before?.role ?? null, revoked: true, accepted: false },
+              ...audit,
+            }),
           },
         );
       })
@@ -543,7 +616,9 @@ export class OrganizationsService {
         if (error instanceof AuthError)
           await this.audit(organizationId, actorUserId, 'authorization.denied', 'DENIED', {
             reason: error.code,
-          });
+            attemptedAction: 'organization.invitation.revoked',
+            claimedTarget: { type: 'invitation', id: invitationId },
+          }).catch(() => process.stderr.write('[audit] Denial recording unavailable.\n'));
         throw error;
       });
   }
@@ -590,10 +665,24 @@ export class OrganizationsService {
           action: 'authorization.denied',
           scope: 'ORGANIZATION',
           outcome: 'DENIED',
-          metadata: { reason: 'invitation_identity_mismatch' },
+          metadata: {
+            reason: 'invitation_identity_mismatch',
+            ...mutationAudit({
+              targetType: 'invitation',
+              targetId: invitation.id,
+              before: null,
+              change: { attemptedAction: 'organization.invitation.accepted' },
+              after: null,
+              reasonCode: 'invitation_identity_mismatch',
+            }),
+          },
         });
         return { organizationId: '' };
       }
+      const beforeMembership = await stores.organizations.findMembership(
+        invitation.organizationId,
+        userId,
+      );
       const accepted = await stores.organizations.acceptInvitation(
         invitation.tokenHash,
         userId,
@@ -607,7 +696,17 @@ export class OrganizationsService {
           action: 'authorization.denied',
           scope: 'ORGANIZATION',
           outcome: 'DENIED',
-          metadata: { reason: 'invitation_not_available' },
+          metadata: {
+            reason: 'invitation_not_available',
+            ...mutationAudit({
+              targetType: 'invitation',
+              targetId: invitation.id,
+              before: null,
+              change: { attemptedAction: 'organization.invitation.accepted' },
+              after: null,
+              reasonCode: 'invitation_not_available',
+            }),
+          },
         });
         return { organizationId: '' };
       }
@@ -617,7 +716,18 @@ export class OrganizationsService {
         userId,
         'organization.invitation.accepted',
         'SUCCESS',
-        { organizationId: invitation.organizationId, invitationId: invitation.id },
+        {
+          organizationId: invitation.organizationId,
+          invitationId: invitation.id,
+          ...mutationAudit({
+            targetType: 'membership',
+            targetId: userId,
+            before: beforeMembership ? { role: beforeMembership.role } : null,
+            change: { invitationId: invitation.id, accepted: true },
+            after: { role: beforeMembership?.role ?? invitation.role },
+            reasonCode: 'invitation_acceptance',
+          }),
+        },
       );
 
       return { organizationId: invitation.organizationId };
@@ -642,6 +752,7 @@ export class OrganizationsService {
     organizationId: string,
     actorUserId: string,
     newOwnerId: string,
+    reason?: unknown,
   ): Promise<void> {
     return this.transactions
       .run(async (stores) => {
@@ -673,6 +784,9 @@ export class OrganizationsService {
           );
         }
 
+        const beforeOwner = await stores.organizations.findMembership(organizationId, newOwnerId);
+        const priorOwnerRole = beforeOwner?.role ?? null;
+        const audit = auditReason(reason, 'ownership_transfer');
         const result = await stores.organizations.transferOwnership(
           organizationId,
           actorUserId,
@@ -690,6 +804,18 @@ export class OrganizationsService {
             organizationId,
             previousOwnerId: actorUserId,
             newOwnerId,
+            ...mutationAudit({
+              targetType: 'organization',
+              targetId: organizationId,
+              before: {
+                ownerId: actorUserId,
+                previousOwnerRole: 'OWNER',
+                newOwnerRole: priorOwnerRole,
+              },
+              change: { ownerId: newOwnerId },
+              after: { ownerId: newOwnerId, previousOwnerRole: 'ADMIN', newOwnerRole: 'OWNER' },
+              ...audit,
+            }),
           },
         );
       })
@@ -697,7 +823,9 @@ export class OrganizationsService {
         if (error instanceof AuthError)
           await this.audit(organizationId, actorUserId, 'authorization.denied', 'DENIED', {
             reason: error.code,
-          });
+            attemptedAction: 'organization.ownership.transferred',
+            claimedTarget: { type: 'organization', id: organizationId },
+          }).catch(() => process.stderr.write('[audit] Denial recording unavailable.\n'));
         throw error;
       });
   }
@@ -777,12 +905,30 @@ export class OrganizationsService {
       throw new Error('Refusing to write audit metadata containing a credential-shaped key.');
     }
 
+    if (outcome === 'DENIED')
+      metadata = {
+        ...metadata,
+        ...mutationAudit({
+          targetType: 'organization',
+          targetId: organizationId,
+          before: null,
+          change: {
+            attemptedAction: metadata['attemptedAction'] ?? action,
+            claimedTarget: metadata['claimedTarget'] ?? null,
+          },
+          after: null,
+          reasonCode:
+            typeof metadata['reason'] === 'string' ? metadata['reason'] : 'sensitive_action_denied',
+        }),
+      };
     await this.auditStore.record({
       organizationId,
       actorUserId,
       action,
       scope: 'ORGANIZATION',
       outcome,
+      targetType: (metadata['target'] as { type?: string } | undefined)?.type,
+      targetId: (metadata['target'] as { id?: string } | undefined)?.id,
       metadata,
     });
   }

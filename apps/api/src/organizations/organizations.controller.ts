@@ -106,12 +106,13 @@ export class OrganizationsController {
   async updateProfile(
     @CurrentOrganization() context: { organizationId: string },
     @CurrentPrincipal() principal: { userId: string },
-    @Body() body: { readonly name?: unknown },
+    @Body() body: { readonly name?: unknown; readonly reason?: unknown },
   ): Promise<OrganizationView> {
     return this.organizations.updateProfile(
       context.organizationId,
       principal.userId,
       typeof body.name === 'string' ? body.name : '',
+      body.reason,
     );
   }
 
@@ -142,13 +143,14 @@ export class OrganizationsController {
     @CurrentOrganization() context: { organizationId: string; role: OrganizationRole },
     @CurrentPrincipal() principal: { userId: string },
     @Param('userId') userId: string,
-    @Body() body: { readonly role?: unknown },
+    @Body() body: { readonly role?: unknown; readonly reason?: unknown },
   ): Promise<{ readonly ok: true }> {
     await this.organizations.changeMemberRole(
       context.organizationId,
       { userId: principal.userId, role: context.role },
       userId,
       parseRole(body.role),
+      body.reason,
     );
 
     return { ok: true };
@@ -164,11 +166,13 @@ export class OrganizationsController {
     @CurrentOrganization() context: { organizationId: string; role: OrganizationRole },
     @CurrentPrincipal() principal: { userId: string },
     @Param('userId') userId: string,
+    @Body() body: { readonly reason?: unknown } = {},
   ): Promise<void> {
     await this.organizations.removeMember(
       context.organizationId,
       { userId: principal.userId, role: context.role },
       userId,
+      body.reason,
     );
   }
 
@@ -191,13 +195,14 @@ export class OrganizationsController {
   async invite(
     @CurrentOrganization() context: { organizationId: string; role: OrganizationRole },
     @CurrentPrincipal() principal: { userId: string },
-    @Body() body: { readonly email?: unknown; readonly role?: unknown },
+    @Body() body: { readonly email?: unknown; readonly role?: unknown; readonly reason?: unknown },
   ): Promise<InvitationView> {
     return this.organizations.invite(
       context.organizationId,
       { userId: principal.userId, role: context.role },
       typeof body.email === 'string' ? body.email : '',
       parseRole(body.role),
+      body.reason,
     );
   }
 
@@ -211,11 +216,13 @@ export class OrganizationsController {
     @CurrentOrganization() context: { organizationId: string },
     @CurrentPrincipal() principal: { userId: string },
     @Param('invitationId') invitationId: string,
+    @Body() body: { readonly reason?: unknown } = {},
   ): Promise<void> {
     await this.organizations.revokeInvitation(
       context.organizationId,
       principal.userId,
       invitationId,
+      body.reason,
     );
   }
 
@@ -251,12 +258,13 @@ export class OrganizationsController {
   async transferOwnership(
     @CurrentOrganization() context: { organizationId: string },
     @CurrentPrincipal() principal: { userId: string },
-    @Body() body: { readonly newOwnerId?: unknown },
+    @Body() body: { readonly newOwnerId?: unknown; readonly reason?: unknown },
   ): Promise<{ readonly ok: true }> {
     await this.organizations.transferOwnership(
       context.organizationId,
       principal.userId,
       typeof body.newOwnerId === 'string' ? body.newOwnerId : '',
+      body.reason,
     );
 
     return { ok: true };

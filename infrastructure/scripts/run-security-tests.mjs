@@ -30,7 +30,7 @@ const migrations = allMigrations.slice(0, boundary);
 const remediation = allMigrations.slice(boundary);
 if (
   remediation.join(',') !==
-  '20261016170000_security_atomicity,20261016171000_invitation_origin,20261019120000_campaigns_rbac_003,20261019160000_customer_billing_rbac_004,20261020110000_rbac_007_emergency_stop,20261020180000_platform_owner_bootstrap,20261020181000_platform_owner_bootstrap_no_truncate,20261020182000_platform_owner_bootstrap_search_path,20261021120000_call_persistence'
+  '20261016170000_security_atomicity,20261016171000_invitation_origin,20261019120000_campaigns_rbac_003,20261019160000_customer_billing_rbac_004,20261020110000_rbac_007_emergency_stop,20261020180000_platform_owner_bootstrap,20261020181000_platform_owner_bootstrap_no_truncate,20261020182000_platform_owner_bootstrap_search_path,20261021120000_call_persistence,20261021150000_sensitive_audit_integrity'
 )
   throw new Error('Review migration rehearsal when adding a later migration.');
 function psql(database, sql, expectFailure = false) {

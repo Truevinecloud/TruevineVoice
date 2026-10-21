@@ -1,5 +1,7 @@
 import {
   can,
+  canActAsPlatform,
+  type PlatformRole,
   permissionDenied,
   type OrganizationPermission,
   type OrganizationRole,
@@ -27,4 +29,17 @@ export async function authorizeTenantWrite(
       AND o.suspended_at IS NULL AND u.status='ACTIVE'
     FOR SHARE OF m,u`;
   if (!rows[0] || !can(rows[0].role, permission)) throw permissionDenied();
+}
+
+/** A platform grant is re-read and locked, never replaced by a tenant role. */
+export async function authorizeEmergencyWrite(
+  tx: TenantWriteSql,
+  actorUserId: string,
+): Promise<void> {
+  const rows = await tx.$queryRaw<{ role: PlatformRole }[]>`
+    SELECT p.role FROM platform_role_assignments p JOIN users u ON u.id=p.user_id
+    WHERE p.user_id=${actorUserId}::uuid AND p.revoked_at IS NULL AND u.status='ACTIVE'
+    FOR SHARE OF p,u`;
+  if (!rows[0] || !canActAsPlatform(rows[0].role, 'platform:operations:write'))
+    throw permissionDenied();
 }

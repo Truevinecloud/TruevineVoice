@@ -32,6 +32,7 @@ export interface EmergencyStopInput {
   readonly actorUserId: string;
   readonly reasonCode: EmergencyStopReasonCode;
   readonly stoppedAt: Date;
+  readonly justification?: string | null;
 }
 
 export const EMERGENCY_STOP_REASON_CODES = [

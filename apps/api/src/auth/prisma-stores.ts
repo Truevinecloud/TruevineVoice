@@ -16,6 +16,10 @@
  *   concurrent removals would both pass the check.
  */
 
+import { assertKnownAuditAction, isSafeAuditMetadata } from '@truevine/auth';
+import { userInfo } from 'node:os';
+import { mutationAudit } from './sensitive-audit.js';
+import { auditRequestId } from './audit-context.js';
 import { Inject, Injectable } from '@nestjs/common';
 import type { PrismaClient } from '@truevine/database';
 
@@ -445,6 +449,15 @@ export class PrismaOrganizationStore implements OrganizationStore {
     });
   }
 
+  async findInvitationState(organizationId: string, id: string) {
+    return (
+      (await this.prisma.invitation.findUnique({
+        where: { organizationId_id: { organizationId, id } },
+        select: { role: true, acceptedAt: true, revokedAt: true },
+      })) ?? undefined
+    );
+  }
+
   async listInvitations(organizationId: string): Promise<readonly InvitationRecord[]> {
     return this.prisma.invitation.findMany({ where: { organizationId } });
   }
@@ -550,6 +563,9 @@ export class PrismaAuditStore implements AuditStore {
   constructor(@Inject(DATABASE_CLIENT) private readonly prisma: SecurityDatabase) {}
 
   async record(event: AuditEventInput): Promise<void> {
+    assertKnownAuditAction(event.action);
+    if (!isSafeAuditMetadata(event.metadata ?? {})) throw new Error('Unsafe audit metadata.');
+    const target = event.metadata?.['target'] as { type?: unknown; id?: unknown } | undefined;
     await this.prisma.securityAuditEvent.create({
       data: {
         organizationId: event.organizationId,
@@ -557,20 +573,29 @@ export class PrismaAuditStore implements AuditStore {
         action: event.action,
         scope: event.scope,
         outcome: event.outcome,
-        targetType: event.targetType,
-        targetId: event.targetId,
-        metadata: (event.metadata ?? {}) as never,
+        targetType:
+          event.targetType ?? (typeof target?.type === 'string' ? target.type : undefined),
+        targetId: event.targetId ?? (typeof target?.id === 'string' ? target.id : undefined),
+        metadata: {
+          ...(event.metadata ?? {}),
+          ...(auditRequestId() ? { requestId: auditRequestId() } : {}),
+        } as never,
       },
     });
   }
 
   async recordIdentity(event: IdentityAuditEventInput): Promise<void> {
+    assertKnownAuditAction(event.action);
+    if (!isSafeAuditMetadata(event.metadata ?? {})) throw new Error('Unsafe audit metadata.');
     await this.prisma.identityAuditEvent.create({
       data: {
         actorUserId: event.actorUserId,
         action: event.action,
         outcome: event.outcome,
-        metadata: (event.metadata ?? {}) as never,
+        metadata: {
+          ...(event.metadata ?? {}),
+          ...(auditRequestId() ? { requestId: auditRequestId() } : {}),
+        } as never,
       },
     });
   }
@@ -598,6 +623,26 @@ export class PrismaProvisioningStore {
       // no code path that can create a second OWNER by inserting a membership.
       await tx.membership.create({
         data: { organizationId: createdOrganization.id, userId: createdUser.id, role: 'OWNER' },
+      });
+      await tx.identityAuditEvent.create({
+        data: {
+          actorUserId: createdUser.id,
+          action: 'organization.owner.provisioned',
+          outcome: 'SUCCESS',
+          metadata: {
+            actorKind: 'provisioning_context',
+            operatorReference: userInfo().username,
+            actorAuthentication: 'operating_system',
+            ...mutationAudit({
+              targetType: 'membership',
+              targetId: createdUser.id,
+              before: null,
+              change: { role: 'OWNER', organizationId: createdOrganization.id },
+              after: { role: 'OWNER', organizationId: createdOrganization.id },
+              reasonCode: 'initial_owner_provisioning',
+            }),
+          } as never,
+        },
       });
 
       return {

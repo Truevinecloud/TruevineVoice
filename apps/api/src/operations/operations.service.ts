@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { HealthReport } from '@truevine/shared';
-import type { PlatformRole } from '@truevine/auth';
+import { auditJustification, type PlatformRole } from '@truevine/auth';
 
 import { HealthService } from '../health/health.service.js';
 import { EMERGENCY_STOP_REASON_CODES, type CampaignOperationRecord } from './operations.store.js';
@@ -52,6 +52,7 @@ export class OperationsService {
     campaignId: string,
     actorUserId: string,
     rawReasonCode: unknown,
+    rawJustification?: unknown,
   ) {
     if (
       typeof rawReasonCode !== 'string' ||
@@ -71,6 +72,7 @@ export class OperationsService {
       actorUserId,
       reasonCode: rawReasonCode as (typeof EMERGENCY_STOP_REASON_CODES)[number],
       stoppedAt: new Date(),
+      justification: auditJustification(rawJustification),
     });
     if (result.kind === 'not_found') throw new NotFoundException();
     if (result.kind === 'not_active') {

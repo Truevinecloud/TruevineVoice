@@ -56,7 +56,7 @@ export class OperationsController {
   emergencyStop(
     @Param('organizationId') organizationId: string,
     @Param('campaignId') campaignId: string,
-    @Body() body: { readonly reasonCode?: unknown },
+    @Body() body: { readonly reasonCode?: unknown; readonly justification?: unknown },
     @CurrentPrincipal() principal: Principal,
   ) {
     return this.operations.emergencyStop(
@@ -64,6 +64,7 @@ export class OperationsController {
       campaignId,
       principal.userId,
       body.reasonCode,
+      body.justification,
     );
   }
 }

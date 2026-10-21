@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { assertKnownAuditAction, checkEmail, generateToken, hashToken } from '@truevine/auth';
+import {
+  assertKnownAuditAction,
+  checkEmail,
+  generateToken,
+  hashToken,
+  sensitiveAudit,
+} from '@truevine/auth';
 import { hashPassword } from '@truevine/auth/passwords';
 import { createDatabaseClient } from '@truevine/database';
 
@@ -132,6 +138,8 @@ export async function provisionOperationsAdmin(options, dependencies = {}) {
       randomBytes(32).toString('base64url'),
     );
     await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id=${options.actorUserId}::uuid FOR SHARE`;
+      await tx.$queryRaw`SELECT user_id FROM platform_role_assignments WHERE user_id=${options.actorUserId}::uuid FOR SHARE`;
       const actor = await tx.user.findUnique({
         where: { id: options.actorUserId },
         select: {
@@ -167,6 +175,14 @@ export async function provisionOperationsAdmin(options, dependencies = {}) {
           action: 'platform.operations_admin.provisioned',
           outcome: 'SUCCESS',
           metadata: {
+            ...sensitiveAudit({
+              targetType: 'platform_role_assignment',
+              targetId: id,
+              before: null,
+              change: { role: 'OPERATIONS_ADMIN' },
+              after: { role: 'OPERATIONS_ADMIN', revoked: false },
+              reasonCode: 'approved_uat_provisioning',
+            }),
             targetUserId: id,
             platformRole: 'OPERATIONS_ADMIN',
             approvalReference: options.approvalReference,
