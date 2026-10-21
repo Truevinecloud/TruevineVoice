@@ -48,3 +48,9 @@ to this package.
   persistence and providers.
 - Every multi-tenant entity carries an `organizationId`.
 - Money is never a JavaScript floating-point number.
+
+## Persistence follow-up
+
+ADR 0018 defines internal PostgreSQL acceptance and append-only event evidence.
+The ceiling rule is **PROVISIONAL** pending Africa's Talking tariff and charging
+increment verification; this domain helper must not initiate real charging.

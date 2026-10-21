@@ -24,6 +24,7 @@
     "@nestjs/platform-express": "12.1.2",
     "@truevine/auth": "0.1.0",
     "@truevine/database": "0.1.0",
+    "@truevine/domain": "0.1.0",
     "@truevine/messaging": "0.1.0",
     "@truevine/queue": "0.1.0",
     "@truevine/shared": "0.1.0",

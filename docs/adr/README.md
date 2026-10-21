@@ -28,3 +28,5 @@ Naming: `NNNN-short-kebab-title.md`, numbered sequentially and never reused.
 Write one when a decision is hard to reverse, affects more than one workspace,
 or would be surprising to a future reader without context. Do not write one for
 routine implementation choices.
+
+- [0018: Call recipient persistence and durable idempotency](0018-call-recipient-persistence-and-idempotency.md)

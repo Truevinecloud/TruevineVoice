@@ -169,6 +169,8 @@ export function recordProviderUsage(call: Call, usage: ProviderUsage): Call {
 /**
  * Computes billable usage from connected seconds and a recorded per-second rate.
  *
+ * PROVISIONAL: not approved for real charging until Africa's Talking tariffs and
+ * charging increments are verified. Current input accepts whole seconds only.
  * Rounding rule (documented, single place): billable seconds are the provider's
  * connected seconds rounded UP to the next whole second (ceiling), because a
  * connection that started is a cost even in a partial second. This is our rule,

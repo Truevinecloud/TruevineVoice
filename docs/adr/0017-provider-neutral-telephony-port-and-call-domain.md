@@ -70,3 +70,11 @@ place paid calls. Likewise, the Africa's Talking adapter, the webhook endpoint
 and the callback signature verification are deferred and require their own task
 and ADR. This decision places no real call and performs no financial
 transaction.
+
+## Persistence follow-up (2026-10-21)
+
+ADR 0018 adds durable acceptance, immutable snapshots and event conflict evidence.
+The original pure transition helper remains compatible; persistence classifies
+conflicts separately. The billing-duration ceiling is **PROVISIONAL** until
+Africa's Talking tariffs and charging increments are verified. No charge is
+authorized by these foundations.
