@@ -22,6 +22,9 @@ import { RequestMethod } from '@nestjs/common';
 import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it } from 'vitest';
 
+import { CampaignsController } from '../src/campaigns/campaigns.controller.js';
+import { BillingController } from '../src/billing/billing.controller.js';
+import { OrganizationGuard } from '../src/auth/organization.guard.js';
 import { AuditController } from '../src/audit/audit.controller.js';
 import { CsrfGuard } from '../src/auth/csrf.guard.js';
 import { AuthController } from '../src/auth/auth.controller.js';
@@ -112,6 +115,8 @@ function handlersOf(
 }
 
 const ROUTES = [
+  ...handlersOf(CampaignsController),
+  ...handlersOf(BillingController),
   ...handlersOf(AuthController),
   ...handlersOf(OrganizationsController),
   ...handlersOf(SupportController),
@@ -327,13 +332,18 @@ describe('support route declarations (RBAC-009)', () => {
 
   it('declares only GET routes, so support cannot mutate through this controller', () => {
     for (const name of supportHandlers()) {
-      expect(Reflect.getMetadata(METHOD_METADATA, supportHandler(name)), name).toBe(RequestMethod.GET);
+      expect(Reflect.getMetadata(METHOD_METADATA, supportHandler(name)), name).toBe(
+        RequestMethod.GET,
+      );
     }
   });
 
   it('declares no organization permission on any support route', () => {
     for (const name of supportHandlers()) {
-      expect(Reflect.getMetadata(ORGANIZATION_PERMISSION, supportHandler(name)), name).toBeUndefined();
+      expect(
+        Reflect.getMetadata(ORGANIZATION_PERMISSION, supportHandler(name)),
+        name,
+      ).toBeUndefined();
     }
   });
 
@@ -613,6 +623,29 @@ describe('every platform route is guarded and none is a mutation reachable by an
         AUDITOR_PERMISSIONS.has(declared as string),
         `${route.name} declares ${declared}, which the auditor holds`,
       ).toBe(false);
+    }
+  });
+});
+
+describe('RBAC-012 tenant route contract', () => {
+  it('requires session, organization permission, terms and CSRF on all tenant controllers', () => {
+    for (const controller of [OrganizationsController, CampaignsController, BillingController]) {
+      for (const name of Object.getOwnPropertyNames(controller.prototype)) {
+        const handler = (controller.prototype as unknown as Record<string, object>)[name];
+        if (
+          name === 'constructor' ||
+          !handler ||
+          Reflect.getMetadata(PATH_METADATA, handler) === undefined
+        )
+          continue;
+        if (name === 'me' || name === 'acceptInvitation') continue;
+        const guards = Reflect.getMetadata(GUARDS_METADATA, handler) as unknown[];
+        expect(guards, name).toEqual(
+          expect.arrayContaining([SessionGuard, OrganizationGuard, CsrfGuard]),
+        );
+        expect(Reflect.getMetadata(ORGANIZATION_PERMISSION, handler), name).toBeDefined();
+        expect(Reflect.getMetadata(ACCEPTED_TERMS, handler), name).toBe(true);
+      }
     }
   });
 });

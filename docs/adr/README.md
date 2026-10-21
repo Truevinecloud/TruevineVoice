@@ -30,3 +30,5 @@ or would be surprising to a future reader without context. Do not write one for
 routine implementation choices.
 
 - [0018: Call recipient persistence and durable idempotency](0018-call-recipient-persistence-and-idempotency.md)
+
+- [0019: Tenant isolation write authorization](0019-tenant-isolation-write-authorization.md)

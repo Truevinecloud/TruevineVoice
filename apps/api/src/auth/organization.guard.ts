@@ -79,10 +79,9 @@ export class OrganizationGuard implements CanActivate {
 
     const requiresTerms = Reflect.getMetadata(ACCEPTED_TERMS, handler) === true;
 
-    // Nothing to enforce: the route did not declare a requirement. Refusing here
-    // would break every route that legitimately has no organization scope, so the
-    // declaration is checked by tests instead.
-    if (permission === undefined) return true;
+    // A guard without a permission is a configuration error: fail closed.
+    // Public/discovery routes intentionally do not apply this guard.
+    if (permission === undefined) throw permissionDenied();
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const principal = request[PRINCIPAL];
@@ -120,7 +119,7 @@ export class OrganizationGuard implements CanActivate {
     // The lookup already fetched the row, so this costs nothing extra.
     const organization = await this.organizationStore.findOrganizationById(organizationId);
 
-    if (organization?.suspendedAt) {
+    if (!organization || organization.suspendedAt) {
       await this.deny(principal.userId, organizationId, permission, 'organization_suspended');
       throw permissionDenied('This organization is suspended.');
     }
@@ -174,7 +173,7 @@ export class OrganizationGuard implements CanActivate {
         outcome: 'DENIED',
         metadata: { permission, reason },
       });
-    } catch (error) {
+    } catch {
       // An audit failure must not become a 500 in place of a correct 403: the
       // refusal stands either way, and turning an observability problem into an
       // availability problem helps nobody.
@@ -184,10 +183,7 @@ export class OrganizationGuard implements CanActivate {
       // foreign key and there is no tenant to file the row under. Skipping that
       // is semantically right - no tenant was targeted - but doing it silently
       // would make a genuine audit outage indistinguishable from normal operation.
-      process.stderr.write(
-        `[authorization] could not record a denial for organization ${organizationId}: ` +
-          `${error instanceof Error ? error.message : String(error)}\n`,
-      );
+      process.stderr.write('[authorization] Denial audit unavailable.\n');
     }
   }
 }
@@ -205,12 +201,12 @@ export class PlatformGuard implements CanActivate {
   constructor(@Inject(AUDIT_STORE) private readonly auditStore: AuditStore) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    if (context.getType() !== 'http') return true;
+    if (context.getType() !== 'http') return false;
 
     const permission = Reflect.getMetadata(PLATFORM_PERMISSION, context.getHandler()) as
       PlatformPermission | undefined;
 
-    if (permission === undefined) return true;
+    if (permission === undefined) throw permissionDenied();
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const principal = request[PRINCIPAL];

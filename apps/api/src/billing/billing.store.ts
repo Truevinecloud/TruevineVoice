@@ -25,7 +25,7 @@ export interface BillingStore {
   balance(organizationId: string): Promise<bigint>;
   transactions(organizationId: string, cursor?: string): Promise<readonly LedgerRecord[]>;
   profile(organizationId: string): Promise<BillingProfile | null>;
-  saveProfile(organizationId: string, profile: BillingProfile): Promise<BillingProfile>;
+  saveProfile(organizationId: string, profile: BillingProfile, actorUserId: string): Promise<BillingProfile>;
   topUps(organizationId: string): Promise<readonly TopUpRecord[]>;
   requestTopUp(input: {
     organizationId: string;
