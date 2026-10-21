@@ -34,11 +34,13 @@ const RUN = randomUUID().replace(/-/g, '').slice(0, 8);
 const ORG_A = randomUUID();
 const ORG_B = randomUUID();
 const OWNER_A = randomUUID();
+const OWNER_B = randomUUID();
 const AUDITOR = randomUUID();
 const SUPPORT_ADMIN = randomUUID();
 const OPERATIONS_ADMIN = randomUUID();
 const CAMPAIGN = randomUUID();
 const EMAIL_OWNER_A = `auditor-owner-${RUN}@example.invalid`;
+const EMAIL_OWNER_B = `auditor-owner-b-${RUN}@example.invalid`;
 const EMAIL_AUDITOR = `auditor-${RUN}@example.invalid`;
 const EMAIL_SUPPORT = `auditor-support-${RUN}@example.invalid`;
 const EMAIL_OPERATIONS = `auditor-operations-${RUN}@example.invalid`;
@@ -111,12 +113,14 @@ beforeAll(async () => {
     await tx.$executeRaw`
       INSERT INTO users (id, email, password_hash, updated_at) VALUES
         (${OWNER_A}::uuid, ${EMAIL_OWNER_A}, ${passwordHash}, now()),
+        (${OWNER_B}::uuid, ${EMAIL_OWNER_B}, ${passwordHash}, now()),
         (${AUDITOR}::uuid, ${EMAIL_AUDITOR}, ${passwordHash}, now()),
         (${SUPPORT_ADMIN}::uuid, ${EMAIL_SUPPORT}, ${passwordHash}, now()),
         (${OPERATIONS_ADMIN}::uuid, ${EMAIL_OPERATIONS}, ${passwordHash}, now())`;
     await tx.$executeRaw`
       INSERT INTO memberships (organization_id, user_id, role, updated_at) VALUES
-        (${ORG_A}::uuid, ${OWNER_A}::uuid, 'OWNER', now())`;
+        (${ORG_A}::uuid, ${OWNER_A}::uuid, 'OWNER', now()),
+        (${ORG_B}::uuid, ${OWNER_B}::uuid, 'OWNER', now())`;
     await tx.$executeRaw`
       INSERT INTO platform_role_assignments (user_id, role) VALUES
         (${AUDITOR}::uuid, 'AUDITOR'),
@@ -145,10 +149,10 @@ beforeAll(async () => {
 afterAll(async () => {
   if (!database) return;
   await database.session.deleteMany({
-    where: { userId: { in: [OWNER_A, AUDITOR, SUPPORT_ADMIN, OPERATIONS_ADMIN] } },
+    where: { userId: { in: [OWNER_A, OWNER_B, AUDITOR, SUPPORT_ADMIN, OPERATIONS_ADMIN] } },
   });
   await database.termsAcceptance.deleteMany({
-    where: { userId: { in: [OWNER_A, AUDITOR, SUPPORT_ADMIN, OPERATIONS_ADMIN] } },
+    where: { userId: { in: [OWNER_A, OWNER_B, AUDITOR, SUPPORT_ADMIN, OPERATIONS_ADMIN] } },
   });
   await app?.close();
   await database.$disconnect();
@@ -237,12 +241,11 @@ describe('RBAC-011 read-only auditor over real PostgreSQL and HTTP', () => {
     expect((await owner.get('/platform/audit/me')).status).toBe(403);
     expect((await owner.get('/platform/audit/overview')).status).toBe(403);
 
-    // Support holds `platform:audit:read`, so it may read the merged trail, but
-    // it does not hold `platform:tenant:read`... it does, but it is not an
-    // auditor: `overview` requires `platform:audit:read` and succeeds, while the
-    // auditor overview's organization list uses `platform:tenant:read`. The
-    // point of this assertion is that holding one auditor permission does not
-    // confer the workspace's other routes.
+    // Support holds `platform:audit:read`, so it may read the auditor overview
+    // and merged trail. The point of these two assertions is that a permission
+    // overlap does not confer the whole workspace; the E2E cannot show a
+    // difference here because support happens to hold `platform:tenant:read`
+    // too, so both workspace routes are legitimately reachable.
     const support = await signIn(EMAIL_SUPPORT);
     expect((await support.get('/platform/audit/overview')).status).toBe(200);
     expect((await support.get('/platform/audit/audit')).status).toBe(200);
@@ -313,13 +316,15 @@ describe('RBAC-011 read-only auditor over real PostgreSQL and HTTP', () => {
   it('is denied every platform read route outside its four permissions', async () => {
     const auditor = await signIn(EMAIL_AUDITOR);
 
-    // Support diagnostics, tenant membership detail, technical reads and user
-    // lookup are all outside the auditor's permissions. Each must be refused.
+    // The auditor holds `platform:support:read`, so the support lookup routes
+    // that require only that are legitimately reachable. The routes below
+    // require a permission the auditor does not hold: support diagnostics,
+    // technical reads. Each must be refused.
     const denied = [
       `/platform/support/organizations/${ORG_A}/diagnostics`,
-      '/platform/support/users',
       '/platform/technical/overview',
       '/platform/technical/providers',
+      '/platform/technical/queues',
       '/platform/technical/logs',
     ];
     for (const path of denied) {
