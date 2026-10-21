@@ -29,6 +29,7 @@
     "20261020110000_rbac_007_emergency_stop",
     "20261020180000_platform_owner_bootstrap",
     "20261020181000_platform_owner_bootstrap_no_truncate",
-    "20261020182000_platform_owner_bootstrap_search_path"
+    "20261020182000_platform_owner_bootstrap_search_path",
+    "20261021120000_call_persistence"
   ]
 }
