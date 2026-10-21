@@ -57,6 +57,7 @@ export interface CampaignStore {
     organizationId: string,
     campaignId: string,
     changes: CampaignChanges,
+    actorUserId: string,
   ): Promise<CampaignRecord | undefined>;
-  deleteCampaign(organizationId: string, campaignId: string): Promise<boolean>;
+  deleteCampaign(organizationId: string, campaignId: string, actorUserId: string): Promise<boolean>;
 }

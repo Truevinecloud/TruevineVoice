@@ -7,11 +7,8 @@
  * exercised; this service then applies the rules that are about the *content* of
  * the change rather than about reaching it.
  *
- * No `SecurityTransaction` here, unlike the ownership-sensitive paths in
- * `OrganizationsService`: a campaign mutation is a single row write, and the
- * organization scope is carried in the write itself. The transaction seam is
- * reserved for operations that must re-check a security invariant after a lock
- * (role change, removal, ownership transfer) - none of which a campaign is.
+ * The repository rechecks membership and permission under an organization lock
+ * before mutating, so a revoked membership cannot reuse a guard decision.
  *
  * RBAC-003: `CAMPAIGN_MANAGER` reaches these methods through `campaign:*`
  * permissions; every other role is refused by the guard before this code runs.
@@ -130,7 +127,7 @@ export class CampaignsService {
     if (hasName) data.name = this.validateName(changes.name);
     if (hasStatus) data.status = this.validateStatus(changes.status);
 
-    const updated = await this.campaigns.updateCampaign(organizationId, campaignId, data);
+    const updated = await this.campaigns.updateCampaign(organizationId, campaignId, data, actorUserId);
 
     if (!updated) throw campaignNotFound();
 
@@ -144,7 +141,7 @@ export class CampaignsService {
 
   /** Deletes a campaign. */
   async remove(organizationId: string, actorUserId: string, campaignId: string): Promise<void> {
-    const deleted = await this.campaigns.deleteCampaign(organizationId, campaignId);
+    const deleted = await this.campaigns.deleteCampaign(organizationId, campaignId, actorUserId);
 
     if (!deleted) throw campaignNotFound();
 

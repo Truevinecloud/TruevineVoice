@@ -14,6 +14,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { PrismaClient } from '@truevine/database';
 
+import { authorizeTenantWrite, type TenantWriteSql } from '../auth/tenant-write.js';
 import { DATABASE_CLIENT } from '../tokens.js';
 import type {
   CampaignChanges,
@@ -23,21 +24,32 @@ import type {
 } from './campaign.store.js';
 
 /** The slice of the Prisma client this store needs. */
-type CampaignClient = Pick<PrismaClient, 'campaign'>;
+type CampaignClient = Pick<PrismaClient, 'campaign'> & TenantWriteSql;
+type CampaignDatabase = CampaignClient & {
+  $transaction<T>(work: (tx: CampaignClient) => Promise<T>): Promise<T>;
+};
 
 @Injectable()
 export class PrismaCampaignStore implements CampaignStore {
-  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: CampaignClient) {}
+  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: CampaignDatabase) {}
 
   async createCampaign(campaign: NewCampaign): Promise<CampaignRecord> {
-    return this.prisma.campaign.create({
-      data: {
-        organizationId: campaign.organizationId,
-        id: campaign.id,
-        name: campaign.name,
-        status: campaign.status,
-        createdById: campaign.createdById,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      await authorizeTenantWrite(
+        tx,
+        campaign.organizationId,
+        campaign.createdById,
+        'campaign:create',
+      );
+      return tx.campaign.create({
+        data: {
+          organizationId: campaign.organizationId,
+          id: campaign.id,
+          name: campaign.name,
+          status: campaign.status,
+          createdById: campaign.createdById,
+        },
+      });
     });
   }
 
@@ -63,30 +75,45 @@ export class PrismaCampaignStore implements CampaignStore {
     organizationId: string,
     campaignId: string,
     changes: CampaignChanges,
+    actorUserId: string,
   ): Promise<CampaignRecord | undefined> {
     // `updateMany` rather than `update`: it returns a count instead of throwing
     // on a miss, which lets a campaign belonging to another tenant be reported
     // as not found - the same answer as a genuinely unknown id, which is the
     // point (an id from another tenant is not a privilege, just an id).
-    const result = await this.prisma.campaign.updateMany({
-      where: {
-        organizationId,
-        id: campaignId,
-        ...(changes.status === 'ACTIVE' ? { emergencyStoppedAt: null } : {}),
-      },
-      data: changes,
+    return this.prisma.$transaction(async (tx) => {
+      await authorizeTenantWrite(tx, organizationId, actorUserId, 'campaign:update');
+      const result = await tx.campaign.updateMany({
+        where: {
+          organizationId,
+          id: campaignId,
+          ...(changes.status === 'ACTIVE' ? { emergencyStoppedAt: null } : {}),
+        },
+        data: changes,
+      });
+
+      if (result.count !== 1) return undefined;
+
+      return (
+        (await tx.campaign.findUnique({
+          where: { organizationId_id: { organizationId, id: campaignId } },
+        })) ?? undefined
+      );
     });
-
-    if (result.count !== 1) return undefined;
-
-    return this.findCampaign(organizationId, campaignId);
   }
 
-  async deleteCampaign(organizationId: string, campaignId: string): Promise<boolean> {
-    const result = await this.prisma.campaign.deleteMany({
-      where: { organizationId, id: campaignId, emergencyStoppedAt: null },
-    });
+  async deleteCampaign(
+    organizationId: string,
+    campaignId: string,
+    actorUserId: string,
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      await authorizeTenantWrite(tx, organizationId, actorUserId, 'campaign:delete');
+      const result = await tx.campaign.deleteMany({
+        where: { organizationId, id: campaignId, emergencyStoppedAt: null },
+      });
 
-    return result.count === 1;
+      return result.count === 1;
+    });
   }
 }

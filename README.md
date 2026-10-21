@@ -706,3 +706,13 @@ queue dispatch or charging are enabled. See [ADR 0018](docs/adr/0018-call-recipi
   generate SQL for review only; preserve manually maintained integrity triggers.
 
 Migration application to production and deployment remain separately authorized.
+
+## RBAC-012 backend tenant isolation
+
+See [the resource inventory and security review](docs/rbac-012-tenant-isolation.md) and
+[ADR 0019](docs/adr/0019-tenant-isolation-write-authorization.md).
+Campaign/billing writes recheck membership inside their database transaction.
+Run `npm run test:tenant-isolation:e2e` on the disposable loopback test stack
+with `NODE_ENV=test` and `TENANT_ISOLATION_DISPOSABLE=1` (or hosted CI).
+The suite is also included in `npm run test:e2e` and `npm run test:security`;
+missing infrastructure fails loudly. No frontend, migration or deployment change.

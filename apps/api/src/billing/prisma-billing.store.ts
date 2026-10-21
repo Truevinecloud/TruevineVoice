@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@truevine/database';
+import { authorizeTenantWrite, type TenantWriteSql } from '../auth/tenant-write.js';
 import { DATABASE_CLIENT } from '../tokens.js';
 import type { BillingProfile, BillingStore } from './billing.store.js';
 
-type BillingClient = Pick<PrismaClient, 'walletEntry' | 'topUpRequest' | 'billingProfile'>;
+type BillingClient = Pick<PrismaClient, 'walletEntry' | 'topUpRequest' | 'billingProfile'> &
+  TenantWriteSql;
+type BillingDatabase = BillingClient & {
+  $transaction<T>(work: (tx: BillingClient) => Promise<T>): Promise<T>;
+};
 @Injectable()
 export class PrismaBillingStore implements BillingStore {
-  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: BillingClient) {}
+  constructor(@Inject(DATABASE_CLIENT) private readonly prisma: BillingDatabase) {}
   async balance(organizationId: string) {
     const sum = await this.prisma.walletEntry.aggregate({
       where: { organizationId, currency: 'UGX' },
@@ -49,12 +54,15 @@ export class PrismaBillingStore implements BillingStore {
       select: { name: true, email: true, address: true },
     });
   }
-  saveProfile(organizationId: string, profile: BillingProfile) {
-    return this.prisma.billingProfile.upsert({
-      where: { organizationId },
-      create: { organizationId, ...profile },
-      update: profile,
-      select: { name: true, email: true, address: true },
+  saveProfile(organizationId: string, profile: BillingProfile, actorUserId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await authorizeTenantWrite(tx, organizationId, actorUserId, 'billing:update');
+      return tx.billingProfile.upsert({
+        where: { organizationId },
+        create: { organizationId, ...profile },
+        update: profile,
+        select: { name: true, email: true, address: true },
+      });
     });
   }
   topUps(organizationId: string) {
@@ -70,18 +78,21 @@ export class PrismaBillingStore implements BillingStore {
     amountMinor: bigint;
     idempotencyKey: string;
   }) {
-    // Unique constraint arbitrates concurrent retries; never update an existing request's payload.
-    await this.prisma.topUpRequest.createMany({
-      data: [{ ...input, id: randomUUID(), currency: 'UGX' }],
-      skipDuplicates: true,
-    });
-    return this.prisma.topUpRequest.findUniqueOrThrow({
-      where: {
-        organizationId_idempotencyKey: {
-          organizationId: input.organizationId,
-          idempotencyKey: input.idempotencyKey,
+    return this.prisma.$transaction(async (tx) => {
+      await authorizeTenantWrite(tx, input.organizationId, input.createdById, 'billing:update');
+      // Unique constraint arbitrates concurrent retries; never update an existing request's payload.
+      await tx.topUpRequest.createMany({
+        data: [{ ...input, id: randomUUID(), currency: 'UGX' }],
+        skipDuplicates: true,
+      });
+      return tx.topUpRequest.findUniqueOrThrow({
+        where: {
+          organizationId_idempotencyKey: {
+            organizationId: input.organizationId,
+            idempotencyKey: input.idempotencyKey,
+          },
         },
-      },
+      });
     });
   }
 }

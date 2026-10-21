@@ -669,10 +669,10 @@ describe('OrganizationGuard', () => {
     });
   });
 
-  it('passes through when the route declares no organization requirement', async () => {
+  it('fails closed when a guarded route omits its organization requirement', async () => {
     const { context } = httpContext({ params: {}, principal: { userId: 'user-1' } });
 
-    await expect(guard.canActivate(context)).resolves.toBe(true);
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
   });
 
   it('never records a platform-scoped action in the organization namespace', () => {
@@ -1035,5 +1035,15 @@ describe('CsrfGuard', () => {
 
   it('issues tokens that differ every time', () => {
     expect(generateCsrfToken()).not.toBe(generateCsrfToken());
+  });
+});
+
+describe('RBAC-012 non-HTTP contexts', () => {
+  it('does not authorize worker or callback payloads through HTTP guards', async () => {
+    const context = { getType: () => 'rpc' } as never;
+    const audit = new FakeAuditStore();
+    const organization = new OrganizationGuard(new FakeOrganizationStore(), new FakeAuthStore(), audit, TERMS);
+    expect(await organization.canActivate(context)).toBe(false);
+    expect(await new PlatformGuard(audit).canActivate(context)).toBe(false);
   });
 });

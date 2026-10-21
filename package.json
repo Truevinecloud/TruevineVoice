@@ -37,6 +37,7 @@
                     "test:security:baseline": "npm run build:packages && npm run build:api && node infrastructure/scripts/run-security-tests.mjs --baseline",
                     "test:security": "npm run build:packages && npm run build:api && node infrastructure/scripts/run-security-tests.mjs",
                     "test:e2e":  "npm run test:e2e --workspaces --if-present",
+                    "test:tenant-isolation:e2e": "npm run test:e2e --workspace @truevine/api -- tenant-isolation.e2e-spec.ts",
                     "test:call-persistence:e2e": "npm run test:e2e --workspace @truevine/api -- call-persistence.e2e-spec.ts",
                     "prisma:migrate:diff": "prisma migrate diff --config packages/database/prisma.config.ts",
                     "test:billing:e2e": "npm run test:e2e --workspace @truevine/api -- billing.e2e-spec.ts",

@@ -56,8 +56,12 @@ export class BillingController {
   @UseGuards(SessionGuard, OrganizationGuard, CsrfGuard)
   @RequireAcceptedTerms()
   @RequireOrganizationPermission('billing:update')
-  save(@CurrentOrganization() context: { organizationId: string }, @Body() body: unknown) {
-    return this.billingService.saveProfile(context.organizationId, body);
+  save(
+    @CurrentOrganization() context: { organizationId: string },
+    @Body() body: unknown,
+    @CurrentPrincipal() principal: { userId: string },
+  ) {
+    return this.billingService.saveProfile(context.organizationId, body, principal.userId);
   }
 
   @Post('wallet/top-ups')

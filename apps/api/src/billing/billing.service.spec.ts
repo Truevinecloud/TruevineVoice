@@ -74,16 +74,20 @@ describe('billing money and requests', () => {
   it('validates and scopes billing details, ignoring client tenant claims', async () => {
     const store = new FakeBillingStore();
     const service = new BillingService(store);
-    await service.saveProfile('a', {
-      name: ' Company ',
-      email: 'billing@example.com',
-      address: ' Kampala ',
-      organizationId: 'b',
-    });
+    await service.saveProfile(
+      'a',
+      {
+        name: ' Company ',
+        email: 'billing@example.com',
+        address: ' Kampala ',
+        organizationId: 'b',
+      },
+      'actor',
+    );
     expect(store.profiles.get('a')?.name).toBe('Company');
     expect(store.profiles.has('b')).toBe(false);
     await expect(
-      service.saveProfile('a', { name: 'Name', email: 'invalid', address: 'Address' }),
+      service.saveProfile('a', { name: 'Name', email: 'invalid', address: 'Address' }, 'actor'),
     ).rejects.toMatchObject({ status: 400 });
     expect((await service.billing('a')).collectionAvailable).toBe(false);
   });

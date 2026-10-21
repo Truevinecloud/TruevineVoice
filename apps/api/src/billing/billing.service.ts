@@ -46,7 +46,7 @@ export class BillingService {
       collectionAvailable: false,
     };
   }
-  async saveProfile(organizationId: string, input: unknown) {
+  async saveProfile(organizationId: string, input: unknown, actorUserId: string) {
     if (!input || typeof input !== 'object') invalid('Billing details are required.');
     const body = input as Record<string, unknown>;
     const profile: BillingProfile = {
@@ -56,7 +56,7 @@ export class BillingService {
     };
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.email))
       invalid('A valid billing email is required.');
-    return this.store.saveProfile(organizationId, profile);
+    return this.store.saveProfile(organizationId, profile, actorUserId);
   }
   async requestTopUp(organizationId: string, createdById: string, input: unknown) {
     if (!input || typeof input !== 'object') invalid('Top-up details are required.');
