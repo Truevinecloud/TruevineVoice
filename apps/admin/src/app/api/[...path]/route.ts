@@ -9,6 +9,7 @@ const ALLOWED = [
   /^platform\/support\/organizations\/[0-9a-f-]+(\/diagnostics|\/audit)?$/i,
   /^platform\/support\/users\/[0-9a-f-]+(\/audit)?$/i,
   /^platform\/technical\/(me|overview|providers|queues|logs|audit)$/,
+  /^platform\/audit\/(me|overview|organizations|audit)$/,
 ];
 
 async function forward(request: NextRequest, context: RouteContext) {

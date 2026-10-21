@@ -56,7 +56,8 @@ export default function OperationsDashboard() {
       setOperator(null);
       // A Support Admin has no operations access. Rather than a dead end,
       // check whether this account belongs in the support workspace, then the
-      // technical workspace, before showing an access error.
+      // technical workspace, then the auditor workspace, before showing an
+      // access error.
       if (status === 403) {
         const supportAccess = await api<{ platformRole: string } | null>(
           '/platform/support/me',
@@ -70,6 +71,13 @@ export default function OperationsDashboard() {
         ).catch(() => null);
         if (technicalAccess) {
           router.push('/technical');
+          return;
+        }
+        const auditorAccess = await api<{ platformRole: string } | null>(
+          '/platform/audit/me',
+        ).catch(() => null);
+        if (auditorAccess) {
+          router.push('/auditor');
           return;
         }
       }

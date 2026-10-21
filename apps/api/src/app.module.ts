@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuditModule } from './audit/audit.module.js';
 import { BillingModule } from './billing/billing.module.js';
 
 import { AppConfigModule } from './config/app-config.module.js';
@@ -31,6 +32,7 @@ import { TechnicalModule } from './technical/technical.module.js';
     OperationsModule,
     SupportModule,
     TechnicalModule,
+    AuditModule,
   ],
 })
 export class AppModule {}
