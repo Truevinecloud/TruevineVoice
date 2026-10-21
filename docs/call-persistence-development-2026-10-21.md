@@ -96,3 +96,14 @@ No provider integration, outbound calls, production queue execution, customer
 contact/call endpoints, wallet deductions, production migration, deployment,
 infrastructure/backup development or canonical task-ID assignment.
 STOP before merge and deployment; both require explicit user approval.
+
+## CI follow-up: expanded migration rehearsal
+
+The corrected head passed all 13 new PostgreSQL contracts and the ordinary E2E
+suites. The security harness then refused the new migration because its exact
+reviewed test-migration list predates this task. Added only this reviewed
+migration to that test list, retaining rejection of any unknown migration, and
+added representative-schema assertions for all six tables and eleven integrity
+triggers. This is existing verification maintenance; production approval lists,
+infrastructure configuration and backup behavior are unchanged. Full CI rerun
+required after this follow-up. Local production build previously passed.
