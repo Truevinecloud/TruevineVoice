@@ -5,6 +5,9 @@ const ALLOWED = [
   /^auth\/(sign-in|sign-out)$/,
   /^platform\/operations\/(me|organizations|campaigns|health)$/,
   /^platform\/operations\/organizations\/[0-9a-f-]+\/campaigns\/[0-9a-f-]+\/emergency-stop$/i,
+  /^platform\/support\/(me|organizations|users)$/,
+  /^platform\/support\/organizations\/[0-9a-f-]+(\/diagnostics|\/audit)?$/i,
+  /^platform\/support\/users\/[0-9a-f-]+(\/audit)?$/i,
 ];
 
 async function forward(request: NextRequest, context: RouteContext) {

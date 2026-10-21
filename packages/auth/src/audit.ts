@@ -51,6 +51,18 @@ export const AUDIT_ACTIONS = [
   'organization.invitation.accepted',
   'organization.ownership.transferred',
 
+  // Support lookup and diagnostics (RBAC-009). Read-only, but recorded: an
+  // operator reading a customer's data is itself an event an auditor must be
+  // able to answer for. The searched query string is never recorded - it can
+  // contain customer-identifying input - only the fact that a search happened
+  // and which non-sensitive filters it used.
+  'platform.support.organization_searched',
+  'platform.support.organization_viewed',
+  'platform.support.diagnostics_viewed',
+  'platform.support.user_searched',
+  'platform.support.user_viewed',
+  'platform.support.audit_viewed',
+
   // Authorization denials. A trail of successes alone cannot answer "was this an
   // attack?", so refusals are recorded too.
   'authorization.denied',

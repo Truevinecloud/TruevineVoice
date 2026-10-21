@@ -1,6 +1,9 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+
+import { api } from '../lib/api';
 
 type Organization = {
   id: string;
@@ -24,37 +27,8 @@ type Health = {
 };
 type Operator = { platformRole: 'PLATFORM_OWNER' | 'OPERATIONS_ADMIN' | 'AUDITOR' };
 
-const API = '/admin/api';
-
-function csrfToken(): string {
-  return (
-    document.cookie
-      .split('; ')
-      .find((cookie) => cookie.startsWith('tv_csrf='))
-      ?.slice('tv_csrf='.length) ?? ''
-  );
-}
-
-async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API}${path}`, {
-    ...init,
-    credentials: 'same-origin',
-    cache: 'no-store',
-    headers: {
-      ...(init.body ? { 'content-type': 'application/json' } : {}),
-      ...(init.method && init.method !== 'GET' ? { 'x-truevine-csrf': csrfToken() } : {}),
-      ...init.headers,
-    },
-  });
-  if (!response.ok) {
-    const error = new Error(`Request failed (${response.status})`);
-    Object.assign(error, { status: response.status });
-    throw error;
-  }
-  return (response.status === 204 ? undefined : await response.json()) as T;
-}
-
 export default function OperationsDashboard() {
+  const router = useRouter();
   const [operator, setOperator] = useState<Operator | null>(null);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -80,6 +54,17 @@ export default function OperationsDashboard() {
     } catch (error) {
       const status = (error as Error & { status?: number }).status;
       setOperator(null);
+      // A Support Admin has no operations access. Rather than a dead end,
+      // check whether this account belongs in the support workspace.
+      if (status === 403) {
+        const supportAccess = await api<{ platformRole: string } | null>(
+          '/platform/support/me',
+        ).catch(() => null);
+        if (supportAccess) {
+          router.push('/support');
+          return;
+        }
+      }
       setMessage(
         status === 401
           ? 'Sign in with an approved platform account.'
@@ -88,7 +73,7 @@ export default function OperationsDashboard() {
             : 'Operations data is temporarily unavailable.',
       );
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

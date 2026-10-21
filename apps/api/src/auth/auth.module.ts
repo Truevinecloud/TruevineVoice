@@ -157,6 +157,10 @@ function emailSender(): EmailSender {
     // re-declaring its own copies.
     EMAIL_SENDER,
     WEB_PUBLIC_URL,
+    // Same reasoning as above: `SupportRateLimitGuard` (RBAC-009) reuses the
+    // one fixed-window limiter rather than instantiating a second Redis-backed
+    // counter with its own configuration.
+    RATE_LIMITER,
   ],
 })
 export class AuthModule implements NestModule {

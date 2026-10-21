@@ -18,13 +18,15 @@ import {
  * precisely the bug.
  */
 
-import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
+import { RequestMethod } from '@nestjs/common';
+import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it } from 'vitest';
 
 import { CsrfGuard } from '../src/auth/csrf.guard.js';
 import { AuthController } from '../src/auth/auth.controller.js';
 import { OrganizationsController } from '../src/organizations/organizations.controller.js';
 import { SessionGuard } from '../src/auth/session.guard.js';
+import { SupportController } from '../src/support/support.controller.js';
 
 type AnyController = new (...args: never[]) => object;
 
@@ -105,7 +107,11 @@ function handlersOf(
     });
 }
 
-const ROUTES = [...handlersOf(AuthController), ...handlersOf(OrganizationsController)];
+const ROUTES = [
+  ...handlersOf(AuthController),
+  ...handlersOf(OrganizationsController),
+  ...handlersOf(SupportController),
+];
 
 describe('route guard coverage', () => {
   it('finds routes, so an empty result cannot pass vacuously', () => {
@@ -259,6 +265,78 @@ describe('organization route permission declarations', () => {
         ),
         name,
       ).toBeUndefined();
+    }
+  });
+});
+
+describe('support route declarations (RBAC-009)', () => {
+  /**
+   * The platform permission each support route must declare, written
+   * literally. Both directions of the comparison run, so a renamed or newly
+   * added route must be decided here. `PlatformGuard` reads this metadata at
+   * runtime; the guard suite asserts the allow/deny matrix for each pair.
+   */
+  const EXPECTED: Record<string, string> = {
+    operatorContext: 'platform:support:read',
+    searchOrganizations: 'platform:support:read',
+    organization: 'platform:support:read',
+    diagnostics: 'platform:support:diagnostics',
+    organizationAudit: 'platform:audit:read',
+    searchUsers: 'platform:support:read',
+    user: 'platform:support:read',
+    userAudit: 'platform:audit:read',
+  };
+
+  function supportHandlers(): string[] {
+    return Object.getOwnPropertyNames(SupportController.prototype).filter(
+      (name) =>
+        name !== 'constructor' &&
+        Reflect.getMetadata(
+          PATH_METADATA,
+          (SupportController.prototype as unknown as Record<string, object>)[name]!,
+        ) !== undefined,
+    );
+  }
+
+  function supportHandler(name: string): object {
+    return (SupportController.prototype as unknown as Record<string, object>)[name]!;
+  }
+
+  it('finds handlers, so an empty map cannot pass vacuously', () => {
+    expect(supportHandlers().length).toBe(8);
+  });
+
+  it('declares the expected permission on every support route', () => {
+    const handlers = supportHandlers();
+
+    expect([...handlers].sort()).toEqual(Object.keys(EXPECTED).sort());
+
+    for (const name of handlers) {
+      expect(Reflect.getMetadata(PLATFORM_PERMISSION, supportHandler(name)), name).toBe(
+        EXPECTED[name],
+      );
+    }
+  });
+
+  it('declares only GET routes, so support cannot mutate through this controller', () => {
+    for (const name of supportHandlers()) {
+      expect(Reflect.getMetadata(METHOD_METADATA, supportHandler(name)), name).toBe(RequestMethod.GET);
+    }
+  });
+
+  it('declares no organization permission on any support route', () => {
+    for (const name of supportHandlers()) {
+      expect(Reflect.getMetadata(ORGANIZATION_PERMISSION, supportHandler(name)), name).toBeUndefined();
+    }
+  });
+
+  it('keeps support routes free of impersonation-style paths', () => {
+    // RBAC-009 is read-only lookup. An impersonation or "act as" route is a
+    // different capability with different review requirements, and must never
+    // appear under this controller by accident.
+    for (const name of supportHandlers()) {
+      const path = Reflect.getMetadata(PATH_METADATA, supportHandler(name)) as string;
+      expect(path, name).not.toMatch(/impersonat|act-as|switch[-_]user|sudo/i);
     }
   });
 });

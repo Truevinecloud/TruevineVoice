@@ -59,6 +59,7 @@ export const PLATFORM_PERMISSIONS = [
   'platform:billing:read',
   'platform:billing:refund',
   'platform:support:read',
+  'platform:support:diagnostics',
   'platform:technical:read',
   'platform:technical:write',
   'platform:audit:read',
@@ -158,9 +159,22 @@ export const PLATFORM_ROLE_PERMISSIONS: Readonly<
 
   BILLING_ADMIN: ['platform:billing:read', 'platform:billing:refund'],
 
-  // Sees tenant metadata to answer tickets. Does not see tenant content:
-  // there is no permission here that reaches customer data.
-  SUPPORT_ADMIN: ['platform:tenant:read', 'platform:support:read', 'platform:audit:read'],
+  // Sees tenant metadata to answer tickets. `platform:support:read` is lookup
+  // only - organizations, users and their membership - so AUDITOR, which also
+  // holds it, never gains anything more.
+  //
+  // `platform:support:diagnostics` (RBAC-009) is the deliberate exception, and
+  // it is granted here alone: read-only tenant-content diagnostics - campaign
+  // records, wallet totals, billing presence - so a support admin can answer
+  // "what is happening in this account?" without any write capability. It is a
+  // separate permission rather than a widening of `platform:support:read`
+  // precisely so that AUDITOR's reach does not change as a side effect.
+  SUPPORT_ADMIN: [
+    'platform:tenant:read',
+    'platform:support:read',
+    'platform:support:diagnostics',
+    'platform:audit:read',
+  ],
 
   TECHNICAL_ADMIN: ['platform:technical:read', 'platform:technical:write', 'platform:audit:read'],
 
