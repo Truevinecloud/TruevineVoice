@@ -49,14 +49,14 @@ truevine-voice/
 ├── packages/
 │   ├── auth/           [reserved] authentication, RBAC
 │   ├── database/       Prisma schema, client, health probe
-│   ├── domain/         [reserved] pure business rules
+│   ├── domain/         money, phone numbers, call state/entity (pure)
 │   ├── messaging/      [reserved] SMS / WhatsApp abstraction
 │   ├── observability/  [reserved] logging, metrics, tracing
 │   ├── payments/       [reserved] payments + immutable ledger
 │   ├── pricing/        [reserved] plans, rating, price calculation
 │   ├── queue/          Redis connection + BullMQ foundation
 │   ├── shared/         env loading, health types, async helpers
-│   ├── telephony/      [reserved] Voice abstraction (Africa's Talking later)
+│   ├── telephony/      Voice port + deterministic fake adapter
 │   └── ui/             [reserved] shared UI primitives
 ├── infrastructure/     docker / environments / scripts
 ├── docs/               adr / api / runbooks
@@ -551,7 +551,14 @@ Not implemented in this step, by design:
 - **Product functionality:** Contacts, Campaigns, Audio, Wallet, Billing, Voice,
   SMS, WhatsApp, RBAC, authentication, admin functionality.
 - **Africa's Talking adapter:** will be the first Voice provider, behind the
-  `@truevine/telephony` interface. Not started.
+  `@truevine/telephony` interface. Not started. The `VoicePort` interface and a
+  deterministic fake adapter exist; the Africa's Talking adapter, the webhook
+  endpoint and callback signature verification are deferred. See
+  [ADR 0017](./docs/adr/0017-provider-neutral-telephony-port-and-call-domain.md).
+- **Call persistence and durable idempotency:** the pure `Call` entity and its
+  state machine exist in `@truevine/domain`, but no `Call` database model,
+  worker dispatch or idempotency-key uniqueness/replay does. Those belong to a
+  later persistence/worker task.
 - **Database models beyond tenancy:** Contact, Campaign, Call, Audio, Wallet,
   LedgerEntry, Billing. Only Organization and Membership exist. See
   [Database](#database).
