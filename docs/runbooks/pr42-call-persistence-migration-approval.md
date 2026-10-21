@@ -1,14 +1,14 @@
-# PR #42 call persistence migration � release approval proposal
+# PR #42 call persistence migration - release approval record
 
-Status: DRAFT / NOT YET APPROVED FOR PRODUCTION.
+Status: release owner authorized; protected CI and normal merge/deployment gates remain mandatory.
 Canonical workplan task ID: UNVERIFIED.
 
 This change proposes adding only 20261021120000_call_persistence to the
 production migration manifest. All thirteen existing entries are retained.
 Implementation remains in PR #42 at 1dbde7975d5e920707bc00a035aa57e2e378087d.
 This approval proposal is based on that implementation so CI tests the combined
-release. Do not merge either release change until the outstanding evidence below
-is resolved. No production operation is performed by opening this PR.
+release. The release owner has now supplied the confirmations recorded below.
+No production operation is performed by opening or updating this PR.
 
 ## Administrator-reported recovery evidence
 
@@ -73,20 +73,24 @@ migration. Dropping populated recipients, attempts or call-event history is not
 an approved rollback; use a reviewed forward correction. Any database restore
 over production requires separate supervised approval.
 
-## Outstanding evidence � do not assume PASS
+## Release-owner confirmations and authorization
 
-1. Administrator confirmation that the restored archive was compared with its
-   recorded source snapshot/reference, including current schema, relevant
-   constraints/triggers and table row counts. Identical fingerprints across
-   temporary container recreation alone do not establish source/archive fidelity.
-   Do not compare an old dump with changing live row counts as an equality gate.
-2. Explicit acceptance that this archive's timestamp meets the release recovery
-   point/freshness requirement. No universal maximum archive age is invented.
-3. Human review of this exact SQL/manifest/recovery proposal and acceptance of
-   schema-retaining rollback limitations.
+On 2026-10-21 the release owner responded PASS to the specific request confirming
+that the archive matched a reference from the same production snapshot and that
+the 11:28 UTC backup was acceptable for this release. This resolves the previously
+listed source/archive-fidelity and recovery-point acceptance gaps.
 
-The existing production release instruction remains authorization to complete
-release work, not permission to mark missing evidence as verified.
+These confirmations remain administrator/release-owner attestations; the
+deployment account did not read the protected backup. The owner has explicitly
+and repeatedly authorized deployment after reviewing the published approval
+proposal and its schema-retaining rollback limitations. No further deployment
+permission is inferred from CI alone.
+
+All nine checks passed on approval candidate c9d7f11953858d801acd1905c8805e6a69d32174:
+https://github.com/Truevinecloud/TruevineVoice/actions/runs/39595034951.
+This confirmation-record update requires a fresh CI run before normal merge.
+After the final approval merge, successful exact-main push CI is still required
+before the existing manual production workflow may run.
 
 ## Release sequence after all gates pass
 
