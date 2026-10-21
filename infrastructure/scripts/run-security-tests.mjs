@@ -30,7 +30,7 @@ const migrations = allMigrations.slice(0, boundary);
 const remediation = allMigrations.slice(boundary);
 if (
   remediation.join(',') !==
-  '20261016170000_security_atomicity,20261016171000_invitation_origin,20261019120000_campaigns_rbac_003,20261019160000_customer_billing_rbac_004,20261020110000_rbac_007_emergency_stop,20261020180000_platform_owner_bootstrap,20261020181000_platform_owner_bootstrap_no_truncate,20261020182000_platform_owner_bootstrap_search_path'
+  '20261016170000_security_atomicity,20261016171000_invitation_origin,20261019120000_campaigns_rbac_003,20261019160000_customer_billing_rbac_004,20261020110000_rbac_007_emergency_stop,20261020180000_platform_owner_bootstrap,20261020181000_platform_owner_bootstrap_no_truncate,20261020182000_platform_owner_bootstrap_search_path,20261021120000_call_persistence'
 )
   throw new Error('Review migration rehearsal when adding a later migration.');
 function psql(database, sql, expectFailure = false) {
@@ -113,7 +113,24 @@ try {
     apply(representative);
     if (psql(representative, 'SELECT count(*) FROM memberships').stdout.trim() !== '1')
       throw new Error('Representative rows changed.');
-    process.stdout.write('PASS migration: existing representative rows preserved\n');
+    // Reviewed additive call migration: verify schema and guards on representative pre-existing data.
+    if (
+      psql(
+        representative,
+        "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('contacts','campaign_recipients','campaign_executions','call_attempts','call_operations','call_events')",
+      ).stdout.trim() !== '6'
+    )
+      throw new Error('Call persistence tables missing after representative migration.');
+    if (
+      psql(
+        representative,
+        "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('recipients_immutable','executions_immutable','operations_immutable','events_append_only','attempts_guard','recipient_snapshot','recipients_no_truncate','executions_no_truncate','attempts_no_truncate','operations_no_truncate','events_no_truncate')",
+      ).stdout.trim() !== '11'
+    )
+      throw new Error('Call history integrity triggers missing.');
+    process.stdout.write(
+      'PASS migration: existing representative rows preserved and call integrity guards installed\n',
+    );
     for (const failure of ['owners', 'identity', 'ownerless']) {
       const database = create(failure);
       if (failure === 'ownerless')

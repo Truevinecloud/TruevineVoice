@@ -692,3 +692,17 @@ no production secrets are used. See the runbook for independently approved
 production cluster-identity verification and private operator prerequisites.
 `npm run test:platform-owner-bootstrap:unit` runs just the bootstrap unit suite;
 its Windows refusal assertions do not establish Linux filesystem validation.
+
+## Recipient and call persistence (development)
+
+Internal services persist tenant contacts, immutable recipient snapshots, call
+attempts and durable acceptance replay. No contact/call endpoints, live provider,
+queue dispatch or charging are enabled. See [ADR 0018](docs/adr/0018-call-recipient-persistence-and-idempotency.md).
+
+- npm run test:call-persistence:e2e: focused real PostgreSQL contracts, also
+  included in npm run test:e2e. Requires migrated disposable loopback PostgreSQL
+  on port 55432, NODE_ENV=test and CALL_PERSISTENCE_DISPOSABLE=1 locally.
+- npm run prisma:migrate:diff -- --from-schema <baseline> --to-schema <schema> --script:
+  generate SQL for review only; preserve manually maintained integrity triggers.
+
+Migration application to production and deployment remain separately authorized.

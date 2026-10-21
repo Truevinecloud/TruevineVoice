@@ -463,6 +463,8 @@ model Campaign {
   updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recipients CampaignRecipient[]
+  executions CampaignExecution[]
   createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
 
   @@id([organizationId, id])
@@ -494,6 +496,7 @@ model Organization {
   memberships        Membership[]
   invitations        Invitation[]
   securityAuditEvents SecurityAuditEvent[]
+  contacts           Contact[]
   campaigns          Campaign[]
   walletEntries      WalletEntry[]
   topUpRequests      TopUpRequest[]
@@ -542,4 +545,122 @@ model BillingProfile {
   address String @db.VarChar(500)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   @@map("billing_profiles")
+}
+
+/// Minimal tenant-owned address book. E.164 CHECK is maintained in migration SQL.
+model Contact {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  destination String @db.VarChar(16)
+  label String @default("") @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  recipients CampaignRecipient[]
+  @@id([organizationId, id])
+  @@map("contacts")
+}
+
+/// Snapshot is immutable, even when its source contact changes.
+model CampaignRecipient {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  campaignId String @map("campaign_id") @db.Uuid
+  contactId String @map("contact_id") @db.Uuid
+  destination String @db.VarChar(16)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  campaign Campaign @relation(fields: [organizationId, campaignId], references: [organizationId, id], onDelete: Restrict)
+  contact Contact @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: Restrict)
+  attempts CallAttempt[]
+  @@id([organizationId, id])
+  @@unique([organizationId, campaignId, contactId])
+  @@unique([organizationId, campaignId, id])
+  @@map("campaign_recipients")
+}
+
+/// MVP: one business execution per campaign; a different request key cannot create another.
+model CampaignExecution {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  campaignId String @map("campaign_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  campaign Campaign @relation(fields: [organizationId, campaignId], references: [organizationId, id], onDelete: Restrict)
+  attempts CallAttempt[]
+  @@id([organizationId, id])
+  @@unique([organizationId, campaignId])
+  @@unique([organizationId, campaignId, id])
+  @@map("campaign_executions")
+}
+
+enum CallAttemptState {
+  QUEUED
+  DIALING
+  RINGING
+  ANSWERED
+  COMPLETED
+  FAILED
+  BUSY
+  NO_ANSWER
+  CANCELLED
+  TIMEOUT
+}
+
+model CallAttempt {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  campaignId String @map("campaign_id") @db.Uuid
+  executionId String @map("execution_id") @db.Uuid
+  recipientId String @map("recipient_id") @db.Uuid
+  destination String @db.VarChar(16)
+  attemptNumber Int @map("attempt_number")
+  previousAttemptId String? @map("previous_attempt_id") @db.Uuid
+  redialReason String? @map("redial_reason") @db.VarChar(200)
+  state CallAttemptState @default(QUEUED)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  execution CampaignExecution @relation(fields: [organizationId, campaignId, executionId], references: [organizationId, campaignId, id], onDelete: Restrict)
+  recipient CampaignRecipient @relation(fields: [organizationId, campaignId, recipientId], references: [organizationId, campaignId, id], onDelete: Restrict)
+  previous CallAttempt? @relation("Redial", fields: [organizationId, executionId, recipientId, previousAttemptId], references: [organizationId, executionId, recipientId, id], onDelete: Restrict)
+  redials CallAttempt[] @relation("Redial")
+  operations CallOperation[]
+  events CallEvent[]
+  @@id([organizationId, id])
+  @@unique([organizationId, executionId, recipientId, attemptNumber])
+  @@unique([organizationId, executionId, recipientId, id])
+  @@unique([organizationId, previousAttemptId])
+  @@map("call_attempts")
+}
+
+/// Acceptance result only. No provider dispatch or paid side effect has occurred.
+model CallOperation {
+  organizationId String @map("organization_id") @db.Uuid
+  operation String @db.VarChar(40)
+  key String @db.VarChar(200)
+  fingerprintVersion Int @map("fingerprint_version")
+  fingerprint String @db.VarChar(64)
+  attemptId String @map("attempt_id") @db.Uuid
+  result Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  attempt CallAttempt @relation(fields: [organizationId, attemptId], references: [organizationId, id], onDelete: Restrict)
+  @@id([organizationId, operation, key])
+  @@map("call_operations")
+}
+
+/// Each delivery is retained, including duplicates and conflicting event-key reuse.
+/// Provider evidence lives here; billable usage and wallet deductions are absent.
+model CallEvent {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  attemptId String @map("attempt_id") @db.Uuid
+  eventKey String @map("event_key") @db.VarChar(200)
+  fingerprint String @db.VarChar(64)
+  requestedState CallAttemptState @map("requested_state")
+  disposition String @db.VarChar(24)
+  providerUsage Json? @map("provider_usage")
+  occurredAt DateTime @map("occurred_at") @db.Timestamptz(3)
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+  attempt CallAttempt @relation(fields: [organizationId, attemptId], references: [organizationId, id], onDelete: Restrict)
+  @@id([organizationId, id])
+  @@index([organizationId, attemptId, eventKey])
+  @@index([organizationId, disposition, receivedAt])
+  @@map("call_events")
 }
