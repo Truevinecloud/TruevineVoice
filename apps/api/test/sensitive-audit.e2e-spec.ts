@@ -57,7 +57,7 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
     await db.$executeRawUnsafe(
       'CREATE FUNCTION ' +
         functionName +
-        "() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF current_setting('truevine.audit_test_failure',true)='1' THEN RAISE EXCEPTION 'injected database audit failure'; END IF; RETURN NEW; END; $",
+        "() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF current_setting('truevine.audit_test_failure',true)='1' THEN RAISE EXCEPTION 'injected database audit failure'; END IF; RETURN NEW; END; $$",
     );
     ownedFunction = true;
     for (const table of ['security_audit_events', 'identity_audit_events']) {

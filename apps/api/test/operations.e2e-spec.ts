@@ -218,7 +218,17 @@ describe('RBAC-007 platform operations over real PostgreSQL and HTTP', () => {
       targetType: 'campaign',
       targetId: CAMPAIGN,
     });
-    expect(audit?.metadata).toEqual({ reasonCode: 'provider_incident' });
+    expect(audit?.metadata).toEqual({
+      auditVersion: 1,
+      target: { type: 'campaign', id: CAMPAIGN },
+      before: { status: 'ACTIVE', emergencyStoppedAt: null },
+      change: { status: 'COMPLETED', emergencyStoppedAt: expect.any(String) },
+      after: { status: 'COMPLETED', emergencyStoppedAt: expect.any(String) },
+      reasonCode: 'provider_incident',
+      reasonSource: 'caller',
+      justification: null,
+      requestId: expect.any(String),
+    });
 
     const manager = await signIn(EMAIL_MANAGER_B);
     const reactivation = await manager
