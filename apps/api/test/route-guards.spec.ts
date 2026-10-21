@@ -22,8 +22,11 @@ import { RequestMethod } from '@nestjs/common';
 import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it } from 'vitest';
 
+import { AuditController } from '../src/audit/audit.controller.js';
 import { CsrfGuard } from '../src/auth/csrf.guard.js';
 import { AuthController } from '../src/auth/auth.controller.js';
+import { PlatformGuard } from '../src/auth/organization.guard.js';
+import { OperationsController } from '../src/operations/operations.controller.js';
 import { OrganizationsController } from '../src/organizations/organizations.controller.js';
 import { SessionGuard } from '../src/auth/session.guard.js';
 import { SupportController } from '../src/support/support.controller.js';
@@ -113,6 +116,8 @@ const ROUTES = [
   ...handlersOf(OrganizationsController),
   ...handlersOf(SupportController),
   ...handlersOf(TechnicalController),
+  ...handlersOf(AuditController),
+  ...handlersOf(OperationsController),
 ];
 
 describe('route guard coverage', () => {
@@ -415,6 +420,199 @@ describe('technical route declarations (RBAC-010)', () => {
         Reflect.getMetadata(ORGANIZATION_PERMISSION, technicalHandler(name)),
         name,
       ).toBeUndefined();
+    }
+  });
+});
+
+describe('auditor route declarations (RBAC-011)', () => {
+  /**
+   * The platform permission each auditor route must declare, written literally.
+   * Both directions of the comparison run, so a renamed or newly added route
+   * must be decided here. `PlatformGuard` reads this metadata at runtime; the
+   * guard suite asserts the allow/deny matrix for each pair.
+   */
+  const EXPECTED: Record<string, string> = {
+    operatorContext: 'platform:audit:read',
+    overview: 'platform:audit:read',
+    organizations: 'platform:tenant:read',
+    auditTrail: 'platform:audit:read',
+  };
+
+  function auditHandlers(): string[] {
+    return Object.getOwnPropertyNames(AuditController.prototype).filter(
+      (name) =>
+        name !== 'constructor' &&
+        Reflect.getMetadata(
+          PATH_METADATA,
+          (AuditController.prototype as unknown as Record<string, object>)[name]!,
+        ) !== undefined,
+    );
+  }
+
+  function auditHandler(name: string): object {
+    return (AuditController.prototype as unknown as Record<string, object>)[name]!;
+  }
+
+  it('finds handlers, so an empty map cannot pass vacuously', () => {
+    expect(auditHandlers().length).toBe(4);
+  });
+
+  it('declares the expected permission on every auditor route', () => {
+    const handlers = auditHandlers();
+
+    expect([...handlers].sort()).toEqual(Object.keys(EXPECTED).sort());
+
+    for (const name of handlers) {
+      expect(Reflect.getMetadata(PLATFORM_PERMISSION, auditHandler(name)), name).toBe(
+        EXPECTED[name],
+      );
+    }
+  });
+
+  it('declares only GET routes, so the auditor cannot mutate through this controller', () => {
+    // RBAC-011 acceptance: "all mutation attempts denied". The strongest form
+    // of that guarantee is that no mutating route exists to reach in the first
+    // place; this is the assertion of it.
+    for (const name of auditHandlers()) {
+      expect(Reflect.getMetadata(METHOD_METADATA, auditHandler(name)), name).toBe(
+        RequestMethod.GET,
+      );
+    }
+  });
+
+  it('declares no permission outside the auditor four', () => {
+    // Each route must ask for one of exactly the four permissions the role
+    // holds. A route reaching for a fifth capability is a widening of the role
+    // by the back door and fails here.
+    const auditorPermissions = new Set([
+      'platform:tenant:read',
+      'platform:operations:read',
+      'platform:support:read',
+      'platform:audit:read',
+    ]);
+
+    for (const name of auditHandlers()) {
+      const declared = Reflect.getMetadata(PLATFORM_PERMISSION, auditHandler(name));
+      expect(auditorPermissions.has(declared as string), `${name} declares ${declared}`).toBe(true);
+    }
+  });
+
+  it('declares no organization permission on any auditor route', () => {
+    for (const name of auditHandlers()) {
+      expect(
+        Reflect.getMetadata(ORGANIZATION_PERMISSION, auditHandler(name)),
+        name,
+      ).toBeUndefined();
+    }
+  });
+});
+
+describe('every platform route is guarded and none is a mutation reachable by an auditor (RBAC-011)', () => {
+  /**
+   * The auditor must be refused at every platform route it does not hold a
+   * permission for. The guard suite proves the per-permission matrix; this
+   * proves the *route* side: no platform controller exposes an unguarded route,
+   * and every mutating platform route declares a permission the auditor does
+   * not hold (the auditor holds only `*:read`).
+   *
+   * `OperationsController` is included because it is the platform mutation
+   * surface an auditor most plausibly might be pointed at (emergency stop), and
+   * its routes must be guarded exactly like the read-only ones.
+   */
+  const PLATFORM_CONTROLLERS: readonly [string, AnyController][] = [
+    ['SupportController', SupportController],
+    ['TechnicalController', TechnicalController],
+    ['AuditController', AuditController],
+    ['OperationsController', OperationsController],
+  ];
+
+  it('declares PlatformGuard on every route of every platform controller', () => {
+    const unguarded: string[] = [];
+
+    for (const [label, controller] of PLATFORM_CONTROLLERS) {
+      for (const route of handlersOf(controller)) {
+        if (!route.guards.includes(PlatformGuard)) unguarded.push(`${label}:${route.name}`);
+      }
+    }
+
+    expect(unguarded).toEqual([]);
+  });
+
+  it('declares no mutating permission on the three read-only platform controllers', () => {
+    // Support, technical and audit are read-only consoles. A mutating platform
+    // permission here would be a mutation reachable by an auditor, which
+    // RBAC-011 forbids. The set is written literally, from the platform
+    // registry's mutating row, so a new mutating permission used by one of
+    // these controllers must be added here - a deliberate edit - to pass.
+    //
+    // Checked by set membership rather than a `:read` suffix: `platform:support:
+    // diagnostics` is a read whose name does not end in `:read`, so a suffix
+    // rule would both miss `platform:tenant:suspend` and falsely reject a
+    // legitimate diagnostic read.
+    const PLATFORM_MUTATING_PERMISSIONS = new Set([
+      'platform:tenant:suspend',
+      'platform:operations:write',
+      'platform:billing:refund',
+      'platform:technical:write',
+      'platform:admin:manage',
+    ]);
+
+    for (const [label, controller] of PLATFORM_CONTROLLERS) {
+      if (label === 'OperationsController') continue;
+
+      for (const route of handlersOf(controller)) {
+        const method = route.name.split('.')[1]!;
+        const meta = Reflect.getMetadata(
+          PLATFORM_PERMISSION,
+          (controller.prototype as unknown as Record<string, object>)[method]!,
+        ) as string | undefined;
+        expect(
+          PLATFORM_MUTATING_PERMISSIONS.has(meta as string),
+          `${route.name} declares mutating ${meta}`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('guards the operations mutation surface with a permission the auditor lacks', () => {
+    // The auditor-most-plausible mutation target is the Operations Admin
+    // emergency stop. RBAC-011 requires it to be refused. Two facts together
+    // prove it: the route is guarded, and it declares a mutating permission the
+    // auditor does not hold (the auditor holds only the four read permissions,
+    // asserted in @truevine/auth). The E2E suite exercises the real endpoint.
+    const AUDITOR_PERMISSIONS = new Set([
+      'platform:tenant:read',
+      'platform:operations:read',
+      'platform:support:read',
+      'platform:audit:read',
+    ]);
+
+    const mutating = handlersOf(OperationsController).filter((route) => {
+      const method = route.name.split('.')[1]!;
+      const verb = Reflect.getMetadata(
+        METHOD_METADATA,
+        (OperationsController.prototype as unknown as Record<string, object>)[method]!,
+      );
+      return verb !== RequestMethod.GET;
+    });
+
+    // Non-vacuity: there must be at least one mutating operations route to
+    // check, or this test proves nothing.
+    expect(mutating.length).toBeGreaterThan(0);
+
+    for (const route of mutating) {
+      const method = route.name.split('.')[1]!;
+      const declared = Reflect.getMetadata(
+        PLATFORM_PERMISSION,
+        (OperationsController.prototype as unknown as Record<string, object>)[method]!,
+      ) as string | undefined;
+
+      expect(route.guards.includes(PlatformGuard), route.name).toBe(true);
+      expect(declared, route.name).toBeDefined();
+      expect(
+        AUDITOR_PERMISSIONS.has(declared as string),
+        `${route.name} declares ${declared}, which the auditor holds`,
+      ).toBe(false);
     }
   });
 });

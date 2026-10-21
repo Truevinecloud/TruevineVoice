@@ -73,6 +73,14 @@ export const AUDIT_ACTIONS = [
   'platform.technical.logs_viewed',
   'platform.technical.audit_viewed',
 
+  // Read-only Admin / Auditor (RBAC-011). An auditor's read of platform
+  // metadata or the audit trail is itself an event an auditor must be able to
+  // answer for, exactly as support and technical reads are. The role mutates
+  // nothing, so no mutation action is added for it.
+  'platform.audit.overview_viewed',
+  'platform.audit.organizations_viewed',
+  'platform.audit.audit_viewed',
+
   // Authorization denials. A trail of successes alone cannot answer "was this an
   // attack?", so refusals are recorded too.
   'authorization.denied',

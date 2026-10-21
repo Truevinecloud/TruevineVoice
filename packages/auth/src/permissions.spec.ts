@@ -451,6 +451,45 @@ describe('platform roles stay inside their scope', () => {
     }
   });
 
+  // RBAC-011 acceptance. The role must hold exactly these four permissions and
+  // nothing more. The row is written out literally - independently of the
+  // registry - so adding or removing a permission fails here rather than
+  // quietly widening or narrowing what an auditor can reach.
+  it('grants the auditor exactly its four read permissions', () => {
+    const expected = [
+      'platform:tenant:read',
+      'platform:operations:read',
+      'platform:support:read',
+      'platform:audit:read',
+    ];
+
+    expect([...PLATFORM_ROLE_PERMISSIONS.AUDITOR].sort()).toEqual([...expected].sort());
+    expect(new Set(PLATFORM_ROLE_PERMISSIONS.AUDITOR).size).toBe(expected.length);
+  });
+
+  it('reaches no non-read platform permission in the entire registry', () => {
+    // "All mutation attempts denied" expressed as a fact about the registry,
+    // not a convention. `platform:tenant:suspend` is a mutation whose name does
+    // not end in `:write`, so this checks every permission the auditor does NOT
+    // hold rather than only the ones spelled `*:write`.
+    for (const permission of PLATFORM_PERMISSIONS) {
+      if (permission.endsWith(':read')) continue;
+      expect(canActAsPlatform('AUDITOR', permission)).toBe(false);
+    }
+  });
+
+  it('holds no billing, diagnostics, technical or administrative authority', () => {
+    // Each is a capability a custody of the audit trail might be mistaken for.
+    expect(canActAsPlatform('AUDITOR', 'platform:billing:read')).toBe(false);
+    expect(canActAsPlatform('AUDITOR', 'platform:billing:refund')).toBe(false);
+    expect(canActAsPlatform('AUDITOR', 'platform:support:diagnostics')).toBe(false);
+    expect(canActAsPlatform('AUDITOR', 'platform:technical:read')).toBe(false);
+    expect(canActAsPlatform('AUDITOR', 'platform:technical:write')).toBe(false);
+    expect(canActAsPlatform('AUDITOR', 'platform:tenant:suspend')).toBe(false);
+    expect(canActAsPlatform('AUDITOR', 'platform:operations:write')).toBe(false);
+    expect(canActAsPlatform('AUDITOR', 'platform:admin:manage')).toBe(false);
+  });
+
   it('reserves role management for the platform owner alone', () => {
     const holders = ALL_PLATFORM_ROLES.filter((role) =>
       canActAsPlatform(role, 'platform:admin:manage'),
