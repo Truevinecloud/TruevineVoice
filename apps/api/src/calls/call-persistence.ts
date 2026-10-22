@@ -60,7 +60,10 @@ export class CallPersistence {
       id = uuid(contactId),
       phone = destination(to);
     const count = await this.database.$executeRaw`
-      UPDATE contacts SET destination=${phone},updated_at=now()
+      UPDATE contacts
+      SET destination=${phone},
+          phone_e164=CASE WHEN phone_e164 IS NULL THEN NULL ELSE ${phone} END,
+          updated_at=now()
       WHERE organization_id=${org}::uuid AND id=${id}::uuid`;
     if (!count) throw new CallPersistenceError('not_found');
   }

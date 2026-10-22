@@ -39,6 +39,16 @@ export const AUDIT_ACTIONS = [
   'campaign.created',
   'campaign.updated',
   'campaign.deleted',
+
+  // Contacts and groups. Never include contact PII or raw import data.
+  'contact.created',
+  'contact.updated',
+  'contact.suppressed',
+  'contact.voice_consent_recorded',
+  'contact_group.created',
+  'contact_import.started',
+  'contact_import.batch_processed',
+  'contact_import.completed',
   'billing.profile_updated',
   'billing.top_up_requested',
   'organization.owner.provisioned',

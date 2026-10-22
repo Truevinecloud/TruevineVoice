@@ -10,12 +10,13 @@
 // Membership remains the tenancy anchor: it is what makes an organizationId a
 // real relationship rather than a loose column.
 //
-// CAMPAIGNS (added 2026-10-19, RBAC-003). The first tenant-owned resource
+// CAMPAIGNS (added 2026-10-19, RBAC-003). A tenant-owned resource
 // beyond the tenancy core itself. It exists so the CAMPAIGN_MANAGER role has
 // something real to exercise: the permission registry already carried
 // `campaign:*`, but a permission with no endpoint is untested by construction.
-// Contact and Audio remain deliberately absent - they need permission-registry
-// decisions (contact:*, audio:*) that RBAC-003 does not make.
+// CONTACTS/GROUPS (W2-02) extend the existing campaign Contact model. Its
+// destination, label, IDs and recipient relationships remain authoritative;
+// nullable W2 fields leave legacy campaign-only rows intact.
 //
 // Billing (RBAC-004) includes an append-only UGX wallet ledger and durable
 // top-up requests only; it does not collect payments or settle wallet balances.
@@ -439,6 +440,10 @@ model Membership {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   topUpRequests TopUpRequest[]
+  contactsCreated Contact[] @relation("ContactCreator")
+  contactGroupsCreated ContactGroup[] @relation("ContactGroupCreator")
+  contactImports ContactImport[] @relation("ContactImportStarter")
+  contactConsentsVerified Contact[] @relation("ContactConsentVerifier")
 
   @@id([organizationId, userId])
   @@unique([userId, organizationId])
@@ -528,6 +533,8 @@ model Organization {
   walletEntries      WalletEntry[]
   topUpRequests      TopUpRequest[]
   billingProfile     BillingProfile?
+  contactGroups      ContactGroup[]
+  contactImports     ContactImport[]
 
   @@map("organizations")
 }
@@ -578,14 +585,106 @@ model BillingProfile {
 model Contact {
   organizationId String @map("organization_id") @db.Uuid
   id String @default(uuid()) @db.Uuid
+  /// W2-02 normalized contact identity. Nullable for legacy campaign-only rows;
+  /// those rows retain their original destination and ID until safely adopted.
+  phoneE164 String? @map("phone_e164") @db.VarChar(16)
+  email String? @db.VarChar(254)
+  voiceConsentAt DateTime? @map("voice_consent_at") @db.Timestamptz(3)
+  voiceConsentSource String? @map("voice_consent_source") @db.VarChar(80)
+  voiceConsentPurpose String? @map("voice_consent_purpose") @db.VarChar(40)
+  voiceConsentEvidenceReference String? @map("voice_consent_evidence_reference") @db.VarChar(128)
+  voiceConsentVerifiedById String? @map("voice_consent_verified_by_user_id") @db.Uuid
+  suppressedAt DateTime? @map("suppressed_at") @db.Timestamptz(3)
+  suppressionReason String? @map("suppression_reason") @db.VarChar(120)
+  createdById String? @map("created_by_user_id") @db.Uuid
   destination String @db.VarChar(16)
   label String @default("") @db.VarChar(200)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   recipients CampaignRecipient[]
+  groupLinks ContactGroupMember[]
+  createdBy Membership? @relation("ContactCreator", fields: [organizationId, createdById], references: [organizationId, userId], onDelete: Restrict)
+  voiceConsentVerifiedBy Membership? @relation("ContactConsentVerifier", fields: [organizationId, voiceConsentVerifiedById], references: [organizationId, userId], onDelete: Restrict)
   @@id([organizationId, id])
+  @@unique([organizationId, phoneE164])
+  @@index([organizationId, suppressedAt, voiceConsentAt])
   @@map("contacts")
+}
+
+enum ContactImportStatus {
+  OPEN
+  COMPLETED
+}
+
+model ContactGroup {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  name String @db.VarChar(120)
+  normalizedName String @map("normalized_name") @db.VarChar(120)
+  createdById String @map("created_by_user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy Membership @relation("ContactGroupCreator", fields: [organizationId, createdById], references: [organizationId, userId], onDelete: Restrict)
+  contacts ContactGroupMember[]
+  @@id([organizationId, id])
+  @@unique([organizationId, normalizedName])
+  @@index([organizationId, name])
+  @@map("contact_groups")
+}
+
+model ContactGroupMember {
+  organizationId String @map("organization_id") @db.Uuid
+  groupId String @map("group_id") @db.Uuid
+  contactId String @map("contact_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  group ContactGroup @relation(fields: [organizationId, groupId], references: [organizationId, id], onDelete: Cascade)
+  contact Contact @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: Cascade)
+  @@id([organizationId, groupId, contactId])
+  @@index([organizationId, contactId])
+  @@map("contact_group_members")
+}
+
+model ContactImport {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  createdById String @map("created_by_user_id") @db.Uuid
+  mapping Json
+  status ContactImportStatus @default(OPEN)
+  nextBatchNumber Int @default(0) @map("next_batch_number")
+  rowsProcessed Int @default(0) @map("rows_processed")
+  createdCount Int @default(0) @map("created_count")
+  updatedCount Int @default(0) @map("updated_count")
+  unchangedCount Int @default(0) @map("unchanged_count")
+  rejectedCount Int @default(0) @map("rejected_count")
+  warningCount Int @default(0) @map("warning_count")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy Membership @relation("ContactImportStarter", fields: [organizationId, createdById], references: [organizationId, userId], onDelete: Restrict)
+  batches ContactImportBatch[]
+  @@id([organizationId, id])
+  @@index([organizationId, createdAt])
+  @@map("contact_imports")
+}
+
+model ContactImportBatch {
+  organizationId String @map("organization_id") @db.Uuid
+  importId String @map("import_id") @db.Uuid
+  batchNumber Int @map("batch_number")
+  payloadHash String @map("payload_hash") @db.Char(64)
+  report Json
+  rowCount Int @map("row_count")
+  createdCount Int @map("created_count")
+  updatedCount Int @map("updated_count")
+  unchangedCount Int @map("unchanged_count")
+  rejectedCount Int @map("rejected_count")
+  warningCount Int @map("warning_count")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  contactImport ContactImport @relation(fields: [organizationId, importId], references: [organizationId, id], onDelete: Cascade)
+  @@id([organizationId, importId, batchNumber])
+  @@map("contact_import_batches")
 }
 
 /// Snapshot is immutable, even when its source contact changes.

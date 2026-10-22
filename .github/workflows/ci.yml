@@ -224,6 +224,9 @@ jobs:
       - name: Rehearse RBAC-004 migration failure and retry
         run: bash infrastructure/scripts/rbac-004-migration-rehearsal.sh
 
+      - name: Rehearse W2-02 migration against legacy campaign contacts
+        run: npm run test:w2-02:migration
+
       - name: Rehearse audited Operations Admin UAT provisioning
         run: npm run test:uat-provisioning
 

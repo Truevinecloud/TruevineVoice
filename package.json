@@ -42,6 +42,7 @@
                     "test:call-persistence:e2e": "npm run test:e2e --workspace @truevine/api -- call-persistence.e2e-spec.ts",
                     "prisma:migrate:diff": "prisma migrate diff --config packages/database/prisma.config.ts",
                     "test:billing:e2e": "npm run test:e2e --workspace @truevine/api -- billing.e2e-spec.ts",
+                    "test:w2-02:migration": "bash infrastructure/scripts/w2-02-migration-rehearsal.sh",
                     "infra:up":  "docker compose up -d --wait",
                     "infra:down":  "docker compose down",
                     "infra:restart":  "docker compose restart",
