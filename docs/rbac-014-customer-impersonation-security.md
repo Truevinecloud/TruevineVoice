@@ -1,0 +1,26 @@
+# RBAC-014 — Controlled customer support access
+
+**Status: In Progress. Backend only.** Customer impersonation remains prohibited: the implementation creates a separate, temporary support capability and never changes the authenticated administrator into a customer.
+
+## Authorization and behavior
+
+- `platform:support:access` is a dedicated platform permission granted to `SUPPORT_ADMIN`. Session creation additionally requires the current role to be exactly `SUPPORT_ADMIN`; a `PLATFORM_OWNER` assignment alone does not qualify. Customer organization roles never receive platform permissions.
+- `POST /platform/support/sessions` requires the normal authenticated operator session, platform permission, rate limit and CSRF token, a real organization UUID, and one allowlisted reason code (`CUSTOMER_REQUEST`, `INCIDENT_RESPONSE`, `SERVICE_DIAGNOSTIC`, `SECURITY_REVIEW`). The server fixes expiry at 15 minutes; clients cannot extend it. The one-time response carries `supportAccessToken` with no-store headers.
+- PostgreSQL stores only the SHA-256 token hash. The record binds one organization, the actual operator, their authenticated session, reason code, creation and expiry times, and revocation time. Composite foreign keys bind the capability to the operator's own authentication session. The secret is never used as a customer login or stored in the audit trail.
+- `GET /platform/support/organizations/:organizationId/diagnostics` is the only support-context data route. The existing diagnostics route now requires the current authenticated operator, the dedicated access permission, the separate diagnostics permission, and the valid context secret. Its organization path must exactly match the stored context; query/path organization values cannot switch scope. The real operator remains `actorUserId`.
+- `POST /platform/support/sessions/terminate` ends the context early. Every diagnostic read rechecks expiry, revocation, operator session/account and current support role. A lost support role permanently revokes the context when observed. Expiry is persisted and audited when observed.
+- Session creation and termination/expiry state changes share a PostgreSQL transaction with their identity audit event. Context diagnostics use the existing tenant-scoped platform audit trail and include the real actor, organization, support-session ID and reason code. Denied attempts use the identity audit trail without recording the supplied secret. Existing audit triggers prevent ordinary application edits/deletes/truncates; database owners/superusers remain outside that guarantee.
+
+All context writes are denied by omission: no wallet, billing, subscription, membership, role, permission, credential, API key, export, campaign mutation/execution, call, charge, emergency, or other customer-write route accepts a support context. No customer permissions are loaded or inherited. No worker, callback, webhook or provider execution context is created.
+
+## Migration and release gate
+
+Migration `20261022110000_rbac_014_support_access_sessions` starts with Prisma-generated additive SQL and adds two reviewed SQL `CHECK` constraints because Prisma does not model them. The database enforces the reason allowlist and the 15-minute expiry ceiling. SHA-256 of the final SQL: `FDB3248ED2494C3B045D3D30E8262B15829B2BF2D65068F4221F4ACC5BFAB707`. It adds a unique `(user_id,id)` index to `sessions`, a new support-access table, a token-hash unique index, a lookup index, and organization/user/session foreign keys. It has no data rewrite, backfill, drop, or audit-history change. The unique index scan and foreign-key DDL can take locks; production duration and recovery must be reviewed against current database size and the deployment runbook. Rollback is application rollback only; the additive table/indexes remain and must not be dropped automatically.
+
+The migration is **not** listed in `infrastructure/migrations-reviewed.json`. Production deployment remains blocked until its SQL, compatibility, lock/recovery plan and production recovery evidence receive the repository's separate reviewed approval. No production migration, merge or deployment has occurred in this branch.
+
+## Validation and remaining risks
+
+Unit tests cover reason enforcement, secret hashing, nested-session rejection and termination. PostgreSQL integration and HTTP E2E suites cover atomic audit rollback, actor/session/org binding, permission removal, expiry, revocation, forged/cross-operator tokens, organization-switch attempts, audit attribution and a denied customer mutation with no database change. These integration suites require disposable PostgreSQL and must pass in CI before review.
+
+An operation already authorized and in flight may finish while a concurrent termination commits; subsequent requests are refused. Existing organization/user lookup and audit-read routes remain independently permission-checked, read-only and audited; tenant diagnostics now require this context. Supplying the support token to any other authenticated route is denied before the controller runs. Operational reverse-proxy/access logs must not record `x-support-access-token`. No frontend, production configuration, real calling or charging is included.

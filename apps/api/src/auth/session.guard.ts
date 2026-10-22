@@ -16,7 +16,7 @@ import { termsAcceptanceRequired } from '@truevine/auth';
  */
 
 import { Inject, Injectable, type CanActivate, type ExecutionContext } from '@nestjs/common';
-import { hashToken, sessionInvalid, unauthenticated } from '@truevine/auth';
+import { hashToken, permissionDenied, sessionInvalid, unauthenticated } from '@truevine/auth';
 
 import { readSessionToken } from './cookies.js';
 import { PRINCIPAL, type AuthenticatedRequest, type Principal } from './principal.js';
@@ -80,6 +80,31 @@ export class SessionGuard implements CanActivate {
       throw termsAcceptanceRequired();
     }
     request[PRINCIPAL] = principal;
+
+    // A support capability is deliberately usable only on the one read-only
+    // context route and its explicit termination route. Rejecting it here,
+    // after the real actor is authenticated but before any business guard or
+    // controller runs, prevents a support context from accompanying a customer
+    // mutation even when the operator separately has a tenant membership.
+    if (request.headers?.['x-support-access-token'] !== undefined) {
+      const path = request.url?.split('?')[0];
+      const allowedSupportRoute =
+        (request.method === 'GET' &&
+          typeof path === 'string' &&
+          /^\/platform\/support\/organizations\/[^/]+\/diagnostics$/.test(path)) ||
+        (request.method === 'POST' && path === '/platform/support/sessions/terminate');
+      if (!allowedSupportRoute) {
+        await this.audit
+          .recordIdentity({
+            actorUserId: principal.userId,
+            action: 'platform.support.access_denied',
+            outcome: 'DENIED',
+            metadata: { reason: 'support_context_route_not_allowed' },
+          })
+          .catch(() => process.stderr.write('[support-access] Denial audit unavailable.\n'));
+        throw permissionDenied('Support access is limited to read-only diagnostics.');
+      }
+    }
 
     // Best effort. Recording usage must never turn a valid sign-in into a 401.
     await this.authStore.touchSession(session.id, now).catch(() => undefined);

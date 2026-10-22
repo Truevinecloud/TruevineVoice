@@ -33,6 +33,8 @@ import { OperationsController } from '../src/operations/operations.controller.js
 import { OrganizationsController } from '../src/organizations/organizations.controller.js';
 import { SessionGuard } from '../src/auth/session.guard.js';
 import { SupportController } from '../src/support/support.controller.js';
+import { SupportAccessGuard } from '../src/support/support-access.guard.js';
+import { SupportRateLimitGuard } from '../src/support/support-rate-limit.guard.js';
 import { TechnicalController } from '../src/technical/technical.controller.js';
 
 type AnyController = new (...args: never[]) => object;
@@ -66,6 +68,8 @@ const MUTATING_AUTH_HANDLERS = new Set([
   'AuthController.completePasswordReset',
   'AuthController.acceptTerms',
   'AuthController.deactivate',
+  'SupportController.startSupportAccess',
+  'SupportController.terminateSupportAccess',
 ]);
 
 /**
@@ -138,7 +142,7 @@ describe('route guard coverage', () => {
     expect(missing).toEqual([]);
   });
 
-  it('declares CsrfGuard on every mutating auth route', () => {
+  it('declares CsrfGuard on every mutating authenticated route', () => {
     const missing = ROUTES.filter(
       (route) => MUTATING_AUTH_HANDLERS.has(route.name) && !route.guards.includes(CsrfGuard),
     ).map((route) => route.name);
@@ -297,6 +301,8 @@ describe('support route declarations (RBAC-009)', () => {
     searchUsers: 'platform:support:read',
     user: 'platform:support:read',
     userAudit: 'platform:audit:read',
+    startSupportAccess: 'platform:support:access',
+    terminateSupportAccess: 'platform:support:access',
   };
 
   function supportHandlers(): string[] {
@@ -315,7 +321,7 @@ describe('support route declarations (RBAC-009)', () => {
   }
 
   it('finds handlers, so an empty map cannot pass vacuously', () => {
-    expect(supportHandlers().length).toBe(8);
+    expect(supportHandlers().length).toBe(10);
   });
 
   it('declares the expected permission on every support route', () => {
@@ -330,12 +336,33 @@ describe('support route declarations (RBAC-009)', () => {
     }
   });
 
-  it('declares only GET routes, so support cannot mutate through this controller', () => {
+  it('keeps only the session lifecycle routes mutating and requires CSRF', () => {
+    const mutations = new Set(['startSupportAccess', 'terminateSupportAccess']);
     for (const name of supportHandlers()) {
+      if (mutations.has(name)) {
+        expect(Reflect.getMetadata(METHOD_METADATA, supportHandler(name)), name).toBe(
+          RequestMethod.POST,
+        );
+        const guards = Reflect.getMetadata(GUARDS_METADATA, supportHandler(name)) as unknown[];
+        expect(guards).toContain(SessionGuard);
+        expect(guards).toContain(PlatformGuard);
+        expect(guards).toContain(SupportRateLimitGuard);
+        expect(guards).toContain(CsrfGuard);
+        continue;
+      }
       expect(Reflect.getMetadata(METHOD_METADATA, supportHandler(name)), name).toBe(
         RequestMethod.GET,
       );
     }
+    expect(mutations.size).toBe(2);
+  });
+
+  it('requires verified support context on tenant diagnostics', () => {
+    const guards = Reflect.getMetadata(GUARDS_METADATA, supportHandler('diagnostics')) as unknown[];
+    expect(guards).toContain(SessionGuard);
+    expect(guards).toContain(PlatformGuard);
+    expect(guards).toContain(SupportRateLimitGuard);
+    expect(guards).toContain(SupportAccessGuard);
   });
 
   it('declares no organization permission on any support route', () => {
@@ -549,11 +576,9 @@ describe('every platform route is guarded and none is a mutation reachable by an
   });
 
   it('declares no mutating permission on the three read-only platform controllers', () => {
-    // Support, technical and audit are read-only consoles. A mutating platform
-    // permission here would be a mutation reachable by an auditor, which
-    // RBAC-011 forbids. The set is written literally, from the platform
-    // registry's mutating row, so a new mutating permission used by one of
-    // these controllers must be added here - a deliberate edit - to pass.
+    // Technical and audit are read-only consoles. Support has explicit session
+    // lifecycle routes, but their dedicated permission does not grant customer
+    // writes. The set is written literally so new capabilities require review.
     //
     // Checked by set membership rather than a `:read` suffix: `platform:support:
     // diagnostics` is a read whose name does not end in `:read`, so a suffix
@@ -565,10 +590,11 @@ describe('every platform route is guarded and none is a mutation reachable by an
       'platform:billing:refund',
       'platform:technical:write',
       'platform:admin:manage',
+      'platform:support:access',
     ]);
 
     for (const [label, controller] of PLATFORM_CONTROLLERS) {
-      if (label === 'OperationsController') continue;
+      if (label === 'OperationsController' || label === 'SupportController') continue;
 
       for (const route of handlersOf(controller)) {
         const method = route.name.split('.')[1]!;

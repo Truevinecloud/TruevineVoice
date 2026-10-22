@@ -370,7 +370,7 @@ describe('platform roles stay inside their scope', () => {
     }
   });
 
-  it('grants the support admin exactly lookup, diagnostics, and audit reads', () => {
+  it('grants the support admin lookup, diagnostics, audit reads, and scoped support access', () => {
     // Exact, not a denylist: a permission added to SUPPORT_ADMIN has to be
     // decided here, and `platform:support:diagnostics` is the only permission
     // in the registry that reaches read-only tenant content for this role.
@@ -378,6 +378,7 @@ describe('platform roles stay inside their scope', () => {
       'platform:tenant:read',
       'platform:support:read',
       'platform:support:diagnostics',
+      'platform:support:access',
       'platform:audit:read',
     ]);
     // Diagnostics is read-only by construction: it must never pair with a

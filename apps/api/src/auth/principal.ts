@@ -24,6 +24,15 @@ export interface OrganizationContext {
   readonly role: import('./prisma-types.js').MembershipRole;
 }
 
+/** Verified support context kept separate from the real authenticated actor. */
+export interface SupportAccessContext {
+  readonly id: string;
+  readonly organizationId: string;
+  readonly actorUserId: string;
+  readonly reasonCode: string;
+  readonly expiresAt: Date;
+}
+
 /** Property name the session guard hangs the principal from. */
 export const PRINCIPAL = 'principal';
 
@@ -41,11 +50,13 @@ export const ORGANIZATION_CONTEXT = 'organizationContext';
 export interface AuthenticatedRequest {
   [PRINCIPAL]?: Principal;
   [ORGANIZATION_CONTEXT]?: OrganizationContext;
+  supportAccessContext?: SupportAccessContext;
   /** Route parameters. */
   params?: Record<string, string>;
   /** Raw request headers, read directly rather than through a cookie parser. */
   headers?: Record<string, string | string[] | undefined>;
   method?: string;
+  url?: string;
   /** Client address, when the adapter exposes it. */
   ip?: string;
 }

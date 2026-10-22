@@ -136,6 +136,7 @@ model User {
 
   memberships          Membership[]
   sessions             Session[]
+  supportAccessSessions SupportAccessSession[] @relation("SupportAccessActor")
   passwordResetTokens  PasswordResetToken[]
   termsAcceptances     TermsAcceptance[]
   platformRole         PlatformRoleAssignment?    @relation("PlatformRoleHolder")
@@ -178,8 +179,10 @@ model Session {
   ipPrefix         String?  @map("ip_prefix") @db.VarChar(64)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supportAccessSessions SupportAccessSession[]
 
   @@index([userId])
+  @@unique([userId, id])
   @@index([expiresAt])
   @@map("sessions")
 }
@@ -326,6 +329,29 @@ model IdentityAuditEvent {
   @@index([action])
   @@index([occurredAt])
   @@map("identity_audit_events")
+}
+
+/// A short-lived, server-validated read-only support capability. It preserves
+/// the real platform administrator and is never a customer authentication
+/// session. Only the token hash is persisted.
+model SupportAccessSession {
+  organizationId String    @map("organization_id") @db.Uuid
+  id             String    @default(uuid()) @db.Uuid
+  actorUserId    String    @map("actor_user_id") @db.Uuid
+  authSessionId  String    @map("auth_session_id") @db.Uuid
+  tokenHash      String    @unique @map("token_hash") @db.VarChar(64)
+  reasonCode     String    @map("reason_code") @db.VarChar(32)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  actor        User         @relation("SupportAccessActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  authSession  Session      @relation(fields: [actorUserId, authSessionId], references: [userId, id], onDelete: Restrict)
+
+  @@id([organizationId, id])
+  @@index([actorUserId, authSessionId, expiresAt])
+  @@map("support_access_sessions")
 }
 
 /// TENANT-OWNED. Append-only audit trail of organization and authorization actions.
@@ -496,6 +522,7 @@ model Organization {
   memberships        Membership[]
   invitations        Invitation[]
   securityAuditEvents SecurityAuditEvent[]
+  supportAccessSessions SupportAccessSession[]
   contacts           Contact[]
   campaigns          Campaign[]
   walletEntries      WalletEntry[]
