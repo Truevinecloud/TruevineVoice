@@ -1,3 +1,4 @@
+import { reportSupportAccessAuditFailure } from '../support-access-audit.js';
 import { ACCEPTED_TERMS } from './permission.decorators.js';
 import { termsAcceptanceRequired } from '@truevine/auth';
 /**
@@ -101,7 +102,9 @@ export class SessionGuard implements CanActivate {
             outcome: 'DENIED',
             metadata: { reason: 'support_context_route_not_allowed' },
           })
-          .catch(() => process.stderr.write('[support-access] Denial audit unavailable.\n'));
+          .catch(() =>
+            reportSupportAccessAuditFailure(principal.userId, 'support_context_route_not_allowed'),
+          );
         throw permissionDenied('Support access is limited to read-only diagnostics.');
       }
     }
