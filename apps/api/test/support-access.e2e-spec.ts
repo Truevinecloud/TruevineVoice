@@ -44,6 +44,10 @@ describe('RBAC-014 support access persistence on disposable PostgreSQL', () => {
     const ownerId = randomUUID();
     const secret = randomUUID() + randomUUID();
     const now = new Date();
+    const createdAt =
+      expiresAt.getTime() <= now.getTime()
+        ? new Date(expiresAt.getTime() - 14 * 60_000)
+        : now;
     await db.$transaction(async (tx) => {
       await tx.user.create({
         data: {
@@ -84,7 +88,7 @@ describe('RBAC-014 support access persistence on disposable PostgreSQL', () => {
       authSessionId,
       tokenHash: hashToken(secret),
       reasonCode: 'SERVICE_DIAGNOSTIC',
-      createdAt: now,
+      createdAt,
       expiresAt,
     };
     return { input, secret };

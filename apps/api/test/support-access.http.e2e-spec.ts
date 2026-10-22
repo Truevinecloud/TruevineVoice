@@ -230,9 +230,13 @@ describe('RBAC-014 controlled support access HTTP security', () => {
       where: { organizationId_id: { organizationId: orgB, id: session.supportSessionId } },
     });
     expect(row?.tokenHash).toBe(hashToken(session.supportAccessToken));
+    const expiredAt = new Date(Date.now() - 1000);
     await db.supportAccessSession.update({
       where: { organizationId_id: { organizationId: orgB, id: session.supportSessionId } },
-      data: { expiresAt: new Date(Date.now() - 1000) },
+      data: {
+        createdAt: new Date(expiredAt.getTime() - 14 * 60_000),
+        expiresAt: expiredAt,
+      },
     });
     expect(
       (
@@ -287,6 +291,10 @@ describe('RBAC-014 controlled support access HTTP security', () => {
       where: { organizationId_id: { organizationId: orgA, id: second.supportSessionId } },
     });
     expect(row?.revokedAt).not.toBeNull();
+    await db.platformRoleAssignment.update({
+      where: { userId: operator },
+      data: { revokedAt: null },
+    });
   });
 
   it('does not let a support context reach tenant mutation routes', async () => {
