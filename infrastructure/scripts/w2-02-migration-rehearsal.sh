@@ -31,6 +31,7 @@ done
 # Recreate representative pre-W2 production records after replaying the exact
 # existing migration history, including the campaign contact and recipient FK.
 psql_ci -d "$database" <<'SQL'
+BEGIN;
 INSERT INTO organizations(id,slug,name,updated_at) VALUES
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','w2a','W2-02 migration fixture',now()),
   ('99999999-9999-4999-8999-999999999999','w2b','W2-02 other tenant',now());
@@ -46,6 +47,7 @@ INSERT INTO contacts (organization_id,id,destination,label,updated_at)
 VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','cccccccc-cccc-4ccc-8ccc-cccccccccccc','+256772000001','Legacy',now());
 INSERT INTO campaign_recipients (organization_id,id,campaign_id,contact_id,destination)
 VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','dddddddd-dddd-4ddd-8ddd-dddddddddddd','eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','cccccccc-cccc-4ccc-8ccc-cccccccccccc','+256772000001');
+COMMIT;
 SQL
 
 if [[ "$(head -n 3 "$w2_migration" | grep -c '^BEGIN;$')" -ne 1 ]] || [[ "$(tail -n 1 "$w2_migration" | grep -c '^COMMIT;$')" -ne 1 ]]; then
