@@ -169,7 +169,7 @@ describe('W2-02 PostgreSQL contacts acceptance', () => {
   it('processes resumable imports idempotently without granting consent or clearing suppression', async () => {
     await store.createImport({ organizationId, actorUserId, importId, mapping: {} });
     const csv =
-      'phone,name,groups,consent,suppressed\n07720000002,Sam,Imported,yes,false\n07720000003,Jo,Imported,,true\n07720000002,Duplicate,Imported,,false';
+      'phone,name,groups,consent,suppressed\n0772000002,Sam,Imported,yes,false\n0772000003,Jo,Imported,,true\n0772000002,Duplicate,Imported,,false';
     const parsed = parseContactImportBatch(csv, {});
     const batch = {
       organizationId,
@@ -195,7 +195,7 @@ describe('W2-02 PostgreSQL contacts acceptance', () => {
     ).rejects.toThrow('import_batch_conflict');
 
     const followUp = parseContactImportBatch(
-      'phone,name,groups,suppressed\n07720000003,Jo Updated,,false\n07720000002,,NewSegment,false',
+      'phone,name,groups,suppressed\n0772000003,Jo Updated,,false\n0772000002,,NewSegment,false',
       {},
     );
     const followUpResult = await store.processImportBatch({
@@ -254,7 +254,7 @@ describe('W2-02 PostgreSQL contacts acceptance', () => {
 
     const legacyImportId = randomUUID();
     await store.createImport({ organizationId, actorUserId, importId: legacyImportId, mapping: {} });
-    const parsed = parseContactImportBatch('phone,name\n07720000021,Updated label', {});
+    const parsed = parseContactImportBatch('phone,name\n0772000021,Updated label', {});
     const result = await store.processImportBatch({
       organizationId,
       actorUserId,
@@ -308,7 +308,7 @@ describe('W2-02 PostgreSQL contacts acceptance', () => {
     });
     const duplicateImportId = randomUUID();
     await store.createImport({ organizationId, actorUserId, importId: duplicateImportId, mapping: {} });
-    const parsed = parseContactImportBatch('phone,name\n07720000031,Should not merge', {});
+    const parsed = parseContactImportBatch('phone,name\n0772000031,Should not merge', {});
     const result = await store.processImportBatch({
       organizationId,
       actorUserId,

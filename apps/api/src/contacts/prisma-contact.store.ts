@@ -170,7 +170,7 @@ export class PrismaContactStore implements ContactStore {
               take: 2,
             });
         if (existing || legacy.length) throw new Error('contact_conflict');
-        const links = [] as { organizationId: string; groupId: string; contactId: string }[];
+        const groupIds: string[] = [];
         for (const g of i.groupNames) {
           const group = await tx.contactGroup.upsert({
             where: {
@@ -188,9 +188,9 @@ export class PrismaContactStore implements ContactStore {
             },
             update: {},
           });
-          links.push({ organizationId: i.organizationId, groupId: group.id, contactId: i.id });
+          groupIds.push(group.id);
         }
-        const row = await tx.contact.create({
+        await tx.contact.create({
           data: {
             organizationId: i.organizationId,
             id: i.id,
@@ -199,10 +199,15 @@ export class PrismaContactStore implements ContactStore {
             label: i.name ?? '',
             email: i.email,
             createdById: i.actorUserId,
-            groupLinks: {
-              create: links.map(({ groupId }) => ({ organizationId: i.organizationId, groupId })),
-            },
           },
+        });
+        for (const groupId of groupIds) {
+          await tx.contactGroupMember.create({
+            data: { organizationId: i.organizationId, groupId, contactId: i.id },
+          });
+        }
+        const row = await tx.contact.findUniqueOrThrow({
+          where: { organizationId_id: { organizationId: i.organizationId, id: i.id } },
           include: { groupLinks: { include: { group: true } } },
         });
         await this.audit(tx, i.organizationId, i.actorUserId, 'contact.created', 'contact', i.id);
