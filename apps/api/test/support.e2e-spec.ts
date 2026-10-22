@@ -77,6 +77,17 @@ async function signIn(email: string) {
   expect(accepted.status).toBe(204);
   return {
     get: (path: string) => request(server).get(path).set('cookie', cookie),
+    post: (path: string, body: object) =>
+      request(server)
+        .post(path)
+        .set(CSRF_HEADER, csrf)
+        .set('cookie', `${cookie}; ${CSRF_COOKIE}=${encodeURIComponent(csrf)}`)
+        .send(body),
+    supportGet: (path: string, token: string) =>
+      request(server)
+        .get(path)
+        .set('cookie', cookie)
+        .set('x-support-access-token', token),
   };
 }
 
@@ -144,6 +155,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!database) return;
+  await database.supportAccessSession.deleteMany({ where: { actorUserId: SUPPORT_ADMIN } });
   await database.session.deleteMany({
     where: { userId: { in: [OWNER_A, OWNER_B, MEMBER_B, SUPPORT_ADMIN, BILLING_ADMIN, AUDITOR] } },
   });
@@ -217,8 +229,16 @@ describe('RBAC-009 support lookup over real PostgreSQL and HTTP', () => {
 
   it('gives Support Admin read-only diagnostics and hides them from the Auditor', async () => {
     const support = await signIn(EMAIL_SUPPORT);
+    const context = await support.post('/platform/support/sessions', {
+      organizationId: ORG_A,
+      reasonCode: 'SERVICE_DIAGNOSTIC',
+    });
+    expect(context.status).toBe(201);
 
-    const diagnostics = await support.get(`/platform/support/organizations/${ORG_A}/diagnostics`);
+    const diagnostics = await support.supportGet(
+      `/platform/support/organizations/${ORG_A}/diagnostics`,
+      context.body.supportAccessToken,
+    );
     expect(diagnostics.status).toBe(200);
     expect(diagnostics.body).toMatchObject({
       billingProfilePresent: false,

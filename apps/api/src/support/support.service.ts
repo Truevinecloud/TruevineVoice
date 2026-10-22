@@ -83,8 +83,7 @@ export class SupportService {
   async searchOrganizations(actorUserId: string, query: SupportSearchQuery) {
     const search = query.q === undefined ? undefined : this.optionalSearchQuery(query.q, 1, 200);
     const status = this.optionalStatus(query.status);
-    const afterSlug =
-      query.cursor === undefined ? undefined : this.requireSlugCursor(query.cursor);
+    const afterSlug = query.cursor === undefined ? undefined : this.requireSlugCursor(query.cursor);
 
     const rows = await this.store.searchOrganizations({
       query: search,
@@ -145,7 +144,11 @@ export class SupportService {
     };
   }
 
-  async diagnostics(actorUserId: string, rawOrganizationId: unknown) {
+  async diagnostics(
+    actorUserId: string,
+    rawOrganizationId: unknown,
+    accessContext?: { readonly supportSessionId: string; readonly reasonCode: string },
+  ) {
     const organizationId = requireUuid(rawOrganizationId, 'organization');
     const [organization, diagnostics] = await Promise.all([
       this.store.findOrganizationDetail(organizationId),
@@ -156,7 +159,10 @@ export class SupportService {
     await this.recordPlatformEvent(
       organizationId,
       actorUserId,
-      'platform.support.diagnostics_viewed',
+      accessContext
+        ? 'platform.support.context_diagnostics_viewed'
+        : 'platform.support.diagnostics_viewed',
+      accessContext ?? {},
     );
 
     return {
@@ -226,9 +232,13 @@ export class SupportService {
         status: user.status,
         createdAt: user.createdAt.toISOString(),
         lockedUntil: user.lockedUntil?.toISOString() ?? null,
-        platformRole: user.platformRole === null
-          ? null
-          : { role: user.platformRole.role, grantedAt: user.platformRole.grantedAt.toISOString() },
+        platformRole:
+          user.platformRole === null
+            ? null
+            : {
+                role: user.platformRole.role,
+                grantedAt: user.platformRole.grantedAt.toISOString(),
+              },
         membershipCount: user.membershipCount,
       })),
       nextCursor: rows.length > PAGE_SIZE ? (users.at(-1)?.email ?? null) : null,
@@ -283,7 +293,11 @@ export class SupportService {
     };
   }
 
-  async organizationAudit(actorUserId: string, rawOrganizationId: unknown, query: SupportAuditQuery) {
+  async organizationAudit(
+    actorUserId: string,
+    rawOrganizationId: unknown,
+    query: SupportAuditQuery,
+  ) {
     const organizationId = requireUuid(rawOrganizationId, 'organization');
     const organization = await this.store.findOrganizationDetail(organizationId);
     if (!organization) throw new NotFoundException();
@@ -319,7 +333,11 @@ export class SupportService {
     const action = this.optionalAuditAction(query.action);
     const after = query.cursor === undefined ? undefined : this.requireEventCursor(query.cursor);
 
-    const events = await this.store.userAuditEvents(userId, { action, after, limit: PAGE_SIZE + 1 });
+    const events = await this.store.userAuditEvents(userId, {
+      action,
+      after,
+      limit: PAGE_SIZE + 1,
+    });
     const page = events.slice(0, PAGE_SIZE);
 
     await this.recordIdentityEvent(actorUserId, 'platform.support.audit_viewed', {
@@ -401,7 +419,12 @@ export class SupportService {
   }
 
   private requireEmailCursor(value: unknown): string {
-    if (typeof value !== 'string' || value.length === 0 || value.length > 254 || !value.includes('@')) {
+    if (
+      typeof value !== 'string' ||
+      value.length === 0 ||
+      value.length > 254 ||
+      !value.includes('@')
+    ) {
       invalid('invalid_cursor', 'That position is not valid.');
     }
     return value;
@@ -417,7 +440,11 @@ export class SupportService {
   private async recordPlatformEvent(
     organizationId: string,
     actorUserId: string,
-    action: 'platform.support.organization_viewed' | 'platform.support.diagnostics_viewed' | 'platform.support.audit_viewed',
+    action:
+      | 'platform.support.organization_viewed'
+      | 'platform.support.diagnostics_viewed'
+      | 'platform.support.context_diagnostics_viewed'
+      | 'platform.support.audit_viewed',
     metadata: Readonly<Record<string, unknown>> = {},
   ): Promise<void> {
     assertKnownAuditAction(action);

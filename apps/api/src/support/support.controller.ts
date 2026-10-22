@@ -1,9 +1,24 @@
-import { Controller, Get, Inject, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  Headers,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 
 import { PlatformGuard } from '../auth/organization.guard.js';
 import { CurrentPrincipal, RequirePlatformPermission } from '../auth/permission.decorators.js';
-import type { Principal } from '../auth/principal.js';
+import type { AuthenticatedRequest, Principal, SupportAccessContext } from '../auth/principal.js';
 import { SessionGuard } from '../auth/session.guard.js';
+import { CsrfGuard } from '../auth/csrf.guard.js';
+import { SupportAccessGuard } from './support-access.guard.js';
+import { SupportAccessService } from './support-access.service.js';
 import { SupportRateLimitGuard } from './support-rate-limit.guard.js';
 import { SupportService } from './support.service.js';
 
@@ -16,7 +31,33 @@ import { SupportService } from './support.service.js';
  */
 @Controller('platform/support')
 export class SupportController {
-  constructor(@Inject(SupportService) private readonly support: SupportService) {}
+  constructor(
+    @Inject(SupportService) private readonly support: SupportService,
+    @Inject(SupportAccessService) private readonly access: SupportAccessService,
+  ) {}
+
+  @Post('sessions')
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  @UseGuards(SessionGuard, SupportRateLimitGuard, PlatformGuard, CsrfGuard)
+  @RequirePlatformPermission('platform:support:access')
+  startSupportAccess(
+    @Body() body: { readonly organizationId?: unknown; readonly reasonCode?: unknown },
+    @Req() request: AuthenticatedRequest,
+    @CurrentPrincipal() principal: Principal,
+  ) {
+    return this.access.start(principal, body, Boolean(request.headers?.['x-support-access-token']));
+  }
+
+  @Post('sessions/terminate')
+  @UseGuards(SessionGuard, SupportRateLimitGuard, PlatformGuard, CsrfGuard)
+  @RequirePlatformPermission('platform:support:access')
+  terminateSupportAccess(
+    @Headers('x-support-access-token') token: string | undefined,
+    @CurrentPrincipal() principal: Principal,
+  ) {
+    return this.access.end(principal, token);
+  }
 
   @Get('me')
   @UseGuards(SessionGuard, SupportRateLimitGuard, PlatformGuard)
@@ -46,13 +87,21 @@ export class SupportController {
   }
 
   @Get('organizations/:organizationId/diagnostics')
-  @UseGuards(SessionGuard, SupportRateLimitGuard, PlatformGuard)
+  @UseGuards(SessionGuard, SupportRateLimitGuard, SupportAccessGuard, PlatformGuard)
   @RequirePlatformPermission('platform:support:diagnostics')
   diagnostics(
     @Param('organizationId') organizationId: string,
     @CurrentPrincipal() principal: Principal,
+    @Req() request: AuthenticatedRequest,
   ) {
-    return this.support.diagnostics(principal.userId, organizationId);
+    const context = request.supportAccessContext as SupportAccessContext | undefined;
+    return this.support.diagnostics(
+      principal.userId,
+      organizationId,
+      context
+        ? { supportSessionId: context.id, reasonCode: context.reasonCode }
+        : undefined,
+    );
   }
 
   @Get('organizations/:organizationId/audit')

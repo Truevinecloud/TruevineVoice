@@ -60,6 +60,7 @@ export const PLATFORM_PERMISSIONS = [
   'platform:billing:refund',
   'platform:support:read',
   'platform:support:diagnostics',
+  'platform:support:access',
   'platform:technical:read',
   'platform:technical:write',
   'platform:audit:read',
@@ -173,6 +174,7 @@ export const PLATFORM_ROLE_PERMISSIONS: Readonly<
     'platform:tenant:read',
     'platform:support:read',
     'platform:support:diagnostics',
+    'platform:support:access',
     'platform:audit:read',
   ],
 
