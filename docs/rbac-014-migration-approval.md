@@ -6,10 +6,11 @@ Solo-maintainer release preparation (2026-10-22): see the
 [proposed one-time owner-authorized alternative](rbac-014-solo-maintainer-release-exception.md)
 for exact target `ac16a99cbca8b18367266a9d2432d57a80736b1e`. It preserves
 the technical findings and supplied operational evidence and records the medium
-monitoring risk, proposed owner and deadline. **The exception is not authorized;
-the independent-review requirement below remains in force until the owner
-explicitly adopts the alternative in an attributable release record.** This
-historical proposal is not evidence of a new independent approval or deployment.
+monitoring risk, owner and deadline. **The owner explicitly authorized the scoped
+alternative in the release conversation; that statement is recorded in the linked
+exception document.** The independent-review prerequisite is replaced only for
+this exact release under those accepted terms. This historical proposal is not
+evidence of a new independent approval or a completed deployment.
 
 RBAC-014 implementation PR #47 merged into `main` at `56e6cb873e700c5ab833a08f1d1395aaedecc204`. Main CI run [39718721741](https://github.com/Truevinecloud/TruevineVoice/actions/runs/39718721741) completed successfully on that exact SHA. This record and the matching migration-manifest entry propose permitting the release code to contain migration `20261022110000_rbac_014_support_access_sessions`; they do not apply the migration or authorize a production deployment.
 

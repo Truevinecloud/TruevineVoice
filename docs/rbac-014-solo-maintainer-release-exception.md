@@ -1,7 +1,30 @@
 # RBAC-014: proposed one-time solo-maintainer release exception
 
-**Status: PROPOSED — NOT AUTHORIZED. No production dispatch is permitted by this
-proposal alone.** Prepared 2026-10-22. Approval reference and approval time: pending.
+**Status: AUTHORIZED for the one-time release below.** Prepared 2026-10-22.
+Authorization recorded 2026-10-22 09:01:25 UTC from the accountable owner's
+explicit message in the release conversation following proposal commit
+`6e08e170f8c99a19a9b8a6d83a6f9367e7ce41da`. This records a solo-maintainer
+exception, not independent security approval or monitoring verification.
+
+## Owner authorization record
+
+The owner explicitly stated:
+
+> I authorize the one-time solo-maintainer release exception documented in commit
+> `6e08e17` for Truevine Voice RBAC-014 release
+> `ac16a99cbca8b18367266a9d2432d57a80736b1e`.
+>
+> As the accountable release owner, I accept the documented medium-severity
+> monitoring risk, take responsibility for the interim log-inspection controls,
+> and commit to the specified monitoring remediation deadline.
+>
+> This authorization applies only to RBAC-014 and does not establish a permanent
+> exemption from independent security review.
+
+The timestamp above is when this record was captured, not a claim about the
+message's server timestamp. The approved terms below are preserved. The owner
+accepts the interim controls; no collector, alert delivery or production logging
+configuration is represented as independently verified by this authorization.
 
 ## Scope and authority
 
