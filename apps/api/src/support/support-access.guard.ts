@@ -10,7 +10,7 @@ import { canActAsPlatform } from '@truevine/auth';
 import type { AuditStore } from '../auth/auth.store.js';
 import { AUDIT_STORE } from '../auth/tokens.js';
 import { PRINCIPAL, type AuthenticatedRequest } from '../auth/principal.js';
-import { SupportAccessService } from './support-access.service.js';
+import { reportSupportAccessAuditFailure, SupportAccessService } from './support-access.service.js';
 
 @Injectable()
 export class SupportAccessGuard implements CanActivate {
@@ -25,10 +25,6 @@ export class SupportAccessGuard implements CanActivate {
     const principal = request[PRINCIPAL];
     if (!principal) throw new ForbiddenException();
     const raw = request.headers?.['x-support-access-token'];
-    // Preserve the pre-existing platform-owner diagnostics permission. This
-    // is ordinary platform administration, not a customer support context;
-    // SUPPORT_ADMIN must present the short-lived capability on every read.
-    if (raw === undefined && principal.platformRole === 'PLATFORM_OWNER') return true;
     const token = typeof raw === 'string' ? raw : undefined;
     const accessContext = await this.access.resolve(principal, token);
     if (
@@ -57,7 +53,7 @@ export class SupportAccessGuard implements CanActivate {
         metadata: { reason },
       });
     } catch {
-      process.stderr.write('[support-access] Denial audit unavailable.\n');
+      reportSupportAccessAuditFailure(actorUserId, reason);
     }
   }
 }
