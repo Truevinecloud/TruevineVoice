@@ -3,10 +3,10 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { reportSupportAccessAuditFailure } from '../support-access-audit.js';
 import { hashToken } from '@truevine/auth';
 
 import type { AuditStore } from '../auth/auth.store.js';
@@ -23,22 +23,6 @@ export const SUPPORT_ACCESS_REASON_CODES = [
   'SECURITY_REVIEW',
 ] as const;
 export type SupportAccessReasonCode = (typeof SUPPORT_ACCESS_REASON_CODES)[number];
-
-/** Emit a structured server-side alert while keeping the attempted action denied. */
-export function reportSupportAccessAuditFailure(actorUserId: string, reasonCode: string): void {
-  const event = JSON.stringify({
-    event: 'support_access_denial_audit_failed',
-    actorUserId,
-    reasonCode,
-    occurredAt: new Date().toISOString(),
-  });
-  try {
-    new Logger('SupportAccess').error(event);
-  } catch {
-    // Keep a last-resort runtime signal if the configured Nest logger itself fails.
-    process.stderr.write(`${event}\n`);
-  }
-}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOKEN = /^[A-Za-z0-9_-]{40,60}$/;

@@ -5,6 +5,7 @@ Operational procedures for Truevine Voice: what to do when something breaks.
 | Runbook | Covers |
 | --- | --- |
 | [Production deployment](./production-deployment.md) | Releasing application code, verification, rollback |
+| [Support-access audit failure monitoring](./support-access-audit-alerting.md) | Event collection, alerting requirements and verification evidence |
 | [First Platform Owner bootstrap](./platform-owner-bootstrap.md) | Approval, private activation, one-time claim and interrupted execution |
 | [PostgreSQL and Redis recovery](./postgres-redis-recovery.md) | Backup, verified restore, volume recreation, datastore isolation |
 | [Deployment audit](./deployment-audit.md) | Recorded findings from the initial deployment audit |

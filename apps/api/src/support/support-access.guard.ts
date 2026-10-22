@@ -10,7 +10,8 @@ import { canActAsPlatform } from '@truevine/auth';
 import type { AuditStore } from '../auth/auth.store.js';
 import { AUDIT_STORE } from '../auth/tokens.js';
 import { PRINCIPAL, type AuthenticatedRequest } from '../auth/principal.js';
-import { reportSupportAccessAuditFailure, SupportAccessService } from './support-access.service.js';
+import { SupportAccessService } from './support-access.service.js';
+import { reportSupportAccessAuditFailure } from '../support-access-audit.js';
 
 @Injectable()
 export class SupportAccessGuard implements CanActivate {
