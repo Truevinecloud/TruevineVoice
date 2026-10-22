@@ -30,6 +30,17 @@ describe('proxy allowlist', () => {
       'POST /organizations/abc/invitations',
       'DELETE /organizations/abc/invitations/ghi',
       'POST /organizations/abc/ownership/transfer',
+      'GET /organizations/abc/contacts',
+      'POST /organizations/abc/contacts',
+      'PATCH /organizations/abc/contacts/def',
+      'POST /organizations/abc/contacts/def/voice-consent',
+      'POST /organizations/abc/contacts/def/suppress',
+      'GET /organizations/abc/contact-groups',
+      'POST /organizations/abc/contact-groups',
+      'POST /organizations/abc/contact-imports',
+      'POST /organizations/abc/contact-imports/def/batches',
+      'POST /organizations/abc/contact-imports/def/complete',
+      'GET /organizations/abc/contact-imports/def',
       'POST /invitations/accept',
     ] as const;
 
@@ -52,6 +63,11 @@ describe('proxy allowlist', () => {
       // A path that merely looks similar to an allowed one.
       'GET /organizations/abc/settings/secret',
       'GET /organizations/abc/members/def/permissions',
+      // Contact routing stays exact and method-qualified.
+      'DELETE /organizations/abc/contacts/def',
+      'PUT /organizations/abc/contact-imports/def/batches',
+      'GET /organizations/abc/contact-imports/def/batches',
+      'POST /organizations/abc/contact-imports/def/batches/extra',
       // Prototype-pollution style traversal.
       'GET /organizations/../admin',
       'POST /auth/sign-in/../../admin',
