@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { loadEnvFiles } from '@truevine/shared';
+import express from 'express';
 
 import { AppModule } from './app.module.js';
 import { loadApiConfig } from './config/api.config.js';
@@ -19,7 +20,9 @@ async function bootstrap(): Promise<void> {
   loadEnvFiles();
   const config = loadApiConfig();
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(express.json({ limit: '600kb' }));
+  app.use(express.urlencoded({ extended: false, limit: '100kb' }));
 
   // Lets Nest run onApplicationShutdown hooks, so Prisma and Redis connections
   // are released on SIGTERM/SIGINT.

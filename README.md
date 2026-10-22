@@ -696,14 +696,19 @@ its Windows refusal assertions do not establish Linux filesystem validation.
 ## Recipient and call persistence (development)
 
 Internal services persist tenant contacts, immutable recipient snapshots, call
-attempts and durable acceptance replay. No contact/call endpoints, live provider,
-queue dispatch or charging are enabled. See [ADR 0018](docs/adr/0018-call-recipient-persistence-and-idempotency.md).
+attempts and durable acceptance replay. W2-02 adds contact management and import
+endpoints while retaining the existing contact IDs, destination/label fields and
+campaign-recipient snapshots. No live provider, queue dispatch or charging is
+enabled. See [ADR 0018](docs/adr/0018-call-recipient-persistence-and-idempotency.md).
 
 - npm run test:call-persistence:e2e: focused real PostgreSQL contracts, also
   included in npm run test:e2e. Requires migrated disposable loopback PostgreSQL
   on port 55432, NODE_ENV=test and CALL_PERSISTENCE_DISPOSABLE=1 locally.
 - npm run prisma:migrate:diff -- --from-schema <baseline> --to-schema <schema> --script:
   generate SQL for review only; preserve manually maintained integrity triggers.
+- `npm run test:w2-02:migration`: GitHub Actions-only rehearsal against a temporary
+  database replayed from the existing migrations; verifies legacy contact and
+  recipient preservation plus transactional rollback.
 
 Migration application to production and deployment remain separately authorized.
 

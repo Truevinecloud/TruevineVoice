@@ -179,13 +179,17 @@ describe('the Campaign Manager matrix is exactly as specified', () => {
   // elsewhere prove single cells; this proves the whole row, so adding a
   // permission to CAMPAIGN_MANAGER - or removing one - fails here instead of
   // quietly widening or narrowing what a campaign manager may do.
-  it('grants precisely these six permissions', () => {
+  it('grants campaign and contact work without administrative or financial powers', () => {
     const expected = [
       'organization:read',
       'campaign:read',
       'campaign:create',
       'campaign:update',
       'campaign:delete',
+      'contact:read',
+      'contact:create',
+      'contact:update',
+      'contact:import',
       'reporting:read',
     ];
 
@@ -252,7 +256,7 @@ describe('the Organization Admin matrix is exactly as specified', () => {
   // elsewhere prove single cells; this proves the whole row, so adding a
   // permission to ADMIN - or removing one - fails here instead of quietly
   // widening what an admin may do (RBAC-002 acceptance: allow/deny matrix).
-  it('grants precisely these thirteen permissions', () => {
+  it('grants administration and campaign/contact work, excluding money and ownership', () => {
     const expected = [
       'organization:read',
       'organization:update',
@@ -266,6 +270,10 @@ describe('the Organization Admin matrix is exactly as specified', () => {
       'campaign:create',
       'campaign:update',
       'campaign:delete',
+      'contact:read',
+      'contact:create',
+      'contact:update',
+      'contact:import',
       'reporting:read',
     ];
 
