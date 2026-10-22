@@ -143,3 +143,27 @@ After authorization, use only the existing main-only production workflow with
 locking, verification and rollback safeguards. No application code, permissions,
 secrets or deployment workflow changes are proposed. Record the deployment run,
 outcome, deployed SHA and monitoring completion evidence after those events.
+
+## Deployment outcome — 2026-10-22
+
+- Owner authorization was recorded in documentation commit `a5f6607` on this
+  separate branch; `main` remained the exact authorized target.
+- Existing production workflow
+  [run 39752331337, deployment #54](https://github.com/Truevinecloud/TruevineVoice/actions/runs/39752331337)
+  was explicitly dispatched with `authorize_production=true` and completed
+  successfully for `ac16a99cbca8b18367266a9d2432d57a80736b1e`.
+- At 09:06:58 UTC the workflow reported the verified deployment and saved PM2
+  state. Its existing migration/activation checks completed without a reported
+  failure. This is workflow evidence, not a separate live migration-ledger query.
+- Independent post-deployment public HTTP verification at 09:24:26 UTC returned
+  `status: ok`, `environment: production`, the exact authorized version, and
+  PostgreSQL/Redis `up`; the homepage returned HTTP 200.
+- Backup, restore, disk and other completed preflight checks were not repeated.
+  No application code, workflow, production logging configuration or unrelated
+  worktree was modified. The workflow's Ubuntu runner-image transition notice
+  was informational and did not fail the deployment.
+- Audit collection and alert delivery remain unverified. The accepted monitoring
+  owner remains @benjatruevine and the effective deadline remains
+  **2026-10-23 12:00 EAT (09:00 UTC)**, earlier than 24 hours after activation.
+  Deployment success is not monitoring-completion evidence. Interim controls
+  and the non-permanent scope of the owner exception remain applicable.
