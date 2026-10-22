@@ -1,5 +1,6 @@
 ﻿import { hashToken } from '@truevine/auth';
-import { describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
 import type { AuditStore } from '../auth/auth.store.js';
 import type { Principal } from '../auth/principal.js';
 import { SUPPORT_ACCESS_TTL_MS, SupportAccessService } from './support-access.service.js';
@@ -35,8 +36,10 @@ class StoreFake implements SupportAccessStore {
 
 class AuditFake implements AuditStore {
   readonly identityEvents: unknown[] = [];
+  failIdentity = false;
   async record() {}
   async recordIdentity(event: unknown) {
+    if (this.failIdentity) throw new Error('audit store unavailable');
     this.identityEvents.push(event);
   }
 }
@@ -79,6 +82,23 @@ describe('SupportAccessService', () => {
     ).rejects.toMatchObject({ status: 400 });
     await expect(service.resolve(PRINCIPAL, 'x'.repeat(48))).rejects.toMatchObject({ status: 403 });
     expect(audit.identityEvents).toHaveLength(2);
+  });
+
+  it('keeps a denial closed and emits an operational error when denial audit persistence fails', async () => {
+    const audit = new AuditFake();
+    audit.failIdentity = true;
+    const service = new SupportAccessService(new StoreFake(), audit);
+    const log = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+    await expect(service.resolve(PRINCIPAL, undefined)).rejects.toMatchObject({ status: 403 });
+
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"support_access_denial_audit_failed"'),
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining('"reasonCode":"missing_or_malformed_context"'),
+    );
+    log.mockRestore();
   });
 
   it('ends an access context only when the store confirms revocation', async () => {

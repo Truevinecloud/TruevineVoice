@@ -162,9 +162,8 @@ describe('RBAC-014 controlled support access HTTP security', () => {
     const session = await createAccess();
     expect(Date.parse(session.expiresAt) - Date.now()).toBeLessThanOrEqual(15 * 60_000);
     expect(
-      (
-        await http(operator, 'get', '/platform/support/organizations/' + orgA + '/diagnostics')
-      ).status,
+      (await http(operator, 'get', '/platform/support/organizations/' + orgA + '/diagnostics'))
+        .status,
     ).toBe(403);
     const response = await http(
       operator,
@@ -198,6 +197,32 @@ describe('RBAC-014 controlled support access HTTP security', () => {
       supportSessionId: session.supportSessionId,
       reasonCode: 'CUSTOMER_REQUEST',
     });
+  });
+
+  it('requires a scoped support session for PLATFORM_OWNER diagnostics and reveals no tenant data without one', async () => {
+    for (const organizationId of [orgA, orgB]) {
+      const response = await http(
+        platformOwner,
+        'get',
+        '/platform/support/organizations/' + organizationId + '/diagnostics',
+      );
+      expect(response.status).toBe(403);
+      expect(response.body).not.toHaveProperty('organization');
+      expect(JSON.stringify(response.body)).not.toContain('Private diagnostic tenant');
+    }
+    expect(
+      await db.securityAuditEvent.count({
+        where: {
+          actorUserId: platformOwner,
+          action: {
+            in: [
+              'platform.support.context_diagnostics_viewed',
+              'platform.support.diagnostics_viewed',
+            ],
+          },
+        },
+      }),
+    ).toBe(0);
   });
 
   it('rejects forged, expired, revoked, cross-operator and nested contexts', async () => {
@@ -238,14 +263,13 @@ describe('RBAC-014 controlled support access HTTP security', () => {
         expiresAt: expiredAt,
       },
     });
-    expect(
-      (
-        await http(operator, 'get', '/platform/support/organizations/' + orgA + '/diagnostics').set(
-          'x-support-access-token',
-          session.supportAccessToken,
-        )
-      ).status,
-    ).toBe(403);
+    const expiredResponse = await http(
+      operator,
+      'get',
+      '/platform/support/organizations/' + orgA + '/diagnostics',
+    ).set('x-support-access-token', session.supportAccessToken);
+    expect(expiredResponse.status).toBe(403);
+    expect(expiredResponse.body).not.toHaveProperty('organization');
     expect(
       (
         await db.supportAccessSession.findUnique({
