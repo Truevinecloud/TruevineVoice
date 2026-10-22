@@ -9,6 +9,7 @@ import {
   assertDisposableDatabase,
 } from './disposable-database.js';
 import { CallPersistence } from '../src/calls/call-persistence.js';
+import { ContactAlreadyConsentedError } from '../src/contacts/contact.store.js';
 import { PrismaContactStore } from '../src/contacts/prisma-contact.store.js';
 import { parseContactImportBatch } from '../src/contacts/contact-import.csv.js';
 
@@ -117,7 +118,7 @@ describe('W2-02 PostgreSQL contacts acceptance', () => {
     await expect(store.recordVoiceConsent({
       organizationId, actorUserId, contactId: contact.id, consentedAt: new Date(),
       source: 'web_form', purpose: 'voice_calling', evidenceReference: `second-${run}`,
-    })).rejects.toThrow('ContactAlreadyConsentedError');
+    })).rejects.toBeInstanceOf(ContactAlreadyConsentedError);
     expect(await store.recordVoiceConsent({
       organizationId: otherOrganizationId, actorUserId, contactId: contact.id,
       consentedAt: new Date(), source: 'signed_form', purpose: 'voice_calling', evidenceReference: `foreign-${run}`,
