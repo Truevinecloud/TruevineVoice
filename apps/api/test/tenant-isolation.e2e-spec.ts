@@ -496,19 +496,24 @@ describe('RBAC-012 cross-tenant release blocker', () => {
     after[1] = prior[1];
     expect(after).toEqual(prior);
   });
-  it('preserves explicit platform-owner access while refusing tenant roles on platform search/audit', async () => {
+  it('preserves platform-owner access outside customer diagnostics and refuses tenant roles', async () => {
     for (const path of [
       '/platform/operations/organizations',
       '/platform/operations/campaigns',
       '/platform/support/organizations?query=' + b,
       '/platform/support/organizations/' + b,
-      '/platform/support/organizations/' + b + '/diagnostics',
       '/platform/audit/organizations',
       '/platform/technical/audit',
     ]) {
       expect((await http(ua, 'get', path)).status, path).toBe(403);
       expect((await http(platform, 'get', path)).status, path).toBe(200);
     }
+    expect(
+      (await http(ua, 'get', '/platform/support/organizations/' + b + '/diagnostics')).status,
+    ).toBe(403);
+    expect(
+      (await http(platform, 'get', '/platform/support/organizations/' + b + '/diagnostics')).status,
+    ).toBe(403);
     const response = await http(platform, 'get', '/platform/support/organizations/' + b);
     expect(JSON.stringify(response.body)).toContain(b);
   });
