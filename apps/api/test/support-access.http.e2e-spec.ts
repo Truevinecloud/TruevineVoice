@@ -159,6 +159,11 @@ describe('RBAC-014 controlled support access HTTP security', () => {
   it('scopes diagnostics to the capability organization and preserves the real operator in audit', async () => {
     const session = await createAccess();
     expect(Date.parse(session.expiresAt) - Date.now()).toBeLessThanOrEqual(15 * 60_000);
+    expect(
+      (
+        await http(operator, 'get', '/platform/support/organizations/' + orgA + '/diagnostics')
+      ).status,
+    ).toBe(403);
     const response = await http(
       operator,
       'get',

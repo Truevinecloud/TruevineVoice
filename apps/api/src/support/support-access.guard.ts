@@ -25,6 +25,10 @@ export class SupportAccessGuard implements CanActivate {
     const principal = request[PRINCIPAL];
     if (!principal) throw new ForbiddenException();
     const raw = request.headers?.['x-support-access-token'];
+    // Preserve the pre-existing platform-owner diagnostics permission. This
+    // is ordinary platform administration, not a customer support context;
+    // SUPPORT_ADMIN must present the short-lived capability on every read.
+    if (raw === undefined && principal.platformRole === 'PLATFORM_OWNER') return true;
     const token = typeof raw === 'string' ? raw : undefined;
     const accessContext = await this.access.resolve(principal, token);
     if (

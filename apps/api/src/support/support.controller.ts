@@ -95,11 +95,13 @@ export class SupportController {
     @Req() request: AuthenticatedRequest,
   ) {
     const context = request.supportAccessContext as SupportAccessContext | undefined;
-    if (!context) throw new Error('SupportAccessGuard did not attach a verified context.');
-    return this.support.diagnostics(principal.userId, organizationId, {
-      supportSessionId: context.id,
-      reasonCode: context.reasonCode,
-    });
+    return this.support.diagnostics(
+      principal.userId,
+      organizationId,
+      context
+        ? { supportSessionId: context.id, reasonCode: context.reasonCode }
+        : undefined,
+    );
   }
 
   @Get('organizations/:organizationId/audit')
