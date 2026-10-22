@@ -2,6 +2,10 @@
 
 Operational procedures for Truevine Voice: what to do when something breaks.
 
+**OPEN operational obligation:** RBAC-014 audit-log collection and alert delivery
+verification — owner **@benjatruevine**, due **23 October 2026, 12:00 EAT**.
+See [deployment completion and follow-up acceptance](../rbac-014-deployment-status.md).
+
 | Runbook | Covers |
 | --- | --- |
 | [Production deployment](./production-deployment.md) | Releasing application code, verification, rollback |

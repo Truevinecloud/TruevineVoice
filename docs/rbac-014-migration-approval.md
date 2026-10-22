@@ -1,5 +1,10 @@
 # RBAC-014 production migration approval proposal
 
+Current deployment milestone: **COMPLETED** for `ac16a99cbca8b18367266a9d2432d57a80736b1e`.
+See [deployment status and the OPEN monitoring follow-up](rbac-014-deployment-status.md).
+The proposal/status statements below are historical; deployment completion does
+not close monitoring verification or fabricate independent security approval.
+
 Status: proposal for independent review; production approval and execution have not occurred.
 
 Solo-maintainer release preparation (2026-10-22): see the
