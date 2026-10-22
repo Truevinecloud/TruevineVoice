@@ -45,22 +45,24 @@ describe('W2-02 PostgreSQL contacts acceptance', () => {
         passwordHash: 'test-only-not-used',
       },
     });
-    await database.organization.createMany({
-      data: [
-        { id: organizationId, slug: `contacts-${run}`, name: 'W2-02 disposable test' },
-        {
-          id: otherOrganizationId,
-          slug: `contacts-other-${run}`,
-          name: 'W2-02 tenant boundary test',
-        },
-      ],
-    });
-    await database.membership.createMany({
-      data: [organizationId, otherOrganizationId].map((tenantId) => ({
-        organizationId: tenantId,
-        userId: actorUserId,
-        role: 'OWNER' as const,
-      })),
+    await database.$transaction(async (transaction) => {
+      await transaction.organization.createMany({
+        data: [
+          { id: organizationId, slug: `contacts-${run}`, name: 'W2-02 disposable test' },
+          {
+            id: otherOrganizationId,
+            slug: `contacts-other-${run}`,
+            name: 'W2-02 tenant boundary test',
+          },
+        ],
+      });
+      await transaction.membership.createMany({
+        data: [organizationId, otherOrganizationId].map((tenantId) => ({
+          organizationId: tenantId,
+          userId: actorUserId,
+          role: 'OWNER' as const,
+        })),
+      });
     });
   });
 
