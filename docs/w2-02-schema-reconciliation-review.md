@@ -1,8 +1,10 @@
 # W2-02 schema reconciliation review
 
-Status: **prepared for disposable verification; migration approval remains pending**.
+Status: **schema and database acceptance verified; migration listed in the release-candidate manifest; production rollout remains blocked on backup and isolated-restore evidence**.
 
 Candidate base: `ac16a99cbca8b18367266a9d2432d57a80736b1e`.
+
+Verified implementation commit: `d91e6c879fc3eced24ce6a45a5fd421bacaedca9`.
 
 ## Authoritative schema preserved
 
@@ -14,13 +16,13 @@ When an import encounters a legacy row whose canonical `destination` matches, it
 
 ## Migration and rollback review
 
-The new migration is one PostgreSQL transaction. A forced error before commit must leave no W2-02 columns, types or tables behind. After successful application, code rollback is safe because all DDL is additive; the schema is intentionally retained. No down migration or destructive cleanup is proposed. The W2-02 directory remains absent from `infrastructure/migrations-reviewed.json` until the full-history disposable migration rehearsal and database-backed acceptance suite pass.
+The new migration is one PostgreSQL transaction. A forced error before commit leaves no W2-02 columns, types or tables behind. After successful application, code rollback is safe because all DDL is additive; the schema is intentionally retained. No down migration or destructive cleanup is proposed. The W2-02 migration is listed in `infrastructure/migrations-reviewed.json` after the full-history disposable migration rehearsal and database-backed acceptance suite passed. This candidate manifest entry permits the migration in a reviewed release tree; it does not itself authorize a production migration.
 
 ## Verification still required
 
-- Replay the existing migration history in a disposable database, seed a contact and campaign recipient, apply W2-02, and verify IDs, tenant keys, destination, label and recipient FK are unchanged.
-- Verify late-failure transaction rollback, membership-scoped creator/verifier FKs, cross-tenant group-member rejection and organization-scoped normalized-phone uniqueness.
-- Run the database-backed import/consent/suppression acceptance tests and the required candidate CI.
-- Obtain a current production backup and isolated-restore evidence through the approved runbook before any production migration.
+- **Passed, GitHub Actions, tested implementation commit `d91e6c879fc3eced24ce6a45a5fd421bacaedca9`:** full-history disposable migration rehearsal, including late-failure rollback, legacy contact and recipient preservation, tenant-scoped creator FKs, cross-tenant group rejection and duplicate-phone isolation ([run](https://github.com/Truevinecloud/TruevineVoice/actions/runs/39823193446)).
+- **Passed, same tested commit:** PostgreSQL contact acceptance suite, 5/5 tests, within the end-to-end job; the full e2e job passed ([run](https://github.com/Truevinecloud/TruevineVoice/actions/runs/39823193477)). It covers tenant isolation, imports and retry behavior, duplicate handling, consent, suppression, and legacy contact adoption.
+- **Passed, same tested commit:** required CI quality, unit, build, e2e, billing/campaign database, and migration checks ([PR checks](https://github.com/Truevinecloud/TruevineVoice/pull/51)).
+- **Still required before production migration:** obtain a current production backup and pass isolated restore verification through the approved runbook. Workspace SSH authentication was denied, so the operator must run the documented commands and provide the result.
 
 No production database was queried or changed during preparation. Campaign dispatch-time consent/suppression enforcement remains a separate unfinished integration dependency.

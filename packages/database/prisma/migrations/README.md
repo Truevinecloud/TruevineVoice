@@ -9,10 +9,12 @@ Prisma stores one folder per migration in this directory.
 | `20261022120000_contacts_groups_import_w2_02` | Additive contact management fields, groups and resumable imports |
 
 W2-02 extends the existing `contacts` table; it does not recreate or replace the
-campaign contact model. Its migration must remain unlisted in the reviewed
-migration manifest until the disposable migration rehearsal and database-backed
-acceptance tests pass. Money rules (AGENTS.md 6-7) and idempotency (AGENTS.md 9)
-remain separate from this task.
+campaign contact model. Its migration is listed in the W2-02 release-candidate
+reviewed migration manifest after the disposable migration rehearsal and
+database-backed acceptance tests passed. Production application still requires
+current backup and isolated-restore evidence, plus the supervised deployment
+gates. Money rules (AGENTS.md 6-7) and idempotency (AGENTS.md 9) remain separate
+from this task.
 
 ```
 npm run prisma:migrate:dev -- --name <descriptive_name>

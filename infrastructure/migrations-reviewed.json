@@ -32,6 +32,7 @@
     "20261020182000_platform_owner_bootstrap_search_path",
     "20261021120000_call_persistence",
     "20261021150000_sensitive_audit_integrity",
-    "20261022110000_rbac_014_support_access_sessions"
+    "20261022110000_rbac_014_support_access_sessions",
+    "20261022120000_contacts_groups_import_w2_02"
   ]
 }
