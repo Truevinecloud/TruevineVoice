@@ -155,6 +155,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!database) return;
+  await database.supportAccessSession.deleteMany({ where: { actorUserId: SUPPORT_ADMIN } });
   await database.session.deleteMany({
     where: { userId: { in: [OWNER_A, OWNER_B, MEMBER_B, SUPPORT_ADMIN, BILLING_ADMIN, AUDITOR] } },
   });

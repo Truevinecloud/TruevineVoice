@@ -20,6 +20,7 @@ describe('RBAC-014 controlled support access HTTP security', () => {
   let app: INestApplication;
   const operator = randomUUID();
   const customer = randomUUID();
+  const customerB = randomUUID();
   const platformOwner = randomUUID();
   const orgA = randomUUID();
   const orgB = randomUUID();
@@ -48,7 +49,7 @@ describe('RBAC-014 controlled support access HTTP security', () => {
       expected,
     );
     await db.$transaction(async (tx) => {
-      for (const id of [operator, customer, platformOwner])
+      for (const id of [operator, customer, customerB, platformOwner])
         await tx.user.create({
           data: { id, email: `${id}@example.invalid`, passwordHash: 'synthetic' },
         });
@@ -62,6 +63,7 @@ describe('RBAC-014 controlled support access HTTP security', () => {
         data: [
           { organizationId: orgA, userId: customer, role: 'OWNER' },
           { organizationId: orgA, userId: operator, role: 'ADMIN' },
+          { organizationId: orgB, userId: customerB, role: 'OWNER' },
         ],
       });
       await tx.platformRoleAssignment.createMany({
@@ -91,7 +93,7 @@ describe('RBAC-014 controlled support access HTTP security', () => {
       .useValue({ consume: async () => ({ allowed: true, retryAfterMs: 0, remaining: 10000 }) })
       .compile();
     const terms = module.get<string>(TERMS_VERSION);
-    for (const userId of [operator, customer, platformOwner]) {
+    for (const userId of [operator, customer, customerB, platformOwner]) {
       const token = randomUUID();
       tokens.set(userId, token);
       await db.session.create({

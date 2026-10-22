@@ -41,6 +41,7 @@ describe('RBAC-014 support access persistence on disposable PostgreSQL', () => {
     operatorId = randomUUID();
     authSessionId = randomUUID();
     organizationId = randomUUID();
+    const ownerId = randomUUID();
     const secret = randomUUID() + randomUUID();
     const now = new Date();
     await db.$transaction(async (tx) => {
@@ -51,8 +52,18 @@ describe('RBAC-014 support access persistence on disposable PostgreSQL', () => {
           passwordHash: 'unusable-synthetic',
         },
       });
+      await tx.user.create({
+        data: {
+          id: ownerId,
+          email: `${ownerId}@example.invalid`,
+          passwordHash: 'unusable-synthetic',
+        },
+      });
       await tx.organization.create({
         data: { id: organizationId, slug: organizationId, name: 'Synthetic support tenant' },
+      });
+      await tx.membership.create({
+        data: { organizationId, userId: ownerId, role: 'OWNER' },
       });
       await tx.platformRoleAssignment.create({
         data: { userId: operatorId, role: 'SUPPORT_ADMIN' },
