@@ -66,6 +66,21 @@ const ALLOWED_ROUTES: ReadonlyArray<{ readonly method: string; readonly pattern:
   { method: 'PATCH', pattern: /^\/organizations\/[^/]+\/billing$/ },
   { method: 'POST', pattern: /^\/organizations\/[^/]+\/wallet\/top-ups$/ },
 
+  // Tenant-scoped contacts, groups and resumable CSV imports. Keep each
+  // method/path pair explicit; the API still enforces session, organization,
+  // permission, accepted-terms and CSRF requirements for these routes.
+  { method: 'GET', pattern: /^\/organizations\/[^/]+\/contacts$/ },
+  { method: 'POST', pattern: /^\/organizations\/[^/]+\/contacts$/ },
+  { method: 'PATCH', pattern: /^\/organizations\/[^/]+\/contacts\/[^/]+$/ },
+  { method: 'POST', pattern: /^\/organizations\/[^/]+\/contacts\/[^/]+\/voice-consent$/ },
+  { method: 'POST', pattern: /^\/organizations\/[^/]+\/contacts\/[^/]+\/suppress$/ },
+  { method: 'GET', pattern: /^\/organizations\/[^/]+\/contact-groups$/ },
+  { method: 'POST', pattern: /^\/organizations\/[^/]+\/contact-groups$/ },
+  { method: 'POST', pattern: /^\/organizations\/[^/]+\/contact-imports$/ },
+  { method: 'POST', pattern: /^\/organizations\/[^/]+\/contact-imports\/[^/]+\/batches$/ },
+  { method: 'POST', pattern: /^\/organizations\/[^/]+\/contact-imports\/[^/]+\/complete$/ },
+  { method: 'GET', pattern: /^\/organizations\/[^/]+\/contact-imports\/[^/]+$/ },
+
   // Invitation acceptance.
   { method: 'POST', pattern: /^\/invitations\/accept$/ },
 ];
