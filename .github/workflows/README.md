@@ -109,10 +109,22 @@ as its own change before adding the gate.
 ## `deploy.yml`
 
 Triggered only by `workflow_dispatch`; pushes and CI completion never start
-production deployment. The operator must explicitly set the required
+production deployment. The operator must provide the required full lowercase
+40-character `release_sha` and explicitly set the required
 `authorize_production` boolean (default `false`) after reviewing approvals.
-The job also requires `DEPLOYMENT_READY=true`, checks all four CI jobs for the
-selected current-main SHA, and uses the protected production environment.
+The job also requires `DEPLOYMENT_READY=true`. It checks that `release_sha`
+matches the checked-out and deployment commit, verifies all four
+successful main-push CI jobs for that exact SHA, then fails closed unless that
+SHA is still the tip of remote `main`. A branch advancing at any point cannot
+cause the workflow to substitute another commit. Dispatch using `--ref main`
+and pass the same full SHA as `release_sha`; the workflow rejects a ref that
+resolves to another commit. The protected production environment remains in
+force.
+Because the workflow also requires the release SHA to remain the tip of `main`,
+merging a workflow-only change advances `main` and makes the prior SHA ineligible
+for a later run. This change must not be treated as approval to deploy the new
+merge SHA; that SHA requires its own release approval. This repository has no
+documented immutable-tag deployment path that avoids that constraint.
 Deployment uses OpenSSH, a non-root SSH account and independently verified
 known_hosts; no third-party SSH action. Configure GitHub environment required
 reviewers separately as defense in depth; this repository change does not alter

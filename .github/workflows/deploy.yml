@@ -3,8 +3,12 @@ name: Production deployment
 on:
   workflow_dispatch:
     inputs:
+      release_sha:
+        description: Exact 40-character main commit approved for production
+        required: true
+        type: string
       authorize_production:
-        description: Explicitly authorize deployment of the current main commit after reviewing release approvals
+        description: Explicitly authorize deployment of the exact release_sha after reviewing release approvals
         required: true
         type: boolean
         default: false
@@ -27,29 +31,39 @@ jobs:
     timeout-minutes: 45
     environment: production
     env:
-      # Production can only run after a human explicitly authorizes this
-      # workflow_dispatch invocation. The selected ref is still verified below.
-      DEPLOY_SHA: ${{ github.sha }}
+      # The only deployable source is the operator-pinned full SHA.
+      DEPLOY_SHA: ${{ inputs.release_sha }}
+      RELEASE_SHA: ${{ inputs.release_sha }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out tested source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.DEPLOY_SHA }}
+          ref: ${{ inputs.release_sha }}
           persist-credentials: false
 
-      - name: Verify CI gates and current main
+      - name: Verify exact release SHA, CI gates and current main
         run: |
           set -euo pipefail
-          # Resolve only a completed successful main-push CI run for the
-          # explicitly authorized dispatch SHA, then verify all required jobs.
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$DEPLOY_SHA&per_page=100" \
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "release_sha must be a full 40-character lowercase commit SHA" >&2
+            exit 1
+          }
+          checked_out_sha=$(git rev-parse HEAD)
+          if [[ "$RELEASE_SHA" != "$checked_out_sha" || "$RELEASE_SHA" != "$DEPLOY_SHA" ]]; then
+            echo "release_sha must equal the checked-out and deployment commit" >&2
+            exit 1
+          fi
+
+          # Only a completed successful main-push CI run for release_sha can
+          # authorize deployment; all four required jobs are asserted below.
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$RELEASE_SHA&per_page=100" \
             > "$RUNNER_TEMP/ci-runs.json"
           ci_run=$(node --input-type=module -e '
             import fs from "node:fs";
             import {selectSuccessfulCiRun} from "./infrastructure/scripts/verify-deployment.mjs";
             const {workflow_runs} = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/ci-runs.json"));
-            process.stdout.write(String(selectSuccessfulCiRun(workflow_runs, process.env.GITHUB_REPOSITORY)));
+            process.stdout.write(String(selectSuccessfulCiRun(workflow_runs, process.env.GITHUB_REPOSITORY, process.env.RELEASE_SHA)));
           ')
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run/jobs?per_page=100" > "$RUNNER_TEMP/jobs.json"
           node --input-type=module -e '
@@ -59,15 +73,12 @@ jobs:
             assertCiJobs(jobs);
           '
           latest=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
-          if [ "$latest" != "$DEPLOY_SHA" ]; then
-            echo "Superseded commit; deployment skipped"
-            echo "DEPLOY_CURRENT=false" >> "$GITHUB_ENV"
-          else
-            echo "DEPLOY_CURRENT=true" >> "$GITHUB_ENV"
+          if [ "$latest" != "$RELEASE_SHA" ]; then
+            echo "release_sha is no longer the exact tip of main; deployment refused" >&2
+            exit 1
           fi
 
       - name: Build and activate isolated release
-        if: env.DEPLOY_CURRENT == 'true'
         env:
           SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
           SSH_USER: ${{ secrets.VPS_SSH_USER }}

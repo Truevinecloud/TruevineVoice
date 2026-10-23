@@ -73,7 +73,23 @@ describe('production deployment approval gate', () => {
       /authorize_production:[\s\S]*?required:\s*true[\s\S]*?type:\s*boolean[\s\S]*?default:\s*false/,
     );
     expect(deploymentWorkflow).toMatch(/inputs\.authorize_production\s*==\s*true/);
+    expect(deploymentWorkflow).toMatch(/vars\.DEPLOYMENT_READY\s*==\s*'true'/);
     expect(deploymentWorkflow).toMatch(/environment:\s*production/);
+  });
+
+  it('requires a full SHA input and pins checkout, CI, and main to that release', () => {
+    expect(deploymentWorkflow).toMatch(
+      /release_sha:[\s\S]*?required:\s*true[\s\S]*?type:\s*string/,
+    );
+    expect(deploymentWorkflow).toMatch(/ref:\s*\$\{\{ inputs\.release_sha \}\}/);
+    expect(deploymentWorkflow).toMatch(/\^\[0-9a-f\]\{40\}\$/);
+    expect(deploymentWorkflow).toMatch(/RELEASE_SHA.*DEPLOY_SHA/);
+    expect(deploymentWorkflow).toMatch(/RELEASE_SHA.*checked_out_sha/);
+    expect(deploymentWorkflow).toMatch(/head_sha=\$RELEASE_SHA/);
+    expect(deploymentWorkflow).toMatch(/selectSuccessfulCiRun\([\s\S]*?RELEASE_SHA/);
+    expect(deploymentWorkflow).toMatch(/latest.*RELEASE_SHA/);
+    expect(deploymentWorkflow).toMatch(/release_sha is no longer the exact tip of main/);
+    expect(deploymentWorkflow).not.toMatch(/DEPLOY_CURRENT|Superseded commit; deployment skipped/);
   });
 });
 
@@ -82,13 +98,15 @@ describe('manual deployment CI run selection', () => {
   const successfulPush = {
     id: 38997192229,
     event: 'push',
+    head_branch: 'main',
+    head_sha: sha,
     status: 'completed',
     conclusion: 'success',
     head_repository: { full_name: repository },
   };
 
   it('selects the completed successful push run for this repository', () => {
-    expect(selectSuccessfulCiRun([successfulPush], repository)).toBe(successfulPush.id);
+    expect(selectSuccessfulCiRun([successfulPush], repository, sha)).toBe(successfulPush.id);
   });
 
   it('returns the newest matching run', () => {
@@ -97,7 +115,7 @@ describe('manual deployment CI run selection', () => {
       { ...successfulPush, id: 2 },
       { ...successfulPush, id: 1 },
     ];
-    expect(selectSuccessfulCiRun(runs, repository)).toBe(2);
+    expect(selectSuccessfulCiRun(runs, repository, sha)).toBe(2);
   });
 
   it.each([
@@ -107,15 +125,23 @@ describe('manual deployment CI run selection', () => {
     { label: 'a cancelled run', patch: { conclusion: 'cancelled' } },
     { label: 'an unfinished run', patch: { status: 'in_progress', conclusion: null } },
     { label: 'a run with no repository', patch: { head_repository: undefined } },
+    { label: 'a different commit', patch: { head_sha: 'b'.repeat(40) } },
+    { label: 'a different branch', patch: { head_branch: 'release' } },
   ])('refuses to authorise a deployment from $label', ({ patch }) => {
-    expect(() => selectSuccessfulCiRun([{ ...successfulPush, ...patch }], repository)).toThrow(
+    expect(() => selectSuccessfulCiRun([{ ...successfulPush, ...patch }], repository, sha)).toThrow(
       'No completed successful CI push run found',
     );
   });
 
   it('refuses to authorise a deployment when there are no runs at all', () => {
-    expect(() => selectSuccessfulCiRun([], repository)).toThrow(
+    expect(() => selectSuccessfulCiRun([], repository, sha)).toThrow(
       'No completed successful CI push run found',
+    );
+  });
+
+  it('refuses an invalid release SHA before selecting CI evidence', () => {
+    expect(() => selectSuccessfulCiRun([successfulPush], repository, 'deadbeef')).toThrow(
+      'Invalid release SHA for CI verification',
     );
   });
 });
