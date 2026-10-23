@@ -54,8 +54,10 @@ hosted Linux/PostgreSQL rehearsal remains a separate required gate.
 - The supported database factory disables ORM diagnostics. CLI failure output
   omits exception details. The link is written exclusively to a 0600 file in an
   operator-owned, realpath-checked 0700 directory. Neither link nor raw token is
-  printed. OS UID and explicit recovery source identify the local operator
-  action without inventing an authenticated application actor.
+  printed. The required audit user reference is the recovered identity, as in
+  existing operator provisioning. Explicit `local_operator`/`operating_system`
+  metadata, OS UID and recovery source identify the initiating operator; this
+  does not claim the recovered user initiated or authenticated the request.
 - Existing application consumption changes the password, invalidates remaining
   tokens and revokes prior sessions. Issuance itself leaves password, roles,
   sessions, organizations and user records unchanged.

@@ -60,9 +60,12 @@ export async function recoverQaOwner(database, { directory, baseUrl }, checkDire
         id: randomUUID(), userId: user.id, tokenHash: hashToken(raw), expiresAt,
       } });
       await tx.identityAuditEvent.create({ data: {
-        actorUserId: null, action: 'auth.password_reset_requested', outcome: 'SUCCESS',
+        // Identity audits require an existing user reference, as in operator provisioning.
+        // Metadata distinguishes the OS operator initiating this from the recovered subject.
+        actorUserId: user.id, action: 'auth.password_reset_requested', outcome: 'SUCCESS',
         metadata: { source: 'operator_qa_owner_recovery', targetUserId: user.id,
-          organizationId: org.id, operatorUid: process.getuid?.() ?? -1 },
+          organizationId: org.id, operatorUid: process.getuid?.() ?? -1,
+          actorKind: 'local_operator', actorAuthentication: 'operating_system' },
       } });
       checkDirectory(directory);
       file = join(directory, `qa-owner-recovery-${randomUUID()}.txt`);

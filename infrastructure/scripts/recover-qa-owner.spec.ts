@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { hashToken, PASSWORD_RESET_TTL_MS } from '@truevine/auth';
+import { createDatabaseClient } from '@truevine/database';
 
 const fs = vi.hoisted(() => ({
   openSync: vi.fn().mockReturnValue(42), closeSync: vi.fn(), fsyncSync: vi.fn(),
@@ -19,7 +20,9 @@ function fixture() {
     membership: { findUnique: vi.fn().mockResolvedValue({ role: 'OWNER' }) },
     platformRoleAssignment: { findUnique: vi.fn().mockResolvedValue(null) },
     passwordResetToken: { updateMany: vi.fn(), create: vi.fn() },
-    identityAuditEvent: { create: vi.fn() },
+    identityAuditEvent: { create: vi.fn(async (input: { data: { actorUserId: string | null } }) => {
+      if (!input.data.actorUserId) throw new Error('Audit identity reference is required.');
+    }) },
   };
   const database = { $transaction: vi.fn(async (work) => work(tx)), $disconnect: vi.fn() };
   return { tx, database };
@@ -28,6 +31,15 @@ const options = { directory: '/private', baseUrl: 'https://voice.example.invalid
 
 describe('QA Owner recovery', () => {
   beforeEach(() => vi.clearAllMocks());
+  it('rejects a null audit identity through Prisma before any database connection', async () => {
+    const database = createDatabaseClient('postgresql://localhost:1/qa_recovery_validation', { log: [] });
+    try {
+      // Deliberately invalid boundary input: exercise the actual generated client contract.
+      await expect(Reflect.apply(database.identityAuditEvent.create, database.identityAuditEvent, [{ data: {
+        actorUserId: null, action: 'auth.password_reset_requested', outcome: 'SUCCESS', metadata: {},
+      } }])).rejects.toMatchObject({ name: 'PrismaClientValidationError' });
+    } finally { await database.$disconnect(); }
+  });
   it('requires explicit production confirmation and an absolute directory', () => {
     expect(() => parseRecoveryArguments([])).toThrow();
     expect(() => parseRecoveryArguments(['--confirm-production=false', '--activation-directory', '/private'])).toThrow();
@@ -46,7 +58,10 @@ describe('QA Owner recovery', () => {
     expect(data.expiresAt.getTime()).toBeGreaterThanOrEqual(before + PASSWORD_RESET_TTL_MS);
     expect(fs.openSync.mock.calls[0]![2]).toBe(0o600);
     expect(JSON.stringify(tx.identityAuditEvent.create.mock.calls)).not.toContain(raw);
-    expect(tx.identityAuditEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ actorUserId: null, action: 'auth.password_reset_requested', metadata: expect.objectContaining({ targetUserId: 'user', organizationId: 'org' }) }) });
+    expect(tx.identityAuditEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ actorUserId: 'user', action: 'auth.password_reset_requested', metadata: expect.objectContaining({
+      targetUserId: 'user', organizationId: 'org', source: 'operator_qa_owner_recovery',
+      actorKind: 'local_operator', actorAuthentication: 'operating_system', operatorUid: process.getuid?.() ?? -1,
+    }) }) });
     expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
   });
   it.each(['missing-user', 'wrong-email', 'suspended', 'wrong-role', 'platform', 'missing-org', 'suspended-org'])('refuses %s before mutations', async (condition) => {
