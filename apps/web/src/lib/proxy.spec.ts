@@ -42,6 +42,7 @@ describe('proxy allowlist', () => {
       'POST /organizations/abc/contact-imports/def/complete',
       'GET /organizations/abc/contact-imports/def',
       'POST /invitations/accept',
+      'POST /invitations/activate',
     ] as const;
 
     for (const [method, path] of allowed.map((entry) => entry.split(' '))) {
@@ -71,6 +72,9 @@ describe('proxy allowlist', () => {
       // Prototype-pollution style traversal.
       'GET /organizations/../admin',
       'POST /auth/sign-in/../../admin',
+      'GET /invitations/activate',
+      'PUT /invitations/activate',
+      'POST /invitations/activate/extra',
       // Platform-scoped operations belong to RBAC-002 and have no route yet.
       'GET /platform/tenants',
     ] as const;

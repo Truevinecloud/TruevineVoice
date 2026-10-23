@@ -18,7 +18,10 @@ import { SignInForm } from './SignInForm';
 export default async function SignInPage({
   searchParams,
 }: {
-  readonly searchParams: Promise<{ readonly reason?: string | string[] }>;
+  readonly searchParams: Promise<{
+    readonly reason?: string | string[];
+    readonly invitation?: string | string[];
+  }>;
 }): Promise<React.JSX.Element> {
   const session = await currentSession();
 
@@ -27,6 +30,8 @@ export default async function SignInPage({
   const params = await searchParams;
   const raw = params.reason;
   const reason = Array.isArray(raw) ? raw[0] : raw;
+  const invitationRaw = params.invitation;
+  const invitation = Array.isArray(invitationRaw) ? invitationRaw[0] : invitationRaw;
 
   return (
     <main className="auth-shell">
@@ -36,6 +41,11 @@ export default async function SignInPage({
       {reason === 'session-ended' && (
         <p className="notice notice-info" role="status">
           Your session ended. Sign in again to continue.
+        </p>
+      )}
+      {invitation === 'activated' && (
+        <p className="notice notice-info" role="status">
+          Your account is active. Sign in with the password you just set.
         </p>
       )}
 

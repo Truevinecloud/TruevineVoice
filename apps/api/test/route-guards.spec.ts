@@ -53,6 +53,7 @@ const PUBLIC_ROUTES = new Set([
   'AuthController.signIn',
   'AuthController.requestPasswordReset',
   'AuthController.completePasswordReset',
+  'OrganizationsController.activateInvitation',
 ]);
 
 /**
@@ -86,6 +87,7 @@ const MUTATING_HANDLERS = new Set([
   'OrganizationsController.invite',
   'OrganizationsController.revokeInvitation',
   'OrganizationsController.acceptInvitation',
+  'OrganizationsController.activateInvitation',
   'OrganizationsController.transferOwnership',
 ]);
 
@@ -187,6 +189,7 @@ describe('customer API terms coverage', () => {
     const handlers = Object.getOwnPropertyNames(prototype).filter(
       (name) =>
         name !== 'me' &&
+        name !== 'activateInvitation' &&
         name !== 'constructor' &&
         Reflect.getMetadata(
           PATH_METADATA,
@@ -226,6 +229,7 @@ describe('organization route permission declarations', () => {
     invite: 'member:invite',
     revokeInvitation: 'invitation:revoke',
     acceptInvitation: null,
+    activateInvitation: null,
     transferOwnership: 'ownership:transfer',
   };
 
@@ -664,7 +668,7 @@ describe('RBAC-012 tenant route contract', () => {
           Reflect.getMetadata(PATH_METADATA, handler) === undefined
         )
           continue;
-        if (name === 'me' || name === 'acceptInvitation') continue;
+        if (name === 'me' || name === 'acceptInvitation' || name === 'activateInvitation') continue;
         const guards = Reflect.getMetadata(GUARDS_METADATA, handler) as unknown[];
         expect(guards, name).toEqual(
           expect.arrayContaining([SessionGuard, OrganizationGuard, CsrfGuard]),

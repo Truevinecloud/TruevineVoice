@@ -120,6 +120,7 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
         'http://localhost:3000',
         terms,
         transaction,
+        allow,
       ),
       auth: new AuthService(
         auth,

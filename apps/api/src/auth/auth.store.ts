@@ -107,6 +107,16 @@ export interface NewUser {
   readonly passwordHash: string;
 }
 
+/** Outcome of atomically activating an invitation for a new identity. */
+export type InvitationActivationResult =
+  | { readonly ok: true; readonly organizationId: string; readonly userId: string }
+  | { readonly ok: false; readonly reason: 'invalid' | 'account_exists' };
+
+export type InvitationActivationUser = Pick<NewUser, 'id' | 'passwordHash'>;
+
+/** Signals a concurrent invitation claim so its enclosing transaction rolls back. */
+export class InvitationActivationConflict extends Error {}
+
 /** Input for creating an organization together with its first owner. */
 export interface NewOrganization {
   readonly id: string;
@@ -285,6 +295,12 @@ export interface OrganizationStore {
   revokeInvitation(organizationId: string, invitationId: string, now: Date): Promise<boolean>;
   /** Accepts an invitation, creating the membership. Idempotent per token. */
   acceptInvitation(tokenHash: string, userId: string, now: Date): Promise<{ readonly ok: boolean }>;
+  /** Creates an invited identity and its membership while consuming the invite. */
+  activateInvitation(
+    tokenHash: string,
+    user: InvitationActivationUser,
+    now: Date,
+  ): Promise<InvitationActivationResult>;
 }
 
 /** A principal's standing in the Truevine platform, if any. */

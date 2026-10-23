@@ -18,6 +18,7 @@ import type {
   AuthStore,
   IdentityAuditEventInput,
   InvitationRecord,
+  InvitationActivationUser,
   MembershipChangeResult,
   MembershipRecord,
   NewInvitation,
@@ -259,6 +260,7 @@ export class FakeOrganizationStore implements OrganizationStore {
   invitations: Mutable<InvitationRecord>[] = [];
   /** Every organization id passed to a method, for "was it scoped?" assertions. */
   scopedCalls: string[] = [];
+  authStore: FakeAuthStore | undefined;
 
   async findOrganizationById(organizationId: string) {
     return this.organizations.find((organization) => organization.id === organizationId);
@@ -442,6 +444,42 @@ export class FakeOrganizationStore implements OrganizationStore {
     return { ok: true };
   }
 
+  async activateInvitation(tokenHash: string, user: InvitationActivationUser, now: Date) {
+    const invitation = this.invitations.find((entry) => entry.tokenHash === tokenHash);
+    if (
+      !invitation ||
+      invitation.acceptedAt !== null ||
+      invitation.revokedAt !== null ||
+      invitation.expiresAt.getTime() <= now.getTime() ||
+      this.organizations.find((entry) => entry.id === invitation.organizationId)?.suspendedAt
+    )
+      return { ok: false as const, reason: 'invalid' as const };
+    if (
+      this.authStore?.users.some(
+        (existing) => existing.email.toLowerCase() === invitation.email.toLowerCase(),
+      )
+    )
+      return { ok: false as const, reason: 'account_exists' as const };
+
+    this.authStore?.users.push(
+      aUser({
+        id: user.id,
+        email: invitation.email,
+        passwordHash: user.passwordHash,
+        passwordChangedAt: now,
+      }),
+    );
+    this.memberships.push(
+      aMembership({
+        organizationId: invitation.organizationId,
+        userId: user.id,
+        role: invitation.role,
+      }),
+    );
+    invitation.acceptedAt = now;
+    return { ok: true as const, organizationId: invitation.organizationId, userId: user.id };
+  }
+
   private ownerCount(organizationId: string): number {
     return this.memberships.filter(
       (membership) => membership.organizationId === organizationId && membership.role === 'OWNER',
@@ -519,7 +557,9 @@ export class FakeSecurityTransaction implements SecurityTransaction {
     private readonly auth: FakeAuthStore,
     private readonly organizations: FakeOrganizationStore,
     private readonly audit: FakeAuditStore,
-  ) {}
+  ) {
+    organizations.authStore = auth;
+  }
   async run<T>(work: (stores: SecurityStores) => Promise<T>): Promise<T> {
     const snapshots = [this.auth, this.organizations, this.audit].map((store) =>
       structuredClone({ ...store }),

@@ -471,20 +471,23 @@ describe('OrganizationsService delegation', () => {
   let auth: FakeAuthStore;
   let organizations: FakeOrganizationStore;
   let audit: FakeAuditStore;
+  let email: NullEmailSender;
   let service: OrganizationsService;
 
   beforeEach(() => {
     auth = new FakeAuthStore();
     organizations = new FakeOrganizationStore();
     audit = new FakeAuditStore();
+    email = new NullEmailSender();
     service = new OrganizationsService(
       organizations,
       auth,
       audit,
-      new NullEmailSender(),
+      email,
       WEB_BASE,
       TERMS,
       new FakeSecurityTransaction(auth, organizations, audit),
+      permissiveLimiter,
     );
   });
 
@@ -744,20 +747,23 @@ describe('OrganizationsService invitations', () => {
   let auth: FakeAuthStore;
   let organizations: FakeOrganizationStore;
   let audit: FakeAuditStore;
+  let email: NullEmailSender;
   let service: OrganizationsService;
 
   beforeEach(() => {
     auth = new FakeAuthStore();
     organizations = new FakeOrganizationStore();
     audit = new FakeAuditStore();
+    email = new NullEmailSender();
     service = new OrganizationsService(
       organizations,
       auth,
       audit,
-      new NullEmailSender(),
+      email,
       WEB_BASE,
       TERMS,
       new FakeSecurityTransaction(auth, organizations, audit),
+      permissiveLimiter,
     );
     seedOwner(auth, organizations, { role: 'ADMIN' });
   });
@@ -821,6 +827,167 @@ describe('OrganizationsService invitations', () => {
     expect(organizations.memberships.some((m) => m.userId === 'user-9')).toBe(true);
   });
 
+  it('activates a new account from the invite token, preserves its role and permits sign-in', async () => {
+    await service.invite('org-1', actor, 'invitee@example.invalid', 'VIEWER');
+    const rawToken = new URL(
+      email.sent[0]!.body.split('\n').find((line) => line.includes('/accept-invite?'))!,
+    ).searchParams.get('token')!;
+
+    const result = await service.activateInvitation(rawToken, GOOD_PASSWORD, CONTEXT.ipPrefix);
+    const created = auth.users.find((user) => user.email === 'invitee@example.invalid')!;
+    expect(result.organizationId).toBe('org-1');
+    expect(
+      organizations.memberships.find((membership) => membership.userId === created.id)?.role,
+    ).toBe('VIEWER');
+    expect(created.passwordHash).toMatch(/^\$argon2id\$/);
+    expect(organizations.invitations[0]!.acceptedAt).not.toBeNull();
+    expect(audit.events.at(-1)).toMatchObject({
+      action: 'organization.invitation.accepted',
+      actorUserId: created.id,
+      organizationId: 'org-1',
+      outcome: 'SUCCESS',
+    });
+
+    const authService = new AuthService(
+      auth,
+      audit,
+      permissiveLimiter,
+      email,
+      WEB_BASE,
+      5,
+      60_000,
+      30_000,
+      new FakeSecurityTransaction(auth, organizations, audit),
+    );
+    await expect(authService.signIn(created.email, GOOD_PASSWORD, CONTEXT)).resolves.toMatchObject({
+      sessionToken: expect.any(String),
+    });
+  });
+
+  it('refuses invalid, expired, revoked and reused invitation activation tokens', async () => {
+    await expect(
+      service.activateInvitation('unknown-token', GOOD_PASSWORD, CONTEXT.ipPrefix),
+    ).rejects.toMatchObject({
+      code: 'invalid_or_expired_token',
+    });
+
+    for (const invitation of [
+      anInvitation({
+        email: 'expired@example.invalid',
+        tokenHash: hashToken('expired-token'),
+        expiresAt: new Date(Date.now() - 1),
+      }),
+      anInvitation({
+        email: 'revoked@example.invalid',
+        tokenHash: hashToken('revoked-token'),
+        revokedAt: new Date(),
+      }),
+    ]) {
+      organizations.invitations.push(invitation);
+      const token =
+        invitation.tokenHash === hashToken('expired-token') ? 'expired-token' : 'revoked-token';
+      await expect(
+        service.activateInvitation(token, GOOD_PASSWORD, CONTEXT.ipPrefix),
+      ).rejects.toMatchObject({
+        code: 'invalid_or_expired_token',
+      });
+    }
+
+    await service.invite('org-1', actor, 'invitee@example.invalid', 'VIEWER');
+    const rawToken = new URL(
+      email.sent
+        .at(-1)!
+        .body.split('\n')
+        .find((line) => line.includes('/accept-invite?'))!,
+    ).searchParams.get('token')!;
+    await service.activateInvitation(rawToken, GOOD_PASSWORD, CONTEXT.ipPrefix);
+    await expect(
+      service.activateInvitation(rawToken, GOOD_PASSWORD, CONTEXT.ipPrefix),
+    ).rejects.toMatchObject({
+      code: 'invalid_or_expired_token',
+    });
+  });
+
+  it('fails closed when the activation attempt is rate limited or the password is weak', async () => {
+    const limited = new OrganizationsService(
+      organizations,
+      auth,
+      audit,
+      email,
+      WEB_BASE,
+      TERMS,
+      new FakeSecurityTransaction(auth, organizations, audit),
+      denyingLimiter,
+    );
+    await expect(
+      limited.activateInvitation('any-token', GOOD_PASSWORD, CONTEXT.ipPrefix),
+    ).rejects.toMatchObject({
+      status: 429,
+    });
+    await expect(
+      service.activateInvitation('any-token', 'short', CONTEXT.ipPrefix),
+    ).rejects.toMatchObject({
+      code: 'password_too_weak',
+    });
+  });
+
+  it('refuses duplicate accounts and concurrent activation reuses', async () => {
+    await service.invite('org-1', actor, 'invitee@example.invalid', 'VIEWER');
+    const rawToken = new URL(
+      email.sent
+        .at(-1)!
+        .body.split('\n')
+        .find((line) => line.includes('/accept-invite?'))!,
+    ).searchParams.get('token')!;
+    auth.users.push(aUser({ id: 'existing-user', email: 'INVITEE@example.invalid' }));
+    await expect(
+      service.activateInvitation(rawToken, GOOD_PASSWORD, CONTEXT.ipPrefix),
+    ).rejects.toMatchObject({
+      code: 'email_already_registered',
+    });
+    expect(organizations.invitations[0]!.acceptedAt).toBeNull();
+    auth.users = auth.users.filter((user) => user.id !== 'existing-user');
+
+    await Promise.allSettled([
+      service.activateInvitation(rawToken, GOOD_PASSWORD, CONTEXT.ipPrefix),
+      service.activateInvitation(rawToken, GOOD_PASSWORD, CONTEXT.ipPrefix),
+    ]);
+    expect(auth.users.filter((user) => user.email === 'invitee@example.invalid')).toHaveLength(1);
+    expect(
+      organizations.memberships.filter((membership) => membership.userId !== 'user-1'),
+    ).toHaveLength(1);
+  });
+
+  it('uses only the organization encoded in the invitation, never client organization input', async () => {
+    organizations.organizations.push({
+      id: 'org-2',
+      slug: 'other',
+      name: 'Other',
+      suspendedAt: null,
+    });
+    organizations.memberships.push(
+      aMembership({ organizationId: 'org-2', userId: 'user-1', role: 'OWNER' }),
+    );
+    await service.invite(
+      'org-2',
+      { userId: 'user-1', role: 'OWNER' },
+      'other@example.invalid',
+      'VIEWER',
+    );
+    const rawToken = new URL(
+      email.sent
+        .at(-1)!
+        .body.split('\n')
+        .find((line) => line.includes('/accept-invite?'))!,
+    ).searchParams.get('token')!;
+    const result = await service.activateInvitation(rawToken, GOOD_PASSWORD, CONTEXT.ipPrefix);
+    const activated = auth.users.find((user) => user.email === 'other@example.invalid')!;
+    expect(result.organizationId).toBe('org-2');
+    expect(
+      organizations.memberships.filter((membership) => membership.userId === activated.id),
+    ).toEqual([expect.objectContaining({ organizationId: 'org-2', role: 'VIEWER' })]);
+  });
+
   it('refuses a revoked invitation', async () => {
     const invitation = anInvitation();
     organizations.invitations.push(invitation);
@@ -871,6 +1038,7 @@ describe('OrganizationsService ownership transfer', () => {
       WEB_BASE,
       TERMS,
       new FakeSecurityTransaction(auth, organizations, audit),
+      permissiveLimiter,
     );
     seedOwner(auth, organizations);
     organizations.memberships.push(aMembership({ userId: 'user-2', role: 'ADMIN' }));

@@ -29,6 +29,7 @@ import type {
   AuthStore,
   IdentityAuditEventInput,
   InvitationRecord,
+  InvitationActivationUser,
   MembershipChangeResult,
   MembershipRecord,
   NewInvitation,
@@ -43,6 +44,7 @@ import type {
   SessionRecord,
   UserRecord,
 } from './auth.store.js';
+import { InvitationActivationConflict } from './auth.store.js';
 import type { MembershipRole } from './prisma-types.js';
 import { DATABASE_CLIENT } from '../tokens.js';
 
@@ -543,6 +545,77 @@ export class PrismaOrganizationStore implements OrganizationStore {
         update: {},
       });
       return { ok: true };
+    });
+  }
+
+  async activateInvitation(tokenHash: string, newUser: InvitationActivationUser, now: Date) {
+    return this.prisma.$transaction(async (tx) => {
+      const invitation = await tx.invitation.findUnique({ where: { tokenHash } });
+      if (
+        !invitation ||
+        invitation.acceptedAt !== null ||
+        invitation.revokedAt !== null ||
+        invitation.expiresAt <= now
+      )
+        return { ok: false as const, reason: 'invalid' as const };
+
+      // The invitation supplies the tenant scope. Serialize activation against
+      // acceptance, revocation and other organization membership changes.
+      await tx.$queryRaw`SELECT id FROM organizations WHERE id = ${invitation.organizationId}::uuid FOR UPDATE`;
+      const currentInvitation = await tx.invitation.findUnique({ where: { tokenHash } });
+      if (
+        !currentInvitation ||
+        currentInvitation.acceptedAt !== null ||
+        currentInvitation.revokedAt !== null ||
+        currentInvitation.expiresAt <= now
+      )
+        return { ok: false as const, reason: 'invalid' as const };
+      // The email is globally unique across organizations. Serialize first
+      // activation for the same identity even when separate tenants issued
+      // invitations concurrently; the unique index remains the final guard.
+      await tx.$queryRaw`SELECT 1::int FROM (SELECT pg_advisory_xact_lock(hashtextextended(lower(${currentInvitation.email}), 0))) AS advisory_lock`;
+      const organization = await tx.organization.findUnique({
+        where: { id: currentInvitation.organizationId },
+      });
+      if (!organization || organization.suspendedAt)
+        return { ok: false as const, reason: 'invalid' as const };
+
+      if (await tx.user.findUnique({ where: { email: currentInvitation.email } }))
+        return { ok: false as const, reason: 'account_exists' as const };
+
+      await tx.user.create({
+        data: {
+          id: newUser.id,
+          email: currentInvitation.email,
+          passwordHash: newUser.passwordHash,
+        },
+      });
+      const claimed = await tx.invitation.updateMany({
+        where: {
+          organizationId: invitation.organizationId,
+          id: invitation.id,
+          tokenHash,
+          acceptedAt: null,
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { acceptedAt: now, acceptedByUserId: newUser.id },
+      });
+      if (claimed.count !== 1) throw new InvitationActivationConflict();
+
+      await tx.membership.create({
+        data: {
+          organizationId: invitation.organizationId,
+          userId: newUser.id,
+          role: invitation.role,
+        },
+      });
+
+      return {
+        ok: true as const,
+        organizationId: invitation.organizationId,
+        userId: newUser.id,
+      };
     });
   }
 }
