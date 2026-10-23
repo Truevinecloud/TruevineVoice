@@ -54,4 +54,5 @@ Thumbs.db
 
 # Operator provisioning: holds single-use activation tokens (0600).
 .owner-activation/
+qa-owner-recovery-*.txt
 .email-capture/

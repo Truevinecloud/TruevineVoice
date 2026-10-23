@@ -238,6 +238,11 @@ jobs:
       - name: Validate Platform Owner bootstrap on Linux
         run: npm run test:platform-owner-bootstrap:linux
 
+      - name: Validate QA Owner recovery on Linux with a disposable database
+        env:
+          QA_OWNER_RECOVERY_DISPOSABLE: '1'
+        run: npm run test:qa-owner-recovery:linux
+
       # Runs the RBAC-001 remediation suite. It does not touch `truevine_voice`:
       # `infrastructure/scripts/run-security-tests.mjs` creates its own databases
       # named `rbac_security_<timestamp>_<pid>_<suffix>`, applies the migrations to

@@ -280,6 +280,13 @@ with `SELECT 1` and Redis with `PING`.
 
 ## Commands
 
+Operator-only QA Owner recovery: `npm run recover:qa-owner -- --confirm-production --activation-directory <absolute-private-directory>`.
+This replaces reset/activation tokens for the existing QA Owner only. See the
+[private-file procedure and production approval boundary](docs/runbooks/qa-owner-recovery.md).
+Run focused checks with `npm run test:qa-owner-recovery` and `npm run lint:qa-owner-recovery`.
+The required CI E2E job runs `npm run test:qa-owner-recovery:linux` against a
+new database on its disposable Linux Compose stack; this command refuses other environments.
+
 ### Development
 
 | Command              | Description                             |
