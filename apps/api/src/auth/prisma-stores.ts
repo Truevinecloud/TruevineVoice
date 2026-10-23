@@ -573,7 +573,7 @@ export class PrismaOrganizationStore implements OrganizationStore {
       // The email is globally unique across organizations. Serialize first
       // activation for the same identity even when separate tenants issued
       // invitations concurrently; the unique index remains the final guard.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(lower(${currentInvitation.email}), 0))`;
+      await tx.$queryRaw`SELECT 1::int FROM (SELECT pg_advisory_xact_lock(hashtextextended(lower(${currentInvitation.email}), 0))) AS advisory_lock`;
       const organization = await tx.organization.findUnique({
         where: { id: currentInvitation.organizationId },
       });
