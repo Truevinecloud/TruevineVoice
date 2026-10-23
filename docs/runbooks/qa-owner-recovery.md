@@ -53,10 +53,14 @@ The command locks organization then user, rechecks identity/membership, expires
 all unused password-reset tokens (activation tokens share that table), inserts a
 digest from the shared generator/hash and shared expiry constant, and writes an
 `auth.password_reset_requested` identity audit in one PostgreSQL transaction.
-The audit has a null application actor, explicit operator-recovery source,
-target user/organization IDs and OS UID, with no raw token or URL. Correlate the
-UID with the approved operator session/change record; it is not an authenticated
-application principal. Success audit failure rolls back token replacement.
+The audit's required `actorUserId` references the existing recovered identity,
+following operator provisioning's identity-audit convention. Metadata explicitly
+marks the initiating actor as `local_operator`, authenticated through the
+operating system, and records the recovery source, target user/organization IDs
+and OS UID, with no raw token or URL. Correlate that UID with the approved
+operator session/change record; the identity reference does not mean the user
+initiated the request or authenticated an application session. Success audit
+failure rolls back token replacement.
 
 The file is written and fsynced before commit; file failure rolls back issuance.
 On transaction failure the file is removed. Filesystem and PostgreSQL cannot

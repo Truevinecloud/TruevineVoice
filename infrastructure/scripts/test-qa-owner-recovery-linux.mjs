@@ -82,7 +82,9 @@ try {
     beforeCounts[0] === await database.user.count() && beforeCounts[1] === await database.organization.count(),
   'No password, identity, organization or role mutation.');
   const audit = await database.identityAuditEvent.findFirst({ where: { action: 'auth.password_reset_requested' } });
-  check(audit?.metadata?.source === 'operator_qa_owner_recovery' && audit.metadata.targetUserId === userId &&
+  check(audit?.actorUserId === userId && audit.metadata?.source === 'operator_qa_owner_recovery' && audit.metadata.targetUserId === userId &&
+    audit.metadata.actorKind === 'local_operator' && audit.metadata.actorAuthentication === 'operating_system' &&
+    audit.metadata.operatorUid === process.getuid() &&
     !JSON.stringify(audit).includes(token), 'Safe recovery audit committed.');
   pass('plain Node CLI, 0700/0600, prior-token revocation, audit and unchanged identities/roles');
 
