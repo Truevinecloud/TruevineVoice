@@ -58,6 +58,10 @@ function services(database: PrismaClient) {
     ),
   };
 }
+function sessionCookieHeader(header: unknown): string | undefined {
+  const values = Array.isArray(header) ? header.map(String) : [String(header ?? '')];
+  return values.find((value) => value.trim().startsWith('tv_session='))?.split(';')[0];
+}
 beforeAll(async () => {
   loadEnvFiles();
   const url = requireEnv('DATABASE_URL');
@@ -467,9 +471,7 @@ describe('real PostgreSQL security regressions', () => {
       .set('x-truevine-csrf', csrf)
       .send({ email, password: 'new-invitee-long-passphrase' });
     expect(signedIn.status).toBe(200);
-    const sessionCookie = signedIn.headers['set-cookie']
-      ?.split(',')
-      .find((value: string) => value.trim().startsWith('tv_session='));
+    const sessionCookie = sessionCookieHeader(signedIn.headers['set-cookie']);
     expect(sessionCookie).toBeDefined();
     const me = await request(server).get('/me').set('cookie', sessionCookie!);
     expect(me.status).toBe(200);
