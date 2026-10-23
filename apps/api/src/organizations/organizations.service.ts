@@ -31,6 +31,7 @@ import {
   generateToken,
   hashToken,
   isSafeAuditMetadata,
+  passwordTooWeak,
   type OrganizationPermission,
   type OrganizationRole,
 } from '@truevine/auth';
@@ -43,14 +44,18 @@ import type {
   OrganizationRecord,
   OrganizationStore,
 } from '../auth/auth.store.js';
+import { InvitationActivationConflict } from '../auth/auth.store.js';
 import type { MembershipRole } from '../auth/prisma-types.js';
 import { invitationMessage, type EmailSender } from '@truevine/messaging';
+import { checkPassword, hashPassword } from '@truevine/auth/passwords';
+import type { RateLimiter } from '../auth/rate-limiter.js';
 
 import {
   AUDIT_STORE,
   AUTH_STORE,
   EMAIL_SENDER,
   ORGANIZATION_STORE,
+  RATE_LIMITER,
   TERMS_VERSION,
   WEB_PUBLIC_URL,
 } from '../auth/tokens.js';
@@ -111,6 +116,7 @@ export class OrganizationsService {
     @Inject(WEB_PUBLIC_URL) private readonly webPublicUrl: string,
     @Inject(TERMS_VERSION) private readonly termsVersion: string,
     @Inject(SECURITY_TRANSACTION) private readonly transactions: SecurityTransaction,
+    @Inject(RATE_LIMITER) private readonly rateLimiter: RateLimiter,
   ) {}
 
   /** Reads the organization profile. */
@@ -150,6 +156,7 @@ export class OrganizationsService {
           this.webPublicUrl,
           this.termsVersion,
           this.transactions,
+          this.rateLimiter,
         );
         await stores.lockOrganization(organizationId);
         const freshActor = await stores.organizations.findMembership(organizationId, actorUserId);
@@ -246,6 +253,7 @@ export class OrganizationsService {
           this.webPublicUrl,
           this.termsVersion,
           this.transactions,
+          this.rateLimiter,
         );
         await stores.lockOrganization(organizationId);
         const freshActor = await stores.organizations.findMembership(organizationId, actor.userId);
@@ -333,6 +341,7 @@ export class OrganizationsService {
           this.webPublicUrl,
           this.termsVersion,
           this.transactions,
+          this.rateLimiter,
         );
         await stores.lockOrganization(organizationId);
         const freshActor = await stores.organizations.findMembership(organizationId, actor.userId);
@@ -423,6 +432,7 @@ export class OrganizationsService {
           this.webPublicUrl,
           this.termsVersion,
           this.transactions,
+          this.rateLimiter,
         );
         await stores.lockOrganization(organizationId);
         const freshActor = await stores.organizations.findMembership(organizationId, actor.userId);
@@ -562,6 +572,7 @@ export class OrganizationsService {
           this.webPublicUrl,
           this.termsVersion,
           this.transactions,
+          this.rateLimiter,
         );
         await stores.lockOrganization(organizationId);
         const freshActor = await stores.organizations.findMembership(organizationId, actorUserId);
@@ -644,6 +655,7 @@ export class OrganizationsService {
         this.webPublicUrl,
         this.termsVersion,
         this.transactions,
+        this.rateLimiter,
       );
 
       const invitation = await stores.organizations.findInvitationByTokenHash(hashToken(rawToken));
@@ -741,6 +753,96 @@ export class OrganizationsService {
     return result;
   }
 
+  /** Creates a new invited identity and membership using the invitation token as proof. */
+  async activateInvitation(
+    rawToken: string,
+    password: string,
+    ipPrefix: string | null,
+  ): Promise<{ readonly organizationId: string }> {
+    const windowMs = 15 * 60 * 1_000;
+    const limit = await this.rateLimiter.consume(
+      `invitation-activation:${ipPrefix ?? 'unknown'}`,
+      5,
+      windowMs,
+    );
+    if (!limit.allowed)
+      throw new AuthError(
+        'invalid_or_expired_token',
+        'Too many activation attempts. Try again later.',
+        429,
+      );
+
+    const passwordProblem = checkPassword(password);
+    if (passwordProblem)
+      throw passwordTooWeak(
+        passwordProblem === 'too_short'
+          ? 'Password must be at least 12 characters.'
+          : passwordProblem === 'too_long'
+            ? 'Password must be no more than 200 characters.'
+            : 'A password is required.',
+      );
+
+    const tokenHash = hashToken(rawToken);
+    const passwordHash = await hashPassword(password);
+    let result: Awaited<ReturnType<OrganizationStore['activateInvitation']>>;
+    try {
+      result = await this.transactions.run(async (stores) => {
+        const activation = await stores.organizations.activateInvitation(
+          tokenHash,
+          { id: randomUUID(), passwordHash },
+          new Date(),
+        );
+        if (!activation.ok) return activation;
+
+        const scoped = new OrganizationsService(
+          stores.organizations,
+          stores.auth,
+          stores.audit,
+          this.emailSender,
+          this.webPublicUrl,
+          this.termsVersion,
+          this.transactions,
+          this.rateLimiter,
+        );
+        await scoped.audit(
+          activation.organizationId,
+          activation.userId,
+          'organization.invitation.accepted',
+          'SUCCESS',
+          {
+            organizationId: activation.organizationId,
+            ...mutationAudit({
+              targetType: 'membership',
+              targetId: activation.userId,
+              before: null,
+              change: { invitationAccepted: true },
+              after: { membershipCreated: true },
+              reasonCode: 'invitation_account_activation',
+            }),
+          },
+        );
+        return activation;
+      });
+    } catch (error) {
+      if (error instanceof InvitationActivationConflict)
+        throw new AuthError('invalid_or_expired_token', 'This invitation link is not valid.', 400);
+      throw error;
+    }
+
+    if (!result.ok) {
+      throw new AuthError(
+        result.reason === 'account_exists'
+          ? 'email_already_registered'
+          : 'invalid_or_expired_token',
+        result.reason === 'account_exists'
+          ? 'An account already exists for this invitation. Sign in to accept it.'
+          : 'This invitation link is not valid.',
+        result.reason === 'account_exists' ? 409 : 400,
+      );
+    }
+    return { organizationId: result.organizationId };
+  }
+
   /**
    * Transfers ownership to another member.
    *
@@ -764,6 +866,7 @@ export class OrganizationsService {
           this.webPublicUrl,
           this.termsVersion,
           this.transactions,
+          this.rateLimiter,
         );
         await stores.lockOrganization(organizationId);
         const freshActor = await stores.organizations.findMembership(organizationId, actorUserId);

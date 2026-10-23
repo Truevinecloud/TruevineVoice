@@ -54,6 +54,7 @@ function services(database: PrismaClient) {
       'http://localhost:3000',
       terms,
       transaction,
+      allow,
     ),
   };
 }
@@ -125,6 +126,25 @@ async function invite(organizationId: string, invitedByUserId: string, userId: s
       organizationId,
       email: `${userId}@example.invalid`,
       role: 'VIEWER',
+      tokenHash: hashToken(token),
+      invitedByUserId,
+      expiresAt: new Date(Date.now() + 600000),
+    },
+  });
+  return token;
+}
+async function inviteEmail(
+  organizationId: string,
+  invitedByUserId: string,
+  email: string,
+  role: 'ADMIN' | 'CAMPAIGN_MANAGER' | 'BILLING' | 'VIEWER' = 'VIEWER',
+) {
+  const token = randomUUID();
+  await db.invitation.create({
+    data: {
+      organizationId,
+      email,
+      role,
       tokenHash: hashToken(token),
       invitedByUserId,
       expiresAt: new Date(Date.now() + 600000),
@@ -415,6 +435,152 @@ describe('real PostgreSQL security regressions', () => {
         await db.securityAuditEvent.count({ where: { organizationId, outcome: 'DENIED' } }),
       ).toBe(8);
     }
+  }, 30000);
+
+  it('activates a new invited identity, signs in and receives only the invited tenant role', async () => {
+    const { organizationId, ids } = await tenant();
+    const email = `invite-activation-${randomUUID()}@example.invalid`;
+    const token = await inviteEmail(organizationId, ids[0]!, email, 'VIEWER');
+    const csrf = randomUUID();
+    const activated = await request(server)
+      .post('/invitations/activate')
+      .set('cookie', `tv_csrf=${csrf}`)
+      .set('x-truevine-csrf', csrf)
+      .send({ token, password: 'new-invitee-long-passphrase' });
+    expect(activated.status).toBe(200);
+    expect(activated.body).toEqual({ organizationId });
+
+    const user = await db.user.findUniqueOrThrow({ where: { email } });
+    const membership = await db.membership.findUniqueOrThrow({
+      where: { organizationId_userId: { organizationId, userId: user.id } },
+    });
+    expect(membership.role).toBe('VIEWER');
+    expect(await db.membership.count({ where: { userId: user.id } })).toBe(1);
+    const invitation = await db.invitation.findUniqueOrThrow({
+      where: { tokenHash: hashToken(token) },
+    });
+    expect(invitation.acceptedByUserId).toBe(user.id);
+
+    const signedIn = await request(server)
+      .post('/auth/sign-in')
+      .set('cookie', `tv_csrf=${csrf}`)
+      .set('x-truevine-csrf', csrf)
+      .send({ email, password: 'new-invitee-long-passphrase' });
+    expect(signedIn.status).toBe(200);
+    const sessionCookie = signedIn.headers['set-cookie']
+      ?.split(',')
+      .find((value: string) => value.trim().startsWith('tv_session='));
+    expect(sessionCookie).toBeDefined();
+    const me = await request(server).get('/me').set('cookie', sessionCookie!);
+    expect(me.status).toBe(200);
+    expect(me.body.memberships).toEqual([
+      expect.objectContaining({ organizationId, role: 'VIEWER' }),
+    ]);
+    expect(
+      await db.securityAuditEvent.count({
+        where: {
+          organizationId,
+          actorUserId: user.id,
+          action: 'organization.invitation.accepted',
+          outcome: 'SUCCESS',
+        },
+      }),
+    ).toBe(1);
+  }, 30000);
+
+  it('rejects invalid, expired, revoked, duplicate-account and cross-tenant activation attempts', async () => {
+    const { organizationId, ids } = await tenant();
+    const csrf = randomUUID();
+    const activate = (token: string) =>
+      request(server)
+        .post('/invitations/activate')
+        .set('cookie', `tv_csrf=${csrf}`)
+        .set('x-truevine-csrf', csrf)
+        .send({ token, password: 'new-invitee-long-passphrase' });
+
+    expect(
+      (
+        await request(server)
+          .post('/invitations/activate')
+          .send({ token: randomUUID(), password: 'new-invitee-long-passphrase' })
+      ).status,
+    ).toBe(403);
+    expect((await activate(randomUUID())).status).toBe(400);
+    const expired = await inviteEmail(
+      organizationId,
+      ids[0]!,
+      `expired-${randomUUID()}@example.invalid`,
+    );
+    await db.invitation.updateMany({
+      where: { tokenHash: hashToken(expired) },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    expect((await activate(expired)).status).toBe(400);
+    const revoked = await inviteEmail(
+      organizationId,
+      ids[0]!,
+      `revoked-${randomUUID()}@example.invalid`,
+    );
+    await db.invitation.updateMany({
+      where: { tokenHash: hashToken(revoked) },
+      data: { revokedAt: new Date() },
+    });
+    expect((await activate(revoked)).status).toBe(400);
+
+    const secondTenant = await tenant();
+    const existingEmail = `${secondTenant.ids[1]}@example.invalid`;
+    const duplicate = await inviteEmail(organizationId, ids[0]!, existingEmail);
+    expect((await activate(duplicate)).status).toBe(409);
+    expect(
+      await db.membership.count({ where: { organizationId, userId: secondTenant.ids[1] } }),
+    ).toBe(0);
+    expect(
+      (await db.invitation.findUniqueOrThrow({ where: { tokenHash: hashToken(duplicate) } }))
+        .acceptedAt,
+    ).toBeNull();
+  }, 30000);
+
+  it('allows exactly one of concurrent account activations to consume a single-use token', async () => {
+    const { organizationId, ids } = await tenant();
+    const email = `concurrent-activation-${randomUUID()}@example.invalid`;
+    const token = await inviteEmail(organizationId, ids[0]!, email, 'CAMPAIGN_MANAGER');
+    const csrf = randomUUID();
+    const activate = () =>
+      request(server)
+        .post('/invitations/activate')
+        .set('cookie', `tv_csrf=${csrf}`)
+        .set('x-truevine-csrf', csrf)
+        .send({ token, password: 'new-invitee-long-passphrase' });
+    const results = await Promise.all(Array.from({ length: 8 }, activate));
+    expect(results.filter((response) => response.status === 200)).toHaveLength(1);
+    expect(results.filter((response) => response.status === 400)).toHaveLength(7);
+    const user = await db.user.findUniqueOrThrow({ where: { email } });
+    expect(await db.membership.count({ where: { userId: user.id, organizationId } })).toBe(1);
+    expect(await db.membership.count({ where: { userId: user.id } })).toBe(1);
+  }, 30000);
+
+  it('serializes separate tenant invitations for the same globally unique email', async () => {
+    const first = await tenant();
+    const secondTenant = await tenant();
+    const email = `cross-tenant-activation-${randomUUID()}@example.invalid`;
+    const [firstToken, secondToken] = await Promise.all([
+      inviteEmail(first.organizationId, first.ids[0]!, email),
+      inviteEmail(secondTenant.organizationId, secondTenant.ids[0]!, email),
+    ]);
+    const csrf = randomUUID();
+    const activate = (token: string) =>
+      request(server)
+        .post('/invitations/activate')
+        .set('cookie', `tv_csrf=${csrf}`)
+        .set('x-truevine-csrf', csrf)
+        .send({ token, password: 'new-invitee-long-passphrase' });
+    const results = await Promise.all([activate(firstToken), activate(secondToken)]);
+    expect(results.map((response) => response.status).sort()).toEqual([200, 409]);
+
+    const user = await db.user.findUniqueOrThrow({ where: { email } });
+    expect(await db.membership.count({ where: { userId: user.id } })).toBe(1);
+    const invitations = await db.invitation.findMany({ where: { email } });
+    expect(invitations.filter((invitation) => invitation.acceptedAt !== null)).toHaveLength(1);
   }, 30000);
 
   it('repeats concurrent HTTP transfers: one winner, one Owner, one success audit', async () => {

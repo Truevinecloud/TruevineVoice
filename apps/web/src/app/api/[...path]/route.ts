@@ -83,6 +83,7 @@ const ALLOWED_ROUTES: ReadonlyArray<{ readonly method: string; readonly pattern:
 
   // Invitation acceptance.
   { method: 'POST', pattern: /^\/invitations\/accept$/ },
+  { method: 'POST', pattern: /^\/invitations\/activate$/ },
 ];
 
 /** Headers the proxy passes through untouched. */

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { currentSession } from '../../../lib/session';
 
 import { AcceptInvitationForm } from './AcceptInvitationForm';
+import { ActivateInvitationForm } from './ActivateInvitationForm';
 
 /**
  * `/accept-invite`
@@ -46,11 +47,9 @@ export default async function AcceptInvitePage({
         <AcceptInvitationForm token={token} />
       ) : (
         <>
-          <p className="notice notice-info">
-            Sign in first so we know who is joining, then open this link again.
-          </p>
+          <ActivateInvitationForm token={token} />
           <div className="auth-links">
-            <Link href="/sign-in">Sign in</Link>
+            <Link href="/sign-in">Already have an account? Sign in to accept</Link>
           </div>
         </>
       )}

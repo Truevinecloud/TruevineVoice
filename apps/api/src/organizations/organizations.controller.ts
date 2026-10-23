@@ -22,6 +22,7 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 
@@ -34,6 +35,8 @@ import {
 import { SessionGuard } from '../auth/session.guard.js';
 import { OrganizationGuard } from '../auth/organization.guard.js';
 import { CsrfGuard } from '../auth/csrf.guard.js';
+import type { Request } from 'express';
+import { ipPrefixOf } from '../auth/cookies.js';
 import {
   ORGANIZATION_ROLES,
   ORGANIZATION_ROLE_PERMISSIONS,
@@ -246,6 +249,21 @@ export class OrganizationsController {
     return this.organizations.acceptInvitation(
       principal.userId,
       typeof body.token === 'string' ? body.token : '',
+    );
+  }
+
+  /** `POST /invitations/activate`: a valid invite token proves the pending email invitation. */
+  @Post('invitations/activate')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(CsrfGuard)
+  async activateInvitation(
+    @Body() body: { readonly token?: unknown; readonly password?: unknown },
+    @Req() request: Request,
+  ): Promise<{ readonly organizationId: string }> {
+    return this.organizations.activateInvitation(
+      typeof body.token === 'string' ? body.token : '',
+      typeof body.password === 'string' ? body.password : '',
+      ipPrefixOf(request.ip),
     );
   }
 
