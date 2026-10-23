@@ -7,7 +7,7 @@
  * differently.
  */
 
-import { AuthError, hashToken } from '@truevine/auth';
+import { AuthError, hashToken, ORGANIZATION_ROLES, PLATFORM_ROLES } from '@truevine/auth';
 import { hashPassword } from '@truevine/auth/passwords';
 import { NullEmailSender } from '@truevine/messaging';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -66,6 +66,21 @@ function buildAuthService(limiter: RateLimiter = permissiveLimiter) {
 }
 
 describe('AuthService.signIn', () => {
+  it.each([...ORGANIZATION_ROLES, ...PLATFORM_ROLES])('authenticates the isolated %s identity without granting authority at login', async role => {
+    const { auth, service } = buildAuthService();
+    const email = `qa-${role.toLowerCase().replaceAll('_', '-')}@example.invalid`;
+    auth.users.push(aUser({ email, passwordHash: await hashPassword(GOOD_PASSWORD) }));
+    const result = await service.signIn(email, GOOD_PASSWORD, CONTEXT);
+    expect(result.sessionToken).toBeTruthy();
+    expect(auth.sessions).toHaveLength(1);
+  });
+  it.each([...ORGANIZATION_ROLES, ...PLATFORM_ROLES])('rejects an incorrect password for the isolated %s identity', async role => {
+    const { auth, service } = buildAuthService();
+    const email = `qa-${role.toLowerCase().replaceAll('_', '-')}@example.invalid`;
+    auth.users.push(aUser({ email, passwordHash: await hashPassword(GOOD_PASSWORD) }));
+    await expect(service.signIn(email, 'incorrect-test-passphrase', CONTEXT)).rejects.toBeInstanceOf(AuthError);
+    expect(auth.sessions).toHaveLength(0);
+  });
   let auth: FakeAuthStore;
   let audit: FakeAuditStore;
   let service: AuthService;

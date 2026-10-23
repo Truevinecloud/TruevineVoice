@@ -80,7 +80,17 @@
                     "test:rehearsal":  "node infrastructure/scripts/run-rbac-001-rehearsal.mjs",
                     "deploy:release":  "bash infrastructure/scripts/deploy.sh",
                     "deploy:rollback":  "bash infrastructure/scripts/deploy.sh --rollback",
-                    "deploy:verify":  "node infrastructure/scripts/verify-deployment.mjs"
+                    "deploy:verify":  "node infrastructure/scripts/verify-deployment.mjs",
+                    "qa:matrix": "npm run build:packages && node infrastructure/scripts/qa-role-matrix.mjs",
+                    "qa:provision": "node infrastructure/scripts/qa-role-test-kit.mjs",
+                    "test:qa-role-kit": "vitest run --config infrastructure/vitest.config.mts infrastructure/scripts/qa-role-test-kit.spec.ts",
+                    "test:account-seeder": "vitest run --config infrastructure/vitest.config.mts infrastructure/scripts/test-account-seeder.spec.ts",
+                    "test-accounts:seed": "node infrastructure/scripts/test-account-seeder.mjs seed",
+                    "test-accounts:verify": "node infrastructure/scripts/test-account-seeder.mjs verify",
+                    "test-accounts:disable": "node infrastructure/scripts/test-account-seeder.mjs disable",
+                    "rollout:test-accounts": "node infrastructure/scripts/production-test-rollout.mjs",
+                    "test:production-rollout": "vitest run --config infrastructure/vitest.config.mts infrastructure/scripts/production-test-rollout.spec.ts infrastructure/scripts/production-test-http.spec.ts",
+                    "test:production-rollout:e2e": "npm run build:packages && npm run test:e2e --workspace @truevine/api -- production-test-rollout.e2e-spec.ts"
                 },
     "devDependencies":  {
                             "@eslint/js":  "10.0.1",

@@ -1,4 +1,28 @@
 # Truevine Voice
+
+Production test-account executor (disabled by default):
+[executable commands, private inputs and approvals](docs/runbooks/production-test-account-execution.md).
+`npm run rollout:test-accounts -- inventory` and `-- template` print only public
+inventory/invalid blank input shapes. Actions `bootstrap`, `initialize`,
+`provision`, `verify`, `http` and `disable` require private approval/credential
+files; production additionally requires explicit confirmation and a matching
+active READY release. Focused checks: `test:production-rollout`; real isolated
+database/HTTP rehearsal: `test:production-rollout:e2e` (required before production).
+
+Developer-controlled no-email test account seeder:
+[private configuration, verification and disable instructions](docs/runbooks/test-account-seeder.md).
+Root commands: `test-accounts:seed`, `test-accounts:verify`, `test-accounts:disable`
+(each takes `-- --config <absolute-private-file>`), and `test:account-seeder`.
+Disabled by default; isolated non-production only; requires an existing approved
+test Platform Owner and never changes existing passwords or bootstrap claims.
+
+Isolated QA role kit: [inventory and matrix](docs/qa-role-permission-matrix.md),
+[secure provisioning and manual login checklist](docs/runbooks/qa-role-test-kit.md).
+`npm run qa:matrix` rebuilds the registry and generates the matrix;
+`npm run test:qa-role-kit` runs focused provisioning safety tests;
+`npm run qa:provision -- --activation-directory <private-directory>` is Linux-only,
+requires an explicitly configured disposable loopback database and an existing
+test-only Platform Owner bootstrap claim, and never rotates existing credentials.
 Multi-tenant automated customer engagement SaaS. The first channel is **outbound
 Voice in Uganda**.
 

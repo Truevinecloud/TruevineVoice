@@ -17,7 +17,7 @@ import { OrganizationGuard, PlatformGuard } from '../src/auth/organization.guard
 import { SessionGuard } from '../src/auth/session.guard.js';
 import { CsrfGuard } from '../src/auth/csrf.guard.js';
 import { ORGANIZATION_CONTEXT, PRINCIPAL } from '../src/auth/principal.js';
-import { ORGANIZATION_PERMISSIONS, ORGANIZATION_ROLE_PERMISSIONS } from '@truevine/auth';
+import { ORGANIZATION_PERMISSIONS, ORGANIZATION_ROLE_PERMISSIONS, ORGANIZATION_ROLES, PLATFORM_ROLES, PLATFORM_PERMISSIONS, PLATFORM_ROLE_PERMISSIONS } from '@truevine/auth';
 import {
   CSRF_COOKIE,
   CSRF_HEADER,
@@ -76,6 +76,23 @@ function handlerRequiring(metadataKey: string, value: string): Record<symbol, un
 }
 
 describe('OrganizationGuard', () => {
+  for (const role of ORGANIZATION_ROLES) {
+    for (const permission of ORGANIZATION_PERMISSIONS) {
+      it(`QA matrix ${role} / ${permission}`, async () => {
+        const auth = new FakeAuthStore();
+        const organizations = new FakeOrganizationStore();
+        seedOwner(auth, organizations, { role });
+        const guard = new OrganizationGuard(organizations, auth, new FakeAuditStore(), TERMS);
+        const { context } = httpContext({ handler: handlerRequiring(ORGANIZATION_PERMISSION, permission),
+          params: { organizationId: 'org-1' }, principal: { userId: 'user-1' } });
+        if (ORGANIZATION_ROLE_PERMISSIONS[role].includes(permission)) {
+          await expect(guard.canActivate(context)).resolves.toBe(true);
+        } else {
+          await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+        }
+      });
+    }
+  }
   let auth: FakeAuthStore;
   let organizations: FakeOrganizationStore;
   let audit: FakeAuditStore;
@@ -692,6 +709,20 @@ describe('OrganizationGuard', () => {
 });
 
 describe('PlatformGuard', () => {
+  for (const role of PLATFORM_ROLES) {
+    for (const permission of PLATFORM_PERMISSIONS) {
+      it(`QA matrix ${role} / ${permission}`, async () => {
+        const guard = new PlatformGuard(new FakeAuditStore());
+        const { context } = httpContext({ handler: handlerRequiring(PLATFORM_PERMISSION, permission),
+          principal: { userId: 'qa-user', platformRole: role } });
+        if (PLATFORM_ROLE_PERMISSIONS[role].includes(permission)) {
+          await expect(guard.canActivate(context)).resolves.toBe(true);
+        } else {
+          await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+        }
+      });
+    }
+  }
   let audit: FakeAuditStore;
   let guard: PlatformGuard;
 
