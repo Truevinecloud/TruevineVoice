@@ -4,6 +4,7 @@ Operational procedures for Truevine Voice: what to do when something breaks.
 
 | Runbook | Covers |
 | --- | --- |
+| [QA Owner recovery](./qa-owner-recovery.md) | Operator-only replacement activation link for the existing QA Owner |
 | [Production deployment](./production-deployment.md) | Releasing application code, verification, rollback |
 | [Support-access audit failure monitoring](./support-access-audit-alerting.md) | Event collection, alerting requirements and verification evidence |
 | [First Platform Owner bootstrap](./platform-owner-bootstrap.md) | Approval, private activation, one-time claim and interrupted execution |
