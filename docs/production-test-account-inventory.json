@@ -1,0 +1,26 @@
+{
+  "purpose": "Review-only production test-account inventory; not accepted by any execution command",
+  "executionAuthorized": false,
+  "applicationOrigin": "https://voice.truevinecloud.online",
+  "securityEnvironment": "production",
+  "organization": { "name": "truevoice-testing", "slug": "truevoice-testing" },
+  "existingIdentityPolicy": "Refuse collisions; preserve admin@truevoice.com and all existing credentials, assignments and memberships",
+  "accounts": [
+    { "email": "qa-platform-owner@truevoice.com", "scope": "platform", "role": "PLATFORM_OWNER", "procedure": "existing-approved-immutable-bootstrap-only" },
+    { "email": "qa-owner@truevoice.com", "scope": "organization", "role": "OWNER", "procedure": "rollout:test-accounts provision; independent production approval required" },
+    { "email": "qa-admin@truevoice.com", "scope": "organization", "role": "ADMIN", "procedure": "rollout:test-accounts provision; independent production approval required" },
+    { "email": "qa-campaign-manager@truevoice.com", "scope": "organization", "role": "CAMPAIGN_MANAGER", "procedure": "rollout:test-accounts provision; independent production approval required" },
+    { "email": "qa-billing@truevoice.com", "scope": "organization", "role": "BILLING", "procedure": "rollout:test-accounts provision; independent production approval required" },
+    { "email": "qa-viewer@truevoice.com", "scope": "organization", "role": "VIEWER", "procedure": "rollout:test-accounts provision; independent production approval required" },
+    { "email": "qa-operations-admin@truevoice.com", "scope": "platform", "role": "OPERATIONS_ADMIN", "procedure": "rollout:test-accounts provision; independent production approval required" },
+    { "email": "qa-billing-admin@truevoice.com", "scope": "platform", "role": "BILLING_ADMIN", "procedure": "rollout:test-accounts provision; independent production approval required" },
+    { "email": "qa-support-admin@truevoice.com", "scope": "platform", "role": "SUPPORT_ADMIN", "procedure": "rollout:test-accounts provision; independent production approval required" },
+    { "email": "qa-technical-admin@truevoice.com", "scope": "platform", "role": "TECHNICAL_ADMIN", "procedure": "rollout:test-accounts provision; independent production approval required" },
+    { "email": "qa-auditor@truevoice.com", "scope": "platform", "role": "AUDITOR", "procedure": "rollout:test-accounts provision; independent production approval required" }
+  ],
+  "preservedIdentity": {
+    "email": "admin@truevoice.com",
+    "status": "ACTIVE as reported by user; live verification pending",
+    "action": "authorized-read-only-inspection-only; no password probe, reset, role change or new membership"
+  }
+}

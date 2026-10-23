@@ -17,6 +17,13 @@
 
 /** Audit actions written by RBAC-001. */
 export const AUDIT_ACTIONS = [
+  'test_rollout.account_created',
+  'test_rollout.provisioned',
+  'test_rollout.disabled',
+  'test_account.seeded',
+  'test_account.disabled',
+  'test_organization.created',
+  'qa.role_account.provisioned',
   // Authentication and session lifecycle.
   'auth.sign_in.succeeded',
   'auth.sign_in.failed',

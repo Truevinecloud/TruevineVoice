@@ -4,6 +4,9 @@ Operational procedures for Truevine Voice: what to do when something breaks.
 
 | Runbook | Covers |
 | --- | --- |
+| [Production test-account executable workflow](./production-test-account-execution.md) | Implemented operator commands; private approval, bootstrap, HTTP verification and disable; production execution not authorized |
+| [Production test-account rollout — review draft](./production-test-account-rollout.md) | Proposed inventory, independent approvals, bootstrap, private password initialization, deployment and retirement; no execution authorized |
+| [Production HTTP acceptance — not run](./production-test-account-http-checklist.md) | Eleven-account actual sign-in, role and tenant checks, safe evidence and missing feature limits |
 | [QA Owner recovery](./qa-owner-recovery.md) | Operator-only replacement activation link for the existing QA Owner |
 | [Production deployment](./production-deployment.md) | Releasing application code, verification, rollback |
 | [Support-access audit failure monitoring](./support-access-audit-alerting.md) | Event collection, alerting requirements and verification evidence |
