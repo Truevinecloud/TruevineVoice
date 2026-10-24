@@ -444,6 +444,9 @@ model Membership {
   contactGroupsCreated ContactGroup[] @relation("ContactGroupCreator")
   contactImports ContactImport[] @relation("ContactImportStarter")
   contactConsentsVerified Contact[] @relation("ContactConsentVerifier")
+  audioAssetsCreated AudioAsset[]
+  audioAssetOperations AudioAssetOperation[]
+  audioAssetUsage AudioAssetUsage[]
 
   @@id([organizationId, userId])
   @@unique([userId, organizationId])
@@ -462,6 +465,24 @@ enum CampaignStatus {
   DRAFT
   ACTIVE
   COMPLETED
+}
+
+enum AudioAssetSource {
+  RECORDING
+  TTS
+}
+
+enum AudioAssetOperationState {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum AudioAssetUsageAction {
+  RECORDING_CREATED
+  TTS_GENERATED
+  CAMPAIGN_SELECTED
+  PLAYBACK_LINK_ISSUED
 }
 
 /// TENANT-OWNED. A campaign belonging to exactly one organization.
@@ -484,6 +505,9 @@ model Campaign {
   /// 1-200 characters, validated in the service before the row is written.
   name           String         @db.VarChar(200)
   status         CampaignStatus @default(DRAFT)
+  /// Optional tenant-owned audio used by this campaign.
+  audioOrganizationId String? @map("audio_organization_id") @db.Uuid
+  audioAssetId String? @map("audio_asset_id") @db.Uuid
   /// Set by platform emergency stop. Customer role mutations cannot clear it.
   emergencyStoppedAt DateTime? @map("emergency_stopped_at") @db.Timestamptz(3)
   /// Provenance. `RESTRICT` rather than `SET NULL`: a campaign without a
@@ -496,6 +520,8 @@ model Campaign {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   recipients CampaignRecipient[]
   executions CampaignExecution[]
+  audioAsset AudioAsset? @relation(fields: [audioOrganizationId, audioAssetId], references: [organizationId, id], onDelete: Restrict)
+  audioUsageEvents AudioAssetUsage[]
   createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
 
   @@id([organizationId, id])
@@ -535,8 +561,83 @@ model Organization {
   billingProfile     BillingProfile?
   contactGroups      ContactGroup[]
   contactImports     ContactImport[]
+  audioAssets AudioAsset[]
+  audioAssetOperations AudioAssetOperation[]
+  audioAssetUsage AudioAssetUsage[]
 
   @@map("organizations")
+}
+
+/// Tenant-owned metadata for a private audio object. Raw bytes live only in
+/// private S3-compatible storage, never in PostgreSQL or public web paths.
+model AudioAsset {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  createdById String @map("created_by_user_id") @db.Uuid
+  name String @db.VarChar(120)
+  source AudioAssetSource
+  mimeType String @map("mime_type") @db.VarChar(64)
+  storageKey String @map("storage_key") @db.VarChar(512)
+  checksumSha256 String @map("checksum_sha256") @db.Char(64)
+  byteSize BigInt @map("byte_size")
+  durationMs Int? @map("duration_ms")
+  ttsProvider String? @map("tts_provider") @db.VarChar(64)
+  ttsVoice String? @map("tts_voice") @db.VarChar(64)
+  ttsCharacterCount Int? @map("tts_character_count")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator Membership @relation(fields: [organizationId, createdById], references: [organizationId, userId], onDelete: Restrict)
+  campaigns Campaign[]
+  operations AudioAssetOperation[]
+  usage AudioAssetUsage[]
+  @@id([organizationId, id])
+  @@unique([organizationId, storageKey])
+  @@index([organizationId, createdAt, id])
+  @@map("audio_assets")
+}
+
+/// Durable operation keys prevent a repeated TTS request from charging the
+/// provider twice. The request fingerprint excludes (and never stores) text.
+model AudioAssetOperation {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  idempotencyKey String @map("idempotency_key") @db.VarChar(200)
+  createdById String @map("created_by_user_id") @db.Uuid
+  source AudioAssetSource
+  requestFingerprint String @map("request_fingerprint") @db.Char(64)
+  state AudioAssetOperationState @default(PENDING)
+  assetOrganizationId String? @map("asset_organization_id") @db.Uuid
+  assetId String? @map("asset_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator Membership @relation(fields: [organizationId, createdById], references: [organizationId, userId], onDelete: Restrict)
+  asset AudioAsset? @relation(fields: [assetOrganizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  @@id([organizationId, id])
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, state, createdAt])
+  @@map("audio_asset_operations")
+}
+
+/// Append-only usage accounting for creation and authorized playback access.
+model AudioAssetUsage {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  assetId String @map("asset_id") @db.Uuid
+  actorUserId String @map("actor_user_id") @db.Uuid
+  action AudioAssetUsageAction
+  byteSize BigInt @map("byte_size")
+  durationMs Int? @map("duration_ms")
+  ttsCharacterCount Int? @map("tts_character_count")
+  campaignId String? @map("campaign_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset AudioAsset @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  actor Membership @relation(fields: [organizationId, actorUserId], references: [organizationId, userId], onDelete: Restrict)
+  campaign Campaign? @relation(fields: [organizationId, campaignId], references: [organizationId, id], onDelete: Restrict)
+  @@id([organizationId, id])
+  @@index([organizationId, assetId, createdAt])
+  @@map("audio_asset_usage")
 }
 
 /// Append-only accounting. Balance is SUM(amount_minor), never a mutable column.

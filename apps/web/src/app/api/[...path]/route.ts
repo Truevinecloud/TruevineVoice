@@ -70,6 +70,14 @@ const ALLOWED_ROUTES: ReadonlyArray<{ readonly method: string; readonly pattern:
   // method/path pair explicit; the API still enforces session, organization,
   // permission, accepted-terms and CSRF requirements for these routes.
   { method: 'GET', pattern: /^\/organizations\/[^/]+\/contacts$/ },
+  { method: 'GET', pattern: /^\/organizations\/[^/]+\/audio-assets$/ },
+  { method: 'GET', pattern: /^\/organizations\/[^/]+\/audio-assets\/voices$/ },
+  { method: 'POST', pattern: /^\/organizations\/[^/]+\/audio-assets\/recordings$/ },
+  { method: 'POST', pattern: /^\/organizations\/[^/]+\/audio-assets\/tts$/ },
+  { method: 'POST', pattern: /^\/organizations\/[^/]+\/audio-assets\/[^/]+\/playback-link$/ },
+  { method: 'GET', pattern: /^\/organizations\/[^/]+\/campaigns$/ },
+  { method: 'POST', pattern: /^\/organizations\/[^/]+\/campaigns$/ },
+  { method: 'PATCH', pattern: /^\/organizations\/[^/]+\/campaigns\/[^/]+$/ },
   { method: 'POST', pattern: /^\/organizations\/[^/]+\/contacts$/ },
   { method: 'PATCH', pattern: /^\/organizations\/[^/]+\/contacts\/[^/]+$/ },
   { method: 'DELETE', pattern: /^\/organizations\/[^/]+\/contacts\/[^/]+$/ },
@@ -97,6 +105,7 @@ const ALLOWED_ROUTES: ReadonlyArray<{ readonly method: string; readonly pattern:
 const FORWARDED_REQUEST_HEADERS = [
   'content-type',
   'x-truevine-csrf',
+  'idempotency-key',
   'accept',
   'accept-language',
 ] as const;
@@ -140,7 +149,11 @@ async function proxy(request: NextRequest): Promise<NextResponse> {
   if (cookie !== null) headers.set('cookie', cookie);
 
   const body =
-    request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.text();
+    request.method === 'GET' || request.method === 'HEAD'
+      ? undefined
+      : request.headers.get('content-type')?.toLowerCase().startsWith('multipart/form-data')
+        ? await request.arrayBuffer()
+        : await request.text();
 
   let upstream: Response;
 

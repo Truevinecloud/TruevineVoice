@@ -47,6 +47,14 @@ export const AUDIT_ACTIONS = [
   'campaign.created',
   'campaign.updated',
   'campaign.deleted',
+  // Audio content; script text, bytes, object keys and credentials stay out of
+  // this long-retained event stream.
+  'audio.asset.created',
+  'audio.asset.playback_link_issued',
+  'audio.tts.synthesized',
+  'audio.operation.started',
+  'audio.operation.failed',
+  'campaign.audio_selected',
 
   // Contacts and groups. Never include contact PII or raw import data.
   'contact.created',

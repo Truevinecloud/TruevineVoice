@@ -497,4 +497,23 @@ describe('CampaignsService', () => {
     const view = await service.create(ORG, ACTOR, 'api_key=not-really');
     expect(view.name).toBe('api_key=not-really');
   });
+
+  it('accepts and clears only a syntactically valid audio selection', async () => {
+    const { service, store } = buildService();
+    const assetId = 'a0000000-0000-4000-8000-000000000001';
+    const created = await service.create(ORG, ACTOR, 'Audio campaign', assetId);
+    expect(created.audioAssetId).toBe(assetId);
+    const updated = await service.update(ORG, ACTOR, created.id, { audioAssetId: null });
+    expect(updated.audioAssetId).toBeNull();
+    expect(store.campaigns[0]?.audioAssetId).toBeNull();
+  });
+
+  it('rejects malformed audio asset ids', async () => {
+    const { service } = buildService();
+    await expectAuthError(
+      service.create(ORG, ACTOR, 'Audio campaign', 'foreign'),
+      'invalid_campaign',
+      400,
+    );
+  });
 });

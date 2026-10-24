@@ -27,6 +27,7 @@ export interface CampaignRecord {
   readonly id: string;
   readonly name: string;
   readonly status: CampaignStatus;
+  readonly audioAssetId?: string | null;
   readonly emergencyStoppedAt?: Date | null;
   readonly createdById: string;
   readonly createdAt: Date;
@@ -40,12 +41,14 @@ export interface NewCampaign {
   readonly name: string;
   readonly status: CampaignStatus;
   readonly createdById: string;
+  readonly audioAssetId?: string | null;
 }
 
 /** Fields a campaign update may change. Both optional, not both required. */
 export interface CampaignChanges {
   readonly name?: string;
   readonly status?: CampaignStatus;
+  readonly audioAssetId?: string | null;
 }
 
 /** Persistence for tenant-owned campaign rows. */

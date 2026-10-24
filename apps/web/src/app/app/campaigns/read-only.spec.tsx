@@ -24,6 +24,9 @@ vi.mock('../../../lib/org-api', () => ({
   fetchMembers: mocks.members,
   fetchInvitations: mocks.invitations,
 }));
+vi.mock('./campaign-audio', () => ({
+  CampaignAudio: () => <span>Campaign audio</span>,
+}));
 vi.mock('next/navigation', () => ({
   redirect: (url: string) => {
     throw new Error(`redirect:${url}`);

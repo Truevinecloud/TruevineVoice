@@ -37,6 +37,11 @@ export const AUTH_ERROR_CODES = [
   'cannot_delegate_beyond_own_authority',
   'campaign_not_found',
   'invalid_campaign',
+  'audio_asset_not_found',
+  'invalid_audio',
+  'audio_not_configured',
+  'audio_operation_conflict',
+  'audio_provider_unavailable',
   'invalid_audit_reason',
 ] as const;
 
@@ -147,4 +152,34 @@ export function campaignNotFound(): AuthError {
 /** A campaign field failed validation. Never echoes the offending value. */
 export function invalidCampaign(message: string): AuthError {
   return new AuthError('invalid_campaign', message, 400);
+}
+
+export function audioAssetNotFound(): AuthError {
+  return new AuthError('audio_asset_not_found', 'No such audio asset in this organization.', 404);
+}
+
+export function invalidAudio(message: string): AuthError {
+  return new AuthError('invalid_audio', message, 400);
+}
+
+export function audioNotConfigured(): AuthError {
+  return new AuthError(
+    'audio_not_configured',
+    'Audio storage or text-to-speech is not configured for this environment.',
+    503,
+  );
+}
+
+export function audioOperationConflict(
+  message = 'This audio operation cannot be replayed.',
+): AuthError {
+  return new AuthError('audio_operation_conflict', message, 409);
+}
+
+export function audioProviderUnavailable(): AuthError {
+  return new AuthError(
+    'audio_provider_unavailable',
+    'The audio provider is temporarily unavailable. Please try again with a new request key.',
+    503,
+  );
 }

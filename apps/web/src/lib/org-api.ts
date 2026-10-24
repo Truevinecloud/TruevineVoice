@@ -49,6 +49,7 @@ export interface Campaign {
   readonly status: 'DRAFT' | 'ACTIVE' | 'COMPLETED';
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly audioAssetId?: string | null;
 }
 
 export interface CampaignStatusReport {

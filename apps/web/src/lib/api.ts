@@ -75,6 +75,7 @@ export async function ensureCsrfToken(): Promise<void> {
 interface RequestOptions {
   readonly method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   readonly body?: unknown;
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -87,6 +88,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const method = options.method ?? 'GET';
 
   const headers: Record<string, string> = { accept: 'application/json' };
+  Object.assign(headers, options.headers ?? {});
 
   if (options.body !== undefined) headers['content-type'] = 'application/json';
 
@@ -130,6 +132,44 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     );
   }
 
+  return payload as T;
+}
+
+/** Uploads browser-recorded media without replacing the multipart boundary. */
+export async function upload<T>(
+  path: string,
+  file: Blob,
+  name: string,
+  idempotencyKey: string,
+): Promise<T> {
+  await ensureCsrfToken();
+  const csrf = readCsrfToken();
+  if (!csrf)
+    throw new ApiError(
+      0,
+      'csrf_token_missing',
+      'Could not establish a secure session. Reload and try again.',
+    );
+  const form = new FormData();
+  form.set('name', name);
+  form.set('file', file, name);
+  const response = await fetch(browserApiUrl(path), {
+    method: 'POST',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    body: form,
+    headers: { accept: 'application/json', [CSRF_HEADER]: csrf, 'idempotency-key': idempotencyKey },
+  });
+  const text = await response.text();
+  const payload = text ? (JSON.parse(text) as unknown) : undefined;
+  if (!response.ok) {
+    const body = payload as ErrorBody | undefined;
+    throw new ApiError(
+      response.status,
+      body?.error?.code ?? 'unexpected_error',
+      body?.error?.message ?? 'Something went wrong. Please try again.',
+    );
+  }
   return payload as T;
 }
 
