@@ -10,7 +10,7 @@ export function privateHttpClient(origin, transport = fetch, controls = {}) {
   const jar = new Map();
   let sessionAttributes = false;
   async function call(method, path, body) {
-    assert(path.startsWith('/api/') && !path.includes('?') && !path.includes('#'));
+    assert((path === '/health' || path.startsWith('/api/')) && !path.includes('?') && !path.includes('#'));
     if (controls.expiresAt) assert(Date.parse(controls.expiresAt) > Date.now());
     if (controls.intervalMs) await new Promise(resolve => setTimeout(resolve, controls.intervalMs));
     if (controls.expiresAt) assert(Date.parse(controls.expiresAt) > Date.now());
@@ -82,7 +82,7 @@ export async function executePrivateHttp(approval, credentials, options = {}, de
   const inspect = dependencies.inspect ?? executeRollout;
   const state = await inspect(approval, credentials, options, dependencies);
   const controls = { expiresAt: approval.expiresAt, intervalMs: approval.environment === 'production' ? 1000 : 0 };
-  const health = await privateHttpClient(origin, dependencies.transport, controls).call('GET', '/api/health');
+  const health = await privateHttpClient(origin, dependencies.transport, controls).call('GET', '/health');
   assert(health.status === 200 && health.payload?.version === approval.releaseSha && health.payload?.environment === approval.environment);
   if (approval.action === 'initialize') {
     if (!state.initialized) {
