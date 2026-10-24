@@ -119,6 +119,51 @@ export class ContactsService {
     return (await this.store.listGroups(organizationId)).map((group) => this.groupView(group));
   }
 
+  async updateGroup(organizationId: string, actorUserId: string, groupIdValue: unknown, input: unknown) {
+    const groupId = this.uuid(groupIdValue, 'Group id');
+    const body = this.body(input, 'Group details are required.');
+    if (Object.keys(body).length !== 1 || !Object.hasOwn(body, 'name')) {
+      invalid('Only the group name can be updated.');
+    }
+    const group = this.groupName(body.name);
+    try {
+      const updated = await this.store.updateGroup({ organizationId, actorUserId, groupId, ...group });
+      if (!updated) throw new NotFoundException({ error: { code: 'contact_group_not_found', message: 'Group not found.' } });
+      return this.groupView(updated);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'contact_group_conflict') {
+        throw new ConflictException({ error: { code: 'contact_group_exists', message: 'A group with this name already exists.' } });
+      }
+      throw error;
+    }
+  }
+
+  async deleteGroup(organizationId: string, actorUserId: string, groupIdValue: unknown) {
+    const groupId = this.uuid(groupIdValue, 'Group id');
+    if (!(await this.store.deleteGroup({ organizationId, actorUserId, groupId }))) {
+      throw new NotFoundException({ error: { code: 'contact_group_not_found', message: 'Group not found.' } });
+    }
+    return { deleted: true };
+  }
+
+  async addContactToGroup(organizationId: string, actorUserId: string, groupIdValue: unknown, contactIdValue: unknown) {
+    const groupId = this.uuid(groupIdValue, 'Group id');
+    const contactId = this.uuid(contactIdValue, 'Contact id');
+    if (!(await this.store.addContactToGroup({ organizationId, actorUserId, groupId, contactId }))) {
+      throw new NotFoundException({ error: { code: 'contact_or_group_not_found', message: 'Contact or group not found.' } });
+    }
+    return { groupId, contactId, member: true };
+  }
+
+  async removeContactFromGroup(organizationId: string, actorUserId: string, groupIdValue: unknown, contactIdValue: unknown) {
+    const groupId = this.uuid(groupIdValue, 'Group id');
+    const contactId = this.uuid(contactIdValue, 'Contact id');
+    if (!(await this.store.removeContactFromGroup({ organizationId, actorUserId, groupId, contactId }))) {
+      throw new NotFoundException({ error: { code: 'contact_or_group_not_found', message: 'Contact or group not found.' } });
+    }
+    return { groupId, contactId, member: false };
+  }
+
   async createContact(organizationId: string, actorUserId: string, input: unknown) {
     const body = this.body(input, 'Contact details are required.');
     const phoneE164 = this.phone(body.phone);
@@ -154,18 +199,41 @@ export class ContactsService {
 
   async listContacts(
     organizationId: string,
-    query: { readonly groupId?: unknown; readonly limit?: unknown; readonly cursor?: unknown },
+    query: { readonly groupId?: unknown; readonly limit?: unknown; readonly cursor?: unknown; readonly q?: unknown },
   ) {
     const groupId = query.groupId === undefined ? undefined : this.uuid(query.groupId, 'Group id');
     const limit = query.limit === undefined ? 50 : Number(query.limit);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100)
       invalid('Limit must be between 1 and 100.');
     const cursor = query.cursor === undefined ? undefined : this.uuid(query.cursor, 'Cursor');
-    const items = await this.store.listContacts({ organizationId, groupId, limit, cursor });
+    const search = this.optionalText(query.q, 100, 'Search');
+    if (search !== undefined && search !== null && search.length < 2) {
+      invalid('Search must contain at least 2 characters.');
+    }
+    const items = await this.store.listContacts({
+      organizationId,
+      groupId,
+      ...(search ? { search } : {}),
+      limit,
+      cursor,
+    });
     return {
       items: items.map((contact) => this.contactView(contact)),
       nextCursor: items.length === limit ? (items.at(-1)?.id ?? null) : null,
     };
+  }
+
+  async deleteContact(organizationId: string, actorUserId: string, contactIdValue: unknown) {
+    const contactId = this.uuid(contactIdValue, 'Contact id');
+    const result = await this.store.deleteContact({ organizationId, actorUserId, contactId });
+    if (result === 'NOT_FOUND') throw this.notFound();
+    if (result === 'SUPPRESSED') {
+      throw new ConflictException({ error: { code: 'suppressed_contact_retained', message: 'Suppressed contacts are retained to preserve the opt-out.' } });
+    }
+    if (result === 'HAS_RECIPIENTS') {
+      throw new ConflictException({ error: { code: 'contact_has_campaign_history', message: 'Contacts referenced by campaign history cannot be deleted.' } });
+    }
+    return { deleted: true };
   }
 
   async updateContact(
@@ -245,6 +313,17 @@ export class ContactsService {
       createdAt: record.createdAt.toISOString(),
       batchLimit: MAX_IMPORT_BATCH_ROWS,
     };
+  }
+
+  async previewImport(organizationId: string, input: unknown) {
+    const body = this.body(input, 'Import preview details are required.');
+    if (Object.keys(body).some((key) => !['csv', 'columnMapping'].includes(key))) {
+      invalid('Import preview accepts only CSV content and column mapping.');
+    }
+    if (typeof body.csv !== 'string') invalid('CSV content is required.');
+    const mapping = this.validateMapping(body.columnMapping);
+    const parsed = parseContactImportBatch(body.csv, mapping);
+    return this.store.previewImport({ organizationId, rows: parsed.rows });
   }
 
   async processImportBatch(

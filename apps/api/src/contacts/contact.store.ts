@@ -69,14 +69,38 @@ export interface ContactImportSummary {
   }[];
 }
 
+export interface ContactImportPreviewRow {
+  readonly rowNumber: number;
+  readonly outcome: 'READY' | 'REJECTED';
+  readonly action?: 'CREATE' | 'UPDATE';
+  readonly code?: string;
+  readonly warningCodes: readonly string[];
+}
+
+export interface ContactImportPreview {
+  readonly rows: readonly ContactImportPreviewRow[];
+  readonly summary: {
+    readonly total: number;
+    readonly create: number;
+    readonly update: number;
+    readonly rejected: number;
+    readonly warnings: number;
+  };
+}
+
 export interface ContactMutationAudit {
   readonly organizationId: string;
   readonly actorUserId: string;
   readonly action:
     | 'contact.created'
     | 'contact.updated'
+    | 'contact.deleted'
     | 'contact.suppressed'
     | 'contact_group.created'
+    | 'contact_group.updated'
+    | 'contact_group.deleted'
+    | 'contact_group.member_added'
+    | 'contact_group.member_removed'
     | 'contact_import.started'
     | 'contact_import.batch_processed'
     | 'contact_import.completed';
@@ -116,6 +140,30 @@ export interface ContactStore {
     readonly normalizedName: string;
   }): Promise<ContactGroupRecord>;
   listGroups(organizationId: string): Promise<readonly ContactGroupRecord[]>;
+  updateGroup(input: {
+    readonly organizationId: string;
+    readonly actorUserId: string;
+    readonly groupId: string;
+    readonly name: string;
+    readonly normalizedName: string;
+  }): Promise<ContactGroupRecord | undefined>;
+  deleteGroup(input: {
+    readonly organizationId: string;
+    readonly actorUserId: string;
+    readonly groupId: string;
+  }): Promise<boolean>;
+  addContactToGroup(input: {
+    readonly organizationId: string;
+    readonly actorUserId: string;
+    readonly groupId: string;
+    readonly contactId: string;
+  }): Promise<boolean>;
+  removeContactFromGroup(input: {
+    readonly organizationId: string;
+    readonly actorUserId: string;
+    readonly groupId: string;
+    readonly contactId: string;
+  }): Promise<boolean>;
   createContact(input: {
     readonly organizationId: string;
     readonly actorUserId: string;
@@ -137,9 +185,19 @@ export interface ContactStore {
   listContacts(input: {
     readonly organizationId: string;
     readonly groupId?: string;
+    readonly search?: string;
     readonly limit: number;
     readonly cursor?: string;
   }): Promise<readonly ContactRecord[]>;
+  previewImport(input: {
+    readonly organizationId: string;
+    readonly rows: readonly ParsedContactRow[];
+  }): Promise<ContactImportPreview>;
+  deleteContact(input: {
+    readonly organizationId: string;
+    readonly actorUserId: string;
+    readonly contactId: string;
+  }): Promise<'DELETED' | 'NOT_FOUND' | 'SUPPRESSED' | 'HAS_RECIPIENTS'>;
   updateContact(input: {
     readonly organizationId: string;
     readonly actorUserId: string;

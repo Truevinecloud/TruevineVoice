@@ -87,4 +87,52 @@ describe('ContactsService', () => {
       limit: 10_000,
     });
   });
+
+  it('scopes contact search to the organization and validates bounded search terms', async () => {
+    const listContacts = vi.fn(async () => [contactRecord]);
+    const service = new ContactsService({ listContacts } as unknown as ContactStore);
+
+    await service.listContacts('org-a', { q: '  Ada  ', limit: '10' });
+
+    expect(listContacts).toHaveBeenCalledWith({
+      organizationId: 'org-a', search: 'Ada', limit: 10, cursor: undefined, groupId: undefined,
+    });
+    await expect(service.listContacts('org-a', { q: 'a' })).rejects.toMatchObject({
+      response: { error: { message: 'Search must contain at least 2 characters.' } },
+    });
+    expect(listContacts).toHaveBeenCalledTimes(1);
+  });
+
+  it('previews mapped CSV without returning contact values', async () => {
+    const previewImport = vi.fn(async () => ({
+      rows: [{ rowNumber: 2, outcome: 'READY', action: 'CREATE', warningCodes: ['consent_not_granted_from_import'] }],
+      summary: { total: 1, create: 1, update: 0, rejected: 0, warnings: 1 },
+    }));
+    const service = new ContactsService({ previewImport } as unknown as ContactStore);
+    const result = await service.previewImport('org-a', {
+      csv: 'Mobile,Name,Consent\n0772000001,Ada,yes',
+      columnMapping: { phone: 'Mobile' },
+    });
+
+    expect(previewImport).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'org-a',
+      rows: [expect.objectContaining({ rowNumber: 2, phoneE164: '+256772000001' })],
+    }));
+    expect(JSON.stringify(result)).not.toContain('0772000001');
+    expect(JSON.stringify(result)).not.toContain('Ada');
+  });
+
+  it('does not allow contact deletion to remove suppression or campaign history', async () => {
+    const deleteContact = vi.fn()
+      .mockResolvedValueOnce('SUPPRESSED')
+      .mockResolvedValueOnce('HAS_RECIPIENTS');
+    const service = new ContactsService({ deleteContact } as unknown as ContactStore);
+
+    await expect(service.deleteContact('org-a', 'user-a', contactRecord.id)).rejects.toMatchObject({
+      response: { error: { code: 'suppressed_contact_retained' } },
+    });
+    await expect(service.deleteContact('org-a', 'user-a', contactRecord.id)).rejects.toMatchObject({
+      response: { error: { code: 'contact_has_campaign_history' } },
+    });
+  });
 });

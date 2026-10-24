@@ -6,9 +6,11 @@ import { DATABASE_CLIENT } from '../tokens.js';
 import { ContactAlreadyConsentedError } from './contact.store.js';
 import type {
   ContactGroupRecord,
+  ContactImportPreview,
   ContactImportRecord,
   ContactRecord,
   ContactStore,
+  ParsedContactRow,
   ProcessImportBatchInput,
 } from './contact.store.js';
 
@@ -140,6 +142,137 @@ export class PrismaContactStore implements ContactStore {
     });
   }
 
+  async updateGroup(i: {
+    organizationId: string;
+    actorUserId: string;
+    groupId: string;
+    name: string;
+    normalizedName: string;
+  }): Promise<ContactGroupRecord | undefined> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const changed = await tx.contactGroup.updateMany({
+          where: { organizationId: i.organizationId, id: i.groupId },
+          data: { name: i.name, normalizedName: i.normalizedName },
+        });
+        if (!changed.count) return undefined;
+        const row = await tx.contactGroup.findUnique({
+          where: { organizationId_id: { organizationId: i.organizationId, id: i.groupId } },
+        });
+        if (!row) return undefined;
+        await this.audit(
+          tx,
+          i.organizationId,
+          i.actorUserId,
+          'contact_group.updated',
+          'contact_group',
+          i.groupId,
+        );
+        return row;
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') {
+        throw new Error('contact_group_conflict', { cause: error });
+      }
+      throw error;
+    }
+  }
+
+  async deleteGroup(i: {
+    organizationId: string;
+    actorUserId: string;
+    groupId: string;
+  }): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const result = await tx.contactGroup.deleteMany({
+        where: { organizationId: i.organizationId, id: i.groupId },
+      });
+      if (!result.count) return false;
+      await this.audit(
+        tx,
+        i.organizationId,
+        i.actorUserId,
+        'contact_group.deleted',
+        'contact_group',
+        i.groupId,
+      );
+      return true;
+    });
+  }
+
+  async addContactToGroup(i: {
+    organizationId: string;
+    actorUserId: string;
+    groupId: string;
+    contactId: string;
+  }): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const [group, contact] = await Promise.all([
+        tx.contactGroup.findUnique({
+          where: { organizationId_id: { organizationId: i.organizationId, id: i.groupId } },
+          select: { id: true },
+        }),
+        tx.contact.findUnique({
+          where: { organizationId_id: { organizationId: i.organizationId, id: i.contactId } },
+          select: { id: true },
+        }),
+      ]);
+      if (!group || !contact) return false;
+      const created = await tx.contactGroupMember.createMany({
+        data: [{ organizationId: i.organizationId, groupId: i.groupId, contactId: i.contactId }],
+        skipDuplicates: true,
+      });
+      if (created.count) {
+        await this.audit(
+          tx,
+          i.organizationId,
+          i.actorUserId,
+          'contact_group.member_added',
+          'contact',
+          i.contactId,
+          { groupId: i.groupId },
+        );
+      }
+      return true;
+    });
+  }
+
+  async removeContactFromGroup(i: {
+    organizationId: string;
+    actorUserId: string;
+    groupId: string;
+    contactId: string;
+  }): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const [group, contact] = await Promise.all([
+        tx.contactGroup.findUnique({
+          where: { organizationId_id: { organizationId: i.organizationId, id: i.groupId } },
+          select: { id: true },
+        }),
+        tx.contact.findUnique({
+          where: { organizationId_id: { organizationId: i.organizationId, id: i.contactId } },
+          select: { id: true },
+        }),
+      ]);
+      if (!group || !contact) return false;
+      const removed = await tx.contactGroupMember.deleteMany({
+        where: { organizationId: i.organizationId, groupId: i.groupId, contactId: i.contactId },
+      });
+      if (removed.count) {
+        await this.audit(
+          tx,
+          i.organizationId,
+          i.actorUserId,
+          'contact_group.member_removed',
+          'contact',
+          i.contactId,
+          { groupId: i.groupId },
+        );
+      }
+      return true;
+    });
+  }
+
   async createContact(i: {
     organizationId: string;
     actorUserId: string;
@@ -222,6 +355,7 @@ export class PrismaContactStore implements ContactStore {
   async listContacts(i: {
     organizationId: string;
     groupId?: string;
+    search?: string;
     limit: number;
     cursor?: string;
   }): Promise<readonly ContactRecord[]> {
@@ -230,6 +364,16 @@ export class PrismaContactStore implements ContactStore {
         organizationId: i.organizationId,
         ...(i.groupId
           ? { groupLinks: { some: { organizationId: i.organizationId, groupId: i.groupId } } }
+          : {}),
+        ...(i.search
+          ? {
+              OR: [
+                { phoneE164: { contains: i.search } },
+                { destination: { contains: i.search } },
+                { label: { contains: i.search, mode: 'insensitive' as const } },
+                { email: { contains: i.search, mode: 'insensitive' as const } },
+              ],
+            }
           : {}),
       },
       orderBy: { id: 'asc' },
@@ -243,6 +387,100 @@ export class PrismaContactStore implements ContactStore {
       include: { groupLinks: { include: { group: true } } },
     });
     return rows.map((r) => view(r as Row));
+  }
+
+  async previewImport(i: {
+    organizationId: string;
+    rows: readonly ParsedContactRow[];
+  }): Promise<ContactImportPreview> {
+    const phones = [...new Set(i.rows.flatMap((row) => row.phoneE164 ? [row.phoneE164] : []))];
+    const matches = phones.length
+      ? await this.prisma.contact.findMany({
+          where: {
+            organizationId: i.organizationId,
+            OR: [{ phoneE164: { in: phones } }, { destination: { in: phones } }],
+          },
+          select: { id: true, phoneE164: true, destination: true, suppressedAt: true },
+        })
+      : [];
+    const counts = new Map<string, Set<string>>();
+    const suppressedPhones = new Set<string>();
+    for (const row of matches) {
+      for (const phone of phones) {
+        if (row.phoneE164 === phone || row.destination === phone) {
+          const ids = counts.get(phone) ?? new Set<string>();
+          ids.add(row.id);
+          counts.set(phone, ids);
+          if (row.suppressedAt) suppressedPhones.add(phone);
+        }
+      }
+    }
+
+    let create = 0;
+    let update = 0;
+    let rejected = 0;
+    let warnings = 0;
+    const rows = i.rows.map((row) => {
+      let code = row.rejectionCode;
+      let outcome: 'READY' | 'REJECTED' = code ? 'REJECTED' : 'READY';
+      let action: 'CREATE' | 'UPDATE' | undefined;
+      const warningCodes = [...row.warningCodes];
+      if (!code && row.phoneE164) {
+        const matchCount = counts.get(row.phoneE164)?.size ?? 0;
+        if (matchCount > 1) {
+          outcome = 'REJECTED';
+          code = 'ambiguous_existing_duplicate';
+        } else if (matchCount === 1) {
+          action = 'UPDATE';
+          update += 1;
+          if (suppressedPhones.has(row.phoneE164)) warningCodes.push('existing_suppression_preserved');
+        } else {
+          action = 'CREATE';
+          create += 1;
+        }
+      }
+      if (outcome === 'REJECTED') rejected += 1;
+      warnings += warningCodes.length;
+      return {
+        rowNumber: row.rowNumber,
+        outcome,
+        ...(action ? { action } : {}),
+        ...(code ? { code } : {}),
+        warningCodes,
+      };
+    });
+    return {
+      rows,
+      summary: { total: rows.length, create, update, rejected, warnings },
+    };
+  }
+
+  async deleteContact(i: {
+    organizationId: string;
+    actorUserId: string;
+    contactId: string;
+  }): Promise<'DELETED' | 'NOT_FOUND' | 'SUPPRESSED' | 'HAS_RECIPIENTS'> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const contact = await tx.contact.findUnique({
+          where: { organizationId_id: { organizationId: i.organizationId, id: i.contactId } },
+          select: { id: true, suppressedAt: true },
+        });
+        if (!contact) return 'NOT_FOUND';
+        if (contact.suppressedAt) return 'SUPPRESSED';
+        const deleted = await tx.contact.deleteMany({
+          where: { organizationId: i.organizationId, id: i.contactId, suppressedAt: null },
+        });
+        if (!deleted.count) return 'SUPPRESSED';
+        await this.audit(tx, i.organizationId, i.actorUserId, 'contact.deleted', 'contact', i.contactId);
+        return 'DELETED';
+      });
+    } catch (error) {
+      if (['P2003', 'P2014'].includes((error as { code?: string }).code ?? '')) {
+        return 'HAS_RECIPIENTS';
+      }
+      throw error;
+    }
   }
   async recordVoiceConsent(i: {
     organizationId: string; actorUserId: string; contactId: string; consentedAt: Date;
@@ -391,6 +629,7 @@ export class PrismaContactStore implements ContactStore {
           rejected = 0,
           warnings = 0;
         for (const parsed of i.rows) {
+          const warningCodes = [...parsed.warningCodes];
           let outcome: 'CREATED' | 'UPDATED' | 'UNCHANGED' | 'REJECTED' = parsed.rejectionCode
             ? 'REJECTED'
             : 'UNCHANGED';
@@ -419,12 +658,12 @@ export class PrismaContactStore implements ContactStore {
                 outcome = 'REJECTED';
                 code = 'ambiguous_existing_duplicate';
                 rejected++;
-                warnings += parsed.warningCodes.length;
+                warnings += warningCodes.length;
                 reports.push({
                   rowNumber: parsed.rowNumber,
                   outcome,
                   code,
-                  warningCodes: parsed.warningCodes,
+                  warningCodes,
                 });
                 continue;
               }
@@ -447,6 +686,9 @@ export class PrismaContactStore implements ContactStore {
               outcome = 'CREATED';
               created++;
             } else {
+              if (old.suppressedAt && !parsed.applySuppression) {
+                warningCodes.push('existing_suppression_preserved');
+              }
               let contactFieldsChanged = false;
               const data = {
                 ...(old.phoneE164 === null ? { phoneE164: parsed.phoneE164 } : {}),
@@ -513,12 +755,12 @@ export class PrismaContactStore implements ContactStore {
                 outcome = 'UPDATED';
               }
               // This row has already handled its group links.
-              warnings += parsed.warningCodes.length;
+              warnings += warningCodes.length;
               reports.push({
                 rowNumber: parsed.rowNumber,
                 outcome,
                 ...(code ? { code } : {}),
-                warningCodes: parsed.warningCodes,
+                warningCodes,
               });
               continue;
             }
@@ -562,12 +804,12 @@ export class PrismaContactStore implements ContactStore {
               });
             }
           } else rejected++;
-          warnings += parsed.warningCodes.length;
+          warnings += warningCodes.length;
           reports.push({
             rowNumber: parsed.rowNumber,
             outcome,
             ...(code ? { code } : {}),
-            warningCodes: parsed.warningCodes,
+            warningCodes,
           });
         }
         await tx.contactImportBatch.create({

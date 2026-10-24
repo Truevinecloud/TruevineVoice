@@ -139,6 +139,7 @@ beforeAll(async () => {
     await tx.$executeRaw`
     INSERT INTO memberships (organization_id, user_id, role, updated_at) VALUES
       (${ORG_A}::uuid, ${USER_A}::uuid, 'OWNER', now()),
+      (${ORG_A}::uuid, ${USER_B}::uuid, 'VIEWER', now()),
       (${ORG_B}::uuid, ${USER_B}::uuid, 'OWNER', now()),
       (${ORG_DEACTIVATE}::uuid, ${USER_DEACTIVATE}::uuid, 'OWNER', now())
   `;
@@ -498,6 +499,74 @@ describe('tenant isolation over HTTP', () => {
 
     expect(JSON.stringify(me.body)).not.toContain('argon2');
     expect(JSON.stringify(members.body)).not.toContain('argon2');
+  });
+});
+
+describe('contacts, import preview and RBAC over HTTP', () => {
+  it('scopes search and group membership to the tenant and denies Viewer mutations', async () => {
+    const owner = await signIn(EMAIL_A);
+    const ownerCookie = `${owner.cookie}; ${CSRF_COOKIE}=${owner.csrf}`;
+    const created = await request(server)
+      .post(`/organizations/${ORG_A}/contacts`)
+      .set('cookie', ownerCookie)
+      .set(CSRF_HEADER, owner.csrf)
+      .send({ phone: '0772000061', name: 'HTTP Contact Search Fixture', email: 'http-contact@example.invalid' });
+    expect(created.status).toBe(201);
+    const contactId = created.body.id as string;
+
+    const createdGroup = await request(server)
+      .post(`/organizations/${ORG_A}/contact-groups`)
+      .set('cookie', ownerCookie)
+      .set(CSRF_HEADER, owner.csrf)
+      .send({ name: 'HTTP Contact Group' });
+    expect(createdGroup.status).toBe(201);
+    const groupId = createdGroup.body.id as string;
+
+    const linked = await request(server)
+      .put(`/organizations/${ORG_A}/contact-groups/${groupId}/contacts/${contactId}`)
+      .set('cookie', ownerCookie)
+      .set(CSRF_HEADER, owner.csrf);
+    expect(linked.status).toBe(200);
+
+    const searched = await request(server)
+      .get(`/organizations/${ORG_A}/contacts?q=${encodeURIComponent('HTTP Contact Search')}&groupId=${groupId}`)
+      .set('cookie', owner.cookie);
+    expect(searched.status).toBe(200);
+    expect(searched.body.items).toHaveLength(1);
+    expect(searched.body.items[0]).toMatchObject({ id: contactId, phone: '+256772000061' });
+
+    const preview = await request(server)
+      .post(`/organizations/${ORG_A}/contact-imports/preview`)
+      .set('cookie', ownerCookie)
+      .set(CSRF_HEADER, owner.csrf)
+      .send({ csv: 'phone,name\n0772000061,Preview Must Not Echo' });
+    expect(preview.status).toBe(201);
+    expect(preview.body.summary).toMatchObject({ total: 1, update: 1, create: 0, rejected: 0 });
+    expect(JSON.stringify(preview.body)).not.toContain('0772000061');
+    expect(JSON.stringify(preview.body)).not.toContain('Preview Must Not Echo');
+
+    const foreignTenant = await request(server)
+      .get(`/organizations/${ORG_B}/contacts?q=HTTP`)
+      .set('cookie', owner.cookie);
+    expect(foreignTenant.status).toBe(403);
+
+    const viewer = await signIn(EMAIL_B);
+    const viewerCookie = `${viewer.cookie}; ${CSRF_COOKIE}=${viewer.csrf}`;
+    const viewerRead = await request(server).get(`/organizations/${ORG_A}/contacts?q=HTTP`).set('cookie', viewer.cookie);
+    expect(viewerRead.status).toBe(200);
+    const viewerWrite = await request(server)
+      .post(`/organizations/${ORG_A}/contacts`)
+      .set('cookie', viewerCookie)
+      .set(CSRF_HEADER, viewer.csrf)
+      .send({ phone: '0772000062', name: 'Forbidden Viewer Contact' });
+    expect(viewerWrite.status).toBe(403);
+    expect(viewerWrite.body.error.code).toBe('permission_denied');
+
+    const unlinked = await request(server)
+      .delete(`/organizations/${ORG_A}/contact-groups/${groupId}/contacts/${contactId}`)
+      .set('cookie', ownerCookie)
+      .set(CSRF_HEADER, owner.csrf);
+    expect(unlinked.status).toBe(200);
   });
 });
 

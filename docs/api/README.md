@@ -1,11 +1,8 @@
 # API documentation
 
-Reserved for the REST API reference.
+REST API reference for product endpoints.
 
-**Status: intentionally empty.** The API currently exposes exactly one
-endpoint, documented in the [root README](../../README.md). OpenAPI generation
-and endpoint-by-endpoint reference material are explicitly deferred until the
-first product endpoints exist.
+- [Contacts, groups and CSV import](./contacts.md)
 
 ## Conventions to adopt when the API grows
 

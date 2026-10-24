@@ -1,11 +1,13 @@
 import {
   Body,
+  Delete,
   Controller,
   Get,
   Inject,
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -54,6 +56,17 @@ export class ContactsController {
   ) {
     return this.contacts.updateContact(o.organizationId, p.userId, id, b);
   }
+  @Delete('contacts/:contactId')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:update')
+  deleteContact(
+    @CurrentOrganization() o: { organizationId: string },
+    @CurrentPrincipal() p: { userId: string },
+    @Param('contactId') id: string,
+  ) {
+    return this.contacts.deleteContact(o.organizationId, p.userId, id);
+  }
   @Post('contacts/:contactId/voice-consent')
   @UseGuards(...Protected)
   @RequireAcceptedTerms()
@@ -95,6 +108,60 @@ export class ContactsController {
     @Body() b: unknown,
   ) {
     return this.contacts.createGroup(o.organizationId, p.userId, b);
+  }
+  @Patch('contact-groups/:groupId')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:update')
+  updateGroup(
+    @CurrentOrganization() o: { organizationId: string },
+    @CurrentPrincipal() p: { userId: string },
+    @Param('groupId') id: string,
+    @Body() b: unknown,
+  ) {
+    return this.contacts.updateGroup(o.organizationId, p.userId, id, b);
+  }
+  @Delete('contact-groups/:groupId')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:update')
+  deleteGroup(
+    @CurrentOrganization() o: { organizationId: string },
+    @CurrentPrincipal() p: { userId: string },
+    @Param('groupId') id: string,
+  ) {
+    return this.contacts.deleteGroup(o.organizationId, p.userId, id);
+  }
+  @Put('contact-groups/:groupId/contacts/:contactId')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:update')
+  addContactToGroup(
+    @CurrentOrganization() o: { organizationId: string },
+    @CurrentPrincipal() p: { userId: string },
+    @Param('groupId') groupId: string,
+    @Param('contactId') contactId: string,
+  ) {
+    return this.contacts.addContactToGroup(o.organizationId, p.userId, groupId, contactId);
+  }
+  @Delete('contact-groups/:groupId/contacts/:contactId')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:update')
+  removeContactFromGroup(
+    @CurrentOrganization() o: { organizationId: string },
+    @CurrentPrincipal() p: { userId: string },
+    @Param('groupId') groupId: string,
+    @Param('contactId') contactId: string,
+  ) {
+    return this.contacts.removeContactFromGroup(o.organizationId, p.userId, groupId, contactId);
+  }
+  @Post('contact-imports/preview')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:import')
+  previewImport(@CurrentOrganization() o: { organizationId: string }, @Body() b: unknown) {
+    return this.contacts.previewImport(o.organizationId, b);
   }
   @Post('contact-imports')
   @UseGuards(...Protected)

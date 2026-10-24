@@ -181,6 +181,10 @@ describe('W2-02 PostgreSQL contacts acceptance', () => {
       rows: parsed.rows,
       resolvedMapping: parsed.resolvedMapping,
     };
+    const preview = await store.previewImport({ organizationId, rows: parsed.rows });
+    expect(preview.summary).toMatchObject({ total: 3, create: 2, update: 0, rejected: 1 });
+    expect(JSON.stringify(preview)).not.toContain('0772000002');
+    expect(JSON.stringify(preview)).not.toContain('Sam');
     const first = await store.processImportBatch(batch);
     expect(first.rows.map((row) => row.outcome)).toEqual(['CREATED', 'CREATED', 'REJECTED']);
     expect(first.rows[0]?.warningCodes).toContain('consent_not_granted_from_import');
@@ -196,9 +200,23 @@ describe('W2-02 PostgreSQL contacts acceptance', () => {
     ).rejects.toThrow('import_batch_conflict');
 
     const followUp = parseContactImportBatch(
-      'phone,name,groups,suppressed\n0772000003,Jo Updated,,false\n0772000002,,NewSegment,false',
+      'phone,name,groups,suppressed\n0772000003,Jo Updated,Reimported,false\n0772000002,,NewSegment,false',
       {},
     );
+    const followUpPreview = await store.previewImport({ organizationId, rows: followUp.rows });
+    expect(followUpPreview.rows[0]?.warningCodes).toContain('existing_suppression_preserved');
+    const optedOut = (await store.listContacts({ organizationId, limit: 20 }))
+      .find((contact) => contact.phoneE164 === '+256772000003');
+    if (!optedOut) throw new Error('opted-out import fixture was not created');
+    await store.recordVoiceConsent({
+      organizationId,
+      actorUserId,
+      contactId: optedOut.id,
+      consentedAt: new Date(Date.now() - 1_000),
+      source: 'signed_form',
+      purpose: 'voice_calling',
+      evidenceReference: `reconsent-${run}`,
+    });
     const followUpResult = await store.processImportBatch({
       organizationId,
       actorUserId,
@@ -209,6 +227,7 @@ describe('W2-02 PostgreSQL contacts acceptance', () => {
       resolvedMapping: followUp.resolvedMapping,
     });
     expect(followUpResult.summary.updated).toBe(2);
+    expect(followUpResult.rows[0]?.warningCodes).toContain('existing_suppression_preserved');
 
     const contacts = await store.listContacts({ organizationId, limit: 20 });
     const importedOptIn = contacts.find((contact) => contact.phoneE164 === '+256772000002');
@@ -217,8 +236,82 @@ describe('W2-02 PostgreSQL contacts acceptance', () => {
     expect(importedOptIn?.suppressedAt).toBeNull();
     expect(importedOptOut?.suppressedAt).not.toBeNull();
     expect(importedOptOut?.suppressionReason).toBe('user_opt_out');
+    expect(importedOptOut?.voiceConsentAt).not.toBeNull();
+    const reimportedGroup = (await store.listGroups(organizationId))
+      .find((group) => group.normalizedName === 'reimported');
+    if (!reimportedGroup) throw new Error('reimported contact group was not created');
+    expect(await store.listEligibleForExecution({
+      organizationId,
+      groupIds: [reimportedGroup.id],
+      limit: 10,
+    })).toEqual([]);
     await expect(store.getImportRecord(otherOrganizationId, importId)).resolves.toBeUndefined();
     await expect(store.getImportSummary(otherOrganizationId, importId)).resolves.toBeUndefined();
+  });
+
+  it('supports tenant-scoped group CRUD and contact membership, and searches only the requested organization', async () => {
+    const group = await store.createGroup({
+      organizationId,
+      actorUserId,
+      id: randomUUID(),
+      name: 'Prospects',
+      normalizedName: 'prospects',
+    });
+    const contact = await store.createContact({
+      organizationId,
+      actorUserId,
+      id: randomUUID(),
+      phoneE164: '+256772000041',
+      name: 'Mira Search Fixture',
+      email: 'mira-search@example.invalid',
+      groupNames: [],
+    });
+
+    await expect(store.listContacts({ organizationId: otherOrganizationId, search: 'Mira Search', limit: 10 })).resolves.toEqual([]);
+    await expect(store.listContacts({ organizationId, search: 'Mira Search', limit: 10 })).resolves.toHaveLength(1);
+    expect(await store.addContactToGroup({ organizationId, actorUserId, groupId: group.id, contactId: contact.id })).toBe(true);
+    expect(await store.addContactToGroup({ organizationId, actorUserId, groupId: group.id, contactId: contact.id })).toBe(true);
+    await expect(store.listContacts({ organizationId, groupId: group.id, limit: 10 })).resolves.toHaveLength(1);
+
+    const renamed = await store.updateGroup({
+      organizationId, actorUserId, groupId: group.id, name: 'Qualified Prospects', normalizedName: 'qualified prospects',
+    });
+    expect(renamed?.name).toBe('Qualified Prospects');
+    expect(await store.removeContactFromGroup({ organizationId, actorUserId, groupId: group.id, contactId: contact.id })).toBe(true);
+    expect(await store.deleteGroup({ organizationId, actorUserId, groupId: group.id })).toBe(true);
+    expect(await store.deleteGroup({ organizationId: otherOrganizationId, actorUserId, groupId: group.id })).toBe(false);
+    expect(await store.deleteContact({ organizationId, actorUserId, contactId: contact.id })).toBe('DELETED');
+    const mutations = await database.securityAuditEvent.findMany({
+      where: { organizationId, actorUserId, targetId: { in: [group.id, contact.id] } },
+      select: { action: true },
+    });
+    expect(mutations.map((event) => event.action)).toEqual(expect.arrayContaining([
+      'contact_group.updated',
+      'contact_group.deleted',
+      'contact_group.member_added',
+      'contact_group.member_removed',
+      'contact.deleted',
+    ]));
+  });
+
+  it('retains opt-outs and campaign-referenced contacts when deletion is requested', async () => {
+    const suppressed = await store.createContact({
+      organizationId, actorUserId, id: randomUUID(), phoneE164: '+256772000051', name: 'Suppressed', email: null, groupNames: [],
+    });
+    await store.suppressContact({ organizationId, actorUserId, contactId: suppressed.id, reason: 'user_opt_out' });
+    await expect(store.deleteContact({ organizationId, actorUserId, contactId: suppressed.id })).resolves.toBe('SUPPRESSED');
+    await expect(database.contact.findUnique({ where: { organizationId_id: { organizationId, id: suppressed.id } } })).resolves.not.toBeNull();
+
+    const referenced = await store.createContact({
+      organizationId, actorUserId, id: randomUUID(), phoneE164: '+256772000052', name: 'Referenced', email: null, groupNames: [],
+    });
+    const campaignId = randomUUID();
+    await database.campaign.create({ data: { organizationId, id: campaignId, name: `Delete guard ${run}`, status: 'DRAFT', createdById: actorUserId } });
+    await database.campaignRecipient.create({
+      data: { organizationId, id: randomUUID(), campaignId, contactId: referenced.id, destination: referenced.phoneE164 },
+    });
+    await expect(store.deleteContact({ organizationId, actorUserId, contactId: referenced.id })).resolves.toBe('HAS_RECIPIENTS');
+    await expect(database.contact.findUnique({ where: { organizationId_id: { organizationId, id: referenced.id } } })).resolves.not.toBeNull();
   });
 
   it('adopts legacy campaign contacts without changing IDs, labels, or recipient snapshots', async () => {
@@ -310,6 +403,8 @@ describe('W2-02 PostgreSQL contacts acceptance', () => {
     const duplicateImportId = randomUUID();
     await store.createImport({ organizationId, actorUserId, importId: duplicateImportId, mapping: {} });
     const parsed = parseContactImportBatch('phone,name\n0772000031,Should not merge', {});
+    const preview = await store.previewImport({ organizationId, rows: parsed.rows });
+    expect(preview.rows[0]).toMatchObject({ outcome: 'REJECTED', code: 'ambiguous_existing_duplicate' });
     const result = await store.processImportBatch({
       organizationId,
       actorUserId,
