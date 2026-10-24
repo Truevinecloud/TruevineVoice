@@ -17,8 +17,19 @@ export function privateHttpClient(origin, transport = fetch, controls = {}) {
     const headers = { 'content-type': 'application/json', origin };
     if (jar.size) headers.cookie = [...jar].map(([key, value]) => `${key}=${value}`).join('; ');
     if (method !== 'GET' && jar.get('tv_csrf')) headers['x-truevine-csrf'] = jar.get('tv_csrf');
-    const response = await transport(`${origin}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
-      redirect: 'error', signal: AbortSignal.timeout(15000) });
+    const route = path === '/health' ? 'health' : path === '/api/auth/terms' ? 'terms'
+      : path === '/api/auth/sign-in' ? 'sign-in' : path === '/api/auth/sign-out' ? 'sign-out'
+        : path === '/api/auth/password-reset/complete' ? 'password-reset' : 'authorization';
+    let response;
+    try {
+      response = await transport(`${origin}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+        redirect: 'error', signal: AbortSignal.timeout(15000) });
+    } catch (error) {
+      const code = error?.cause?.code;
+      const safeCode = ['CERT_HAS_EXPIRED', 'ERR_TLS_CERT_ALTNAME_INVALID', 'SELF_SIGNED_CERT_IN_CHAIN',
+        'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'ECONNREFUSED', 'ETIMEDOUT'].includes(code) ? `:${code.toLowerCase()}` : '';
+      throw new Error(`Private HTTP verification failed (${route}:transport${safeCode}); no secrets reported.`, { cause: error });
+    }
     assert(!response.redirected && (response.status < 300 || response.status >= 400));
     for (const cookie of response.headers.getSetCookie()) {
       const pair = cookie.split(';')[0];
@@ -88,7 +99,9 @@ export async function executePrivateHttp(approval, credentials, options = {}, de
   const controls = { expiresAt: approval.expiresAt, intervalMs: approval.environment === 'production' ? 1000 : 0 };
   phase = 'health-probe';
   const health = await privateHttpClient(origin, dependencies.transport, controls).call('GET', '/health');
-  assert(health.status === 200 && health.payload?.version === approval.releaseSha && health.payload?.environment === approval.environment);
+  assert(health.status === 200, 'health:status');
+  assert(health.payload?.version === approval.releaseSha, 'health:version');
+  assert(health.payload?.environment === approval.environment, 'health:environment');
   if (approval.action === 'initialize') {
     if (!state.initialized) {
       const client = privateHttpClient(origin, dependencies.transport, controls);
