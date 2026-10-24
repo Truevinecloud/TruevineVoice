@@ -27,7 +27,7 @@ function fixture() {
     const account = sessions.get(sessionId);
     const headers = new Headers();
     const response = (status, payload) => new Response(payload === undefined ? null : JSON.stringify(payload), { status, headers });
-    if (path === '/api/health') return response(200, { version: approval.releaseSha, environment: approval.environment });
+    if (path === '/health') return response(200, { version: approval.releaseSha, environment: approval.environment });
     if (path === '/api/auth/terms') { headers.append('set-cookie', `tv_csrf=${randomBytes(32).toString('base64url')}; Secure; SameSite=Lax; Path=/`); return response(200, { version: 'test' }); }
     if (path === '/api/auth/sign-in') {
       const body = JSON.parse(options.body);
@@ -72,7 +72,7 @@ describe('private rollout HTTP verifier', () => {
       const response = await original(url, options);
       const path = new URL(url).pathname;
       if (problem === 'insecure-csrf' && path === '/api/auth/terms') return new Response('{}', { headers: { 'set-cookie': 'tv_csrf=synthetic; Secure; HttpOnly; SameSite=Lax; Path=/' } });
-      if (problem === 'release-health' && path === '/api/health') return new Response('{"version":"wrong","environment":"test"}');
+      if (problem === 'release-health' && path === '/health') return new Response('{"version":"wrong","environment":"test"}');
       if (problem === 'throttle' && path === '/api/auth/sign-in') return new Response('{}', { status: 429 });
       if (problem === 'insecure-cookie' && path === '/api/auth/sign-in' && response.status === 200) {
         return new Response('{"ok":true}', { headers: { 'set-cookie': 'tv_session=synthetic; Path=/' } });
@@ -100,7 +100,7 @@ describe('private rollout HTTP verifier', () => {
     f.inspect.mockResolvedValueOnce({ initialized: false }).mockResolvedValueOnce({ initialized: true });
     const raw = randomBytes(32).toString('base64url');
     const transport = vi.fn(async (url, options) => {
-      if (new URL(url).pathname === '/api/health') return new Response(JSON.stringify({ version: f.approval.releaseSha, environment: f.approval.environment }));
+      if (new URL(url).pathname === '/health') return new Response(JSON.stringify({ version: f.approval.releaseSha, environment: f.approval.environment }));
       if (new URL(url).pathname === '/api/auth/terms') return new Response('{}', { headers: { 'set-cookie': 'tv_csrf=synthetic; Secure; SameSite=Lax; Path=/' } });
       const body = JSON.parse(options.body);
       expect(body.token === raw).toBe(true);

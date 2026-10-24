@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import type { INestApplication } from '@nestjs/common';
+import { RequestMethod, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { createDatabaseClient, type PrismaClient } from '@truevine/database';
 import { hashPassword } from '@truevine/auth/passwords';
@@ -72,7 +72,7 @@ beforeAll(async () => {
     .overrideProvider(RATE_LIMITER).useValue({ consume: async () => ({ allowed: true, retryAfterMs: 0, remaining: 1000 }) })
     .compile();
   app = moduleRef.createNestApplication();
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', { exclude: [{ path: 'health', method: RequestMethod.GET }] });
   await app.listen(0, '127.0.0.1');
   origin = await app.getUrl();
 }, 60000);
