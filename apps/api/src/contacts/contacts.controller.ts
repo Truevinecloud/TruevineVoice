@@ -1,5 +1,6 @@
 import {
   Body,
+  Delete,
   Controller,
   Get,
   Inject,
@@ -53,6 +54,17 @@ export class ContactsController {
     @Body() b: unknown,
   ) {
     return this.contacts.updateContact(o.organizationId, p.userId, id, b);
+  }
+  @Delete('contacts/:contactId')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:update')
+  deleteContact(
+    @CurrentOrganization() o: { organizationId: string },
+    @CurrentPrincipal() p: { userId: string },
+    @Param('contactId') id: string,
+  ) {
+    return this.contacts.deleteContact(o.organizationId, p.userId, id);
   }
   @Post('contacts/:contactId/voice-consent')
   @UseGuards(...Protected)

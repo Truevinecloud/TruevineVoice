@@ -244,6 +244,36 @@ export class PrismaContactStore implements ContactStore {
     });
     return rows.map((r) => view(r as Row));
   }
+
+  async deleteContact(i: {
+    organizationId: string;
+    actorUserId: string;
+    contactId: string;
+  }): Promise<'DELETED' | 'NOT_FOUND' | 'SUPPRESSED' | 'HAS_RECIPIENTS'> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const contact = await tx.contact.findUnique({
+          where: { organizationId_id: { organizationId: i.organizationId, id: i.contactId } },
+          select: { id: true, suppressedAt: true },
+        });
+        if (!contact) return 'NOT_FOUND';
+        if (contact.suppressedAt) return 'SUPPRESSED';
+
+        const deleted = await tx.contact.deleteMany({
+          where: { organizationId: i.organizationId, id: i.contactId, suppressedAt: null },
+        });
+        if (!deleted.count) return 'SUPPRESSED';
+        await this.audit(tx, i.organizationId, i.actorUserId, 'contact.deleted', 'contact', i.contactId);
+        return 'DELETED';
+      });
+    } catch (error) {
+      if (['P2003', 'P2014'].includes((error as { code?: string }).code ?? '')) {
+        return 'HAS_RECIPIENTS';
+      }
+      throw error;
+    }
+  }
+
   async recordVoiceConsent(i: {
     organizationId: string; actorUserId: string; contactId: string; consentedAt: Date;
     source: string; purpose: 'voice_calling'; evidenceReference: string;

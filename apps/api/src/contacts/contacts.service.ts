@@ -168,6 +168,29 @@ export class ContactsService {
     };
   }
 
+  async deleteContact(organizationId: string, actorUserId: string, contactIdValue: unknown) {
+    const contactId = this.uuid(contactIdValue, 'Contact id');
+    const result = await this.store.deleteContact({ organizationId, actorUserId, contactId });
+    if (result === 'NOT_FOUND') throw this.notFound();
+    if (result === 'SUPPRESSED') {
+      throw new ConflictException({
+        error: {
+          code: 'suppressed_contact_retained',
+          message: 'Suppressed contacts are retained to preserve the opt-out.',
+        },
+      });
+    }
+    if (result === 'HAS_RECIPIENTS') {
+      throw new ConflictException({
+        error: {
+          code: 'contact_has_campaign_history',
+          message: 'Contacts referenced by campaign history cannot be deleted.',
+        },
+      });
+    }
+    return { deleted: true };
+  }
+
   async updateContact(
     organizationId: string,
     actorUserId: string,

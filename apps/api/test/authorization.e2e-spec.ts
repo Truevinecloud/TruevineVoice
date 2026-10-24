@@ -501,6 +501,47 @@ describe('tenant isolation over HTTP', () => {
   });
 });
 
+describe('contact deletion over HTTP', () => {
+  it('allows an authorized owner to delete a contact and cannot delete another tenant’s contact', async () => {
+    const { cookie, csrf } = await signIn(EMAIL_A);
+    const ownerCookie = `${cookie}; ${CSRF_COOKIE}=${csrf}`;
+    const created = await request(server)
+      .post(`/organizations/${ORG_A}/contacts`)
+      .set('cookie', ownerCookie)
+      .set(CSRF_HEADER, csrf)
+      .send({ phone: '0772000001', name: 'Synthetic contact delete fixture' });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+
+    const deleted = await request(server)
+      .delete(`/organizations/${ORG_A}/contacts/${created.body.id as string}`)
+      .set('cookie', ownerCookie)
+      .set(CSRF_HEADER, csrf);
+    expect(deleted.status, JSON.stringify(deleted.body)).toBe(200);
+    expect(deleted.body).toEqual({ deleted: true });
+
+    const foreignContactId = randomUUID();
+    await database.contact.create({
+      data: {
+        organizationId: ORG_B,
+        id: foreignContactId,
+        phoneE164: '+256772000002',
+        destination: '+256772000002',
+        label: 'Synthetic foreign tenant fixture',
+      },
+    });
+    const crossTenantDelete = await request(server)
+      .delete(`/organizations/${ORG_A}/contacts/${foreignContactId}`)
+      .set('cookie', ownerCookie)
+      .set(CSRF_HEADER, csrf);
+    expect(crossTenantDelete.status).toBe(404);
+    await expect(
+      database.contact.findUnique({
+        where: { organizationId_id: { organizationId: ORG_B, id: foreignContactId } },
+      }),
+    ).resolves.not.toBeNull();
+  });
+});
+
 describe('audit trail over HTTP', () => {
   it('records a successful profile change', async () => {
     const { cookie, csrf } = await signIn(EMAIL_A);

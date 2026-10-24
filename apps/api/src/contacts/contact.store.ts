@@ -75,6 +75,7 @@ export interface ContactMutationAudit {
   readonly action:
     | 'contact.created'
     | 'contact.updated'
+    | 'contact.deleted'
     | 'contact.suppressed'
     | 'contact_group.created'
     | 'contact_import.started'
@@ -147,6 +148,11 @@ export interface ContactStore {
     readonly name?: string | null;
     readonly email?: string | null;
   }): Promise<ContactRecord | undefined>;
+  deleteContact(input: {
+    readonly organizationId: string;
+    readonly actorUserId: string;
+    readonly contactId: string;
+  }): Promise<'DELETED' | 'NOT_FOUND' | 'SUPPRESSED' | 'HAS_RECIPIENTS'>;
   suppressContact(input: {
     readonly organizationId: string;
     readonly actorUserId: string;
