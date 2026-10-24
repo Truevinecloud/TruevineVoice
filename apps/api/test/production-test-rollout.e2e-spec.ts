@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { generateKeyPairSync, randomBytes, randomUUID, type KeyObject } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
@@ -157,6 +157,18 @@ function inputs(action: string) {
   };
 }
 
+function runPrivateCommand(name: string, executable: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, timeout: number) {
+  const result = spawnSync(executable, args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout, maxBuffer: 1024 * 1024 });
+  if (result.error || result.status !== 0) {
+    const spawnError = result.error as NodeJS.ErrnoException | undefined;
+    const outcome = spawnError?.code === 'ETIMEDOUT' ? 'timed out'
+      : Number.isInteger(result.status) ? `exited ${result.status}`
+        : 'could not start';
+    throw new Error(`Disposable ${name} subprocess ${outcome}; captured output and private paths withheld.`);
+  }
+  return result.stdout;
+}
+
 function runSignedLinuxCli(action: 'bootstrap' | 'initialize' | 'provision' | 'verify' | 'http', extra?: { activationDirectory?: string; artifactPath?: string }) {
   if (!privateDirectory || !ownerKeyPair) throw new Error('Protected Linux rehearsal files are unavailable.');
   const { approval } = inputs(action);
@@ -166,12 +178,11 @@ function runSignedLinuxCli(action: 'bootstrap' | 'initialize' | 'provision' | 'v
   const base = resolve(import.meta.dirname, '../../..');
   const environment: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'test', WEB_PUBLIC_URL: origin, DATABASE_URL: databaseUrl,
     APP_VERSION: revision, TEST_ACCOUNT_ROLLOUT_ENABLED: '1', ROLLOUT_E2E_DISPOSABLE: '1',
-    ROLLOUT_E2E_TRACE: '1',
     TEST_ACCOUNT_ROLLOUT_OWNER_PUBLIC_KEY_DER: ownerKeyPair.publicKey.export({ format: 'der', type: 'spki' }).toString('base64url') };
   const signer = resolve(base, 'infrastructure/scripts/production-test-rollout-owner-auth.mjs');
   const rollout = resolve(base, 'infrastructure/scripts/production-test-rollout.mjs');
-  const signed = execFileSync(process.execPath, [signer, '--draft', draftPath, '--owner-key', join(privateDirectory, 'owner-authentication.key'), '--output', signedPath],
-    { cwd: base, env: environment, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const signed = runPrivateCommand('owner-signer', process.execPath,
+    [signer, '--draft', draftPath, '--owner-key', join(privateDirectory, 'owner-authentication.key'), '--output', signedPath], base, environment, 30000);
   const signerResult = JSON.parse(signed) as { action: string; keyId: string; outputPath: string };
   if (signerResult.action !== action || signerResult.outputPath !== signedPath) throw new Error('Owner signer did not bind the requested action.');
   const args = [rollout, action, '--approval', signedPath, '--credentials', join(privateDirectory, 'credentials.json')];
@@ -183,13 +194,26 @@ function runSignedLinuxCli(action: 'bootstrap' | 'initialize' | 'provision' | 'v
     if (!extra?.artifactPath) throw new Error('Initialization rehearsal artifact is missing.');
     args.push('--artifact', extra.artifactPath);
   }
-  const output = execFileSync(process.execPath, args, { cwd: base, env: environment, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const output = runPrivateCommand(action, process.execPath, args, base, environment, 120000);
   if (Object.values(passwords).some(password => output.includes(password))) throw new Error('Disposable CLI exposed a password.');
   return JSON.parse(output) as { userId?: string; activationFile?: string; ownerInitialized?: boolean; accountCount?: number;
     accounts?: Array<{ email: string; httpSignIn: string }>; ownerAuthorizationKeyId?: string };
 }
 
 describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
+  it('bounds private subprocesses and withholds captured output on failure', () => {
+    const marker = 'private-output-must-not-escape';
+    let message = '';
+    try {
+      runPrivateCommand('synthetic', process.execPath,
+        ['-e', `process.stderr.write(${JSON.stringify(marker)}); process.exit(23);`], process.cwd(), process.env, 5000);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('exited 23');
+    expect(message).not.toContain(marker);
+  });
+
   it('bootstraps through immutable mechanism, initializes privately, provisions/retries, verifies eleven HTTP identities and disables', async () => {
     if (privateDirectory) {
       const activationDirectory = join(privateDirectory, 'activation');

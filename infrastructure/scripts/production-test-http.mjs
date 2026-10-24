@@ -3,10 +3,6 @@ import { ORGANIZATION_ROLE_PERMISSIONS, PLATFORM_ROLE_PERMISSIONS } from '@truev
 import { executeRollout, ROLLOUT_ACCOUNTS, validateRollout } from './production-test-rollout.mjs';
 
 const assert = (condition, context = '') => { if (!condition) throw new Error(`Private HTTP verification failed${context ? ` (${context})` : ''}; no secrets reported.`); };
-const trace = (environment, stage) => {
-  if (environment.NODE_ENV === 'test' && environment.ROLLOUT_E2E_DISPOSABLE === '1' && environment.ROLLOUT_E2E_TRACE === '1')
-    process.stderr.write(`rollout-http-stage:${stage}\n`);
-};
 
 /** Native fetch verifies TLS by default. Redirects, timeouts and unexpected
  * responses fail closed. Cookies/body data never leave this private client. */
@@ -85,26 +81,20 @@ export async function executePrivateHttp(approval, credentials, options = {}, de
   const { origin } = validation;
   assert(['initialize', 'http'].includes(approval.action));
   const inspect = dependencies.inspect ?? executeRollout;
-  trace(environment, 'inspect-start');
   const state = await inspect(approval, credentials, options, dependencies);
-  trace(environment, 'inspect-complete');
   const controls = { expiresAt: approval.expiresAt, intervalMs: approval.environment === 'production' ? 1000 : 0 };
   const health = await privateHttpClient(origin, dependencies.transport, controls).call('GET', '/health');
-  trace(environment, 'health-complete');
   assert(health.status === 200 && health.payload?.version === approval.releaseSha && health.payload?.environment === approval.environment);
   if (approval.action === 'initialize') {
     if (!state.initialized) {
       const client = privateHttpClient(origin, dependencies.transport, controls);
       assert((await client.call('GET', '/api/auth/terms')).status === 200 && client.hasCsrf());
-      trace(environment, 'terms-complete');
       const raw = new URL(options.artifact.activationUrl).searchParams.get('token');
       const result = await client.call('POST', '/api/auth/password-reset/complete', {
         token: raw, newPassword: credentials.passwords['qa-platform-owner@truevoice.com'],
       });
       assert(result.status === 200 && result.payload?.ok === true);
-      trace(environment, 'password-completion');
       const after = await inspect(approval, credentials, { ...options, authorizationReconciliation: true }, dependencies);
-      trace(environment, 'post-initialize-inspect');
       assert(after.initialized);
     }
     return { operationId: approval.operationId, ownerInitialized: true };

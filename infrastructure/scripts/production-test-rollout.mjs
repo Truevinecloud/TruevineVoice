@@ -8,6 +8,7 @@ import { createDatabaseClient } from '@truevine/database';
 import { INVENTORY } from './qa-role-test-kit.mjs';
 import { bootstrapPlatformOwner, readBootstrapApproval } from './bootstrap-platform-owner.mjs';
 import { readPinnedOwnerPublicKey, verifyOwnerAuthorization } from './production-test-rollout-owner-auth.mjs';
+import { executePrivateHttp } from './production-test-http.mjs';
 
 export const ROLLOUT_ACCOUNTS = INVENTORY.map(account => ({ ...account, email: account.email.replace('@example.invalid', '@truevoice.com') }));
 export const INVENTORY_DIGEST = createHash('sha256').update(JSON.stringify(ROLLOUT_ACCOUNTS)).digest('hex');
@@ -17,10 +18,6 @@ const REFERENCE = /^[A-Z][A-Z0-9_-]{2,63}$/;
 const OWNER = 'qa-platform-owner@truevoice.com';
 const ACTIONS = ['bootstrap', 'initialize', 'provision', 'verify', 'http', 'disable'];
 const fail = () => { throw new Error('Rollout refused; reconcile approved operation securely.'); };
-const trace = (environment, stage) => {
-  if (environment.NODE_ENV === 'test' && environment.ROLLOUT_E2E_DISPOSABLE === '1' && environment.ROLLOUT_E2E_TRACE === '1')
-    process.stderr.write(`rollout-stage:${stage}\n`);
-};
 
 export function validateRollout(approval, credentials, environment, confirmProduction = false, now = Date.now(), pinnedOwnerPublicKeyDer) {
   if (environment.TEST_ACCOUNT_ROLLOUT_ENABLED !== '1' || approval?.version !== 1 ||
@@ -99,7 +96,6 @@ export async function executeRollout(approval, credentials, options = {}, depend
   assertRelease(approval);
   if (approval.action === 'bootstrap') fail();
   const database = (dependencies.createClient ?? createDatabaseClient)(environment.DATABASE_URL, { log: [] });
-  trace(environment, `${approval.action}:client`);
   const audit = (tx, id, action, metadata) => {
     assertKnownAuditAction(action);
     const safe = {
@@ -113,32 +109,25 @@ export async function executeRollout(approval, credentials, options = {}, depend
     return tx.identityAuditEvent.create({ data: { id, actorUserId: approval.actorUserId, action, outcome: 'SUCCESS', metadata: safe } });
   };
   try {
-    trace(environment, `${approval.action}:transaction-start`);
     return await database.$transaction(async tx => {
       const identity = await tx.$queryRaw`SELECT current_database() AS name`;
-      trace(environment, `${approval.action}:identity`);
       const cluster = await tx.$queryRaw`SELECT system_identifier::text AS name FROM pg_catalog.pg_control_system()`;
       if (identity[0]?.name !== approval.database.name || cluster[0]?.name !== approval.database.systemIdentifier) fail();
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(712340983)::text AS acquired`;
-      trace(environment, `${approval.action}:lock`);
       if (Date.parse(approval.expiresAt) <= Date.now()) fail();
       await tx.$queryRaw`SELECT id FROM users WHERE id=${approval.actorUserId}::uuid FOR SHARE`;
       await tx.$queryRaw`SELECT user_id FROM platform_role_assignments WHERE user_id=${approval.actorUserId}::uuid FOR SHARE`;
       const admin = await tx.user.findUnique({ where: { email: 'admin@truevoice.com' }, select: { id: true, status: true, memberships: true, platformRole: true } });
-      trace(environment, `${approval.action}:admin`);
       if (admin?.id !== approval.preservedAdmin.userId || admin.status !== 'ACTIVE' || admin.platformRole ||
           admin.memberships.length !== 1 || admin.memberships[0].organizationId !== approval.preservedAdmin.organizationId || admin.memberships[0].role !== 'OWNER') fail();
       const claim = await tx.platformOwnerBootstrap.findUnique({ where: { slot: 'first_platform_owner' } });
       const owner = await tx.user.findUnique({ where: { email: OWNER }, include });
-      trace(environment, `${approval.action}:owner-claim`);
       if (!owner || claim?.userId !== owner.id || claim.operationId !== approval.bootstrapOperationId || owner.id !== approval.actorUserId ||
           owner.status !== 'ACTIVE' || !checkAssignment(owner, { scope: 'platform', role: 'PLATFORM_OWNER' })) fail();
       const bootstrapAudit = await tx.identityAuditEvent.findUnique({ where: { id: claim.auditEventId } });
-      trace(environment, `${approval.action}:bootstrap-audit`);
       if (bootstrapAudit?.action !== 'platform.owner.bootstrapped' || bootstrapAudit.actorUserId !== owner.id || bootstrapAudit.outcome !== 'SUCCESS' ||
           bootstrapAudit.metadata.environment !== approval.environment || bootstrapAudit.metadata.subjectUserId !== owner.id || bootstrapAudit.metadata.operationId !== claim.operationId) fail();
       const passwordReady = await verifyPassword(owner.passwordHash, credentials.passwords[OWNER]);
-      trace(environment, `${approval.action}:password-state`);
       if (approval.action === 'initialize') {
         const artifact = options.artifact;
         const link = new URL(artifact?.activationUrl);
@@ -148,10 +137,8 @@ export async function executeRollout(approval, credentials, options = {}, depend
         const raw = link.searchParams.get('token');
         if (!raw || !/^[A-Za-z0-9_-]{40,100}$/.test(raw)) fail();
         const token = await tx.passwordResetToken.findUnique({ where: { tokenHash: hashToken(raw) } });
-        trace(environment, `${approval.action}:token`);
         if (token?.userId !== owner.id || (token.usedAt ? !passwordReady : token.expiresAt <= new Date())) fail();
         await recordOwnerAuthorization(tx, approval, options, audit, validation.ownerAuthorization);
-        trace(environment, `${approval.action}:authorization-audit`);
         return { ownerId: owner.id, initialized: passwordReady && Boolean(token.usedAt), preservedAdminId: admin.id };
       }
       if (!passwordReady) fail();
@@ -218,7 +205,7 @@ export async function executeRollout(approval, credentials, options = {}, depend
           ownerAuthorizationDigest: validation.ownerAuthorization.digest } : {}) };
     }, { isolationLevel: 'Serializable', timeout: 120000 });
   } catch { fail(); }
-  finally { try { await database.$disconnect(); trace(environment, `${approval.action}:disconnected`); } catch { fail(); } }
+  finally { try { await database.$disconnect(); } catch { fail(); } }
 }
 
 function recordOwnerAuthorization(tx, approval, options, audit, authorization) {
@@ -236,7 +223,6 @@ function recordOwnerAuthorization(tx, approval, options, audit, authorization) {
 }
 
 export async function rolloutMain(argv = process.argv.slice(2)) {
-  trace(process.env, 'cli-entered');
   try {
     if (argv.length === 1 && argv[0] === 'inventory') {
       process.stdout.write(`${JSON.stringify({ inventoryDigest: INVENTORY_DIGEST, accounts: ROLLOUT_ACCOUNTS })}\n`); return;
@@ -263,11 +249,9 @@ export async function rolloutMain(argv = process.argv.slice(2)) {
       else fail();
     }
     const approval = readBootstrapApproval(options['--approval']);
-    trace(process.env, `${action}:approval-read`);
     const credentials = readBootstrapApproval(options['--credentials']);
     if (approval.action !== action) fail();
     const validation = validateRollout(approval, credentials, process.env, options['--confirm-production']);
-    trace(process.env, `${action}:approval-validated`);
     assertRelease(approval);
     let result;
     if (action === 'bootstrap') {
@@ -275,9 +259,6 @@ export async function rolloutMain(argv = process.argv.slice(2)) {
         approvalFile: options['--approval'], activationDirectory: options['--activation-directory'], confirmProduction: options['--confirm-production'],
         ownerAuthorization: validation.ownerAuthorization });
     } else if (['initialize', 'http'].includes(action)) {
-      trace(process.env, `${action}:http-module-import`);
-      const { executePrivateHttp } = await import('./production-test-http.mjs');
-      trace(process.env, `${action}:http-module-ready`);
       result = await executePrivateHttp(approval, credentials, { confirmProduction: options['--confirm-production'],
         artifact: action === 'initialize' ? readBootstrapApproval(options['--artifact']) : undefined });
     } else result = await executeRollout(approval, credentials, { confirmProduction: options['--confirm-production'] });
