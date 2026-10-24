@@ -308,6 +308,8 @@ describe('OrganizationGuard', () => {
       { permission: 'campaign:create', allowed: true },
       { permission: 'campaign:update', allowed: true },
       { permission: 'campaign:delete', allowed: true },
+      { permission: 'audio:read', allowed: true },
+      { permission: 'audio:create', allowed: true },
       { permission: 'contact:read', allowed: true },
       { permission: 'contact:create', allowed: true },
       { permission: 'contact:update', allowed: true },
