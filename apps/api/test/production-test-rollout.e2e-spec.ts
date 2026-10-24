@@ -166,6 +166,7 @@ function runSignedLinuxCli(action: 'bootstrap' | 'initialize' | 'provision' | 'v
   const base = resolve(import.meta.dirname, '../../..');
   const environment: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'test', WEB_PUBLIC_URL: origin, DATABASE_URL: databaseUrl,
     APP_VERSION: revision, TEST_ACCOUNT_ROLLOUT_ENABLED: '1', ROLLOUT_E2E_DISPOSABLE: '1',
+    ROLLOUT_E2E_TRACE: '1',
     TEST_ACCOUNT_ROLLOUT_OWNER_PUBLIC_KEY_DER: ownerKeyPair.publicKey.export({ format: 'der', type: 'spki' }).toString('base64url') };
   const signer = resolve(base, 'infrastructure/scripts/production-test-rollout-owner-auth.mjs');
   const rollout = resolve(base, 'infrastructure/scripts/production-test-rollout.mjs');
