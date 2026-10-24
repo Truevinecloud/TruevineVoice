@@ -25,10 +25,13 @@ export function privateHttpClient(origin, transport = fetch, controls = {}) {
       response = await transport(`${origin}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
         redirect: 'error', signal: AbortSignal.timeout(15000) });
     } catch (error) {
-      const code = error?.cause?.code;
-      const safeCode = ['CERT_HAS_EXPIRED', 'ERR_TLS_CERT_ALTNAME_INVALID', 'SELF_SIGNED_CERT_IN_CHAIN',
-        'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'ECONNREFUSED', 'ETIMEDOUT'].includes(code) ? `:${code.toLowerCase()}` : '';
-      throw new Error(`Private HTTP verification failed (${route}:transport${safeCode}); no secrets reported.`, { cause: error });
+      const codes = [];
+      for (let current = error, depth = 0; current && depth < 5; current = current.cause, depth++)
+        if (typeof current.code === 'string') codes.push(current.code);
+      const kind = codes.some(code => /^(?:ERR_TLS|ERR_SSL|CERT_|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER)/.test(code)) ? 'tls'
+        : codes.some(code => /^(?:ECONN|ETIMEDOUT|EHOST|ENET|EAI_)/.test(code)) ? 'network'
+          : codes.some(code => code.startsWith('UND_ERR_')) ? 'undici' : 'unknown';
+      throw new Error(`Private HTTP verification failed (${route}:transport-${kind}); no secrets reported.`, { cause: error });
     }
     assert(!response.redirected && (response.status < 300 || response.status >= 400));
     for (const cookie of response.headers.getSetCookie()) {

@@ -95,6 +95,16 @@ describe('private rollout HTTP verifier', () => {
     await expect(client.call('POST', '/api/auth/sign-in?password=not-allowed')).rejects.toThrow();
     expect(transport).toHaveBeenCalledOnce();
   });
+  it('classifies TLS transport failures without exposing underlying details', async () => {
+    const cause = Object.assign(new Error('private TLS detail'), { code: 'ERR_TLS_CERT_ALTNAME_INVALID' });
+    const transport = vi.fn(async () => { throw Object.assign(new Error('private fetch detail'), { cause }); });
+    const client = privateHttpClient('https://127.0.0.1', transport);
+    let message = '';
+    try { await client.call('GET', '/health'); } catch (error) { message = (error as Error).message; }
+    expect(message).toContain('health:transport-tls');
+    expect(message).not.toContain('private TLS detail');
+    expect(message).not.toContain('private fetch detail');
+  });
   it('initializes only the approved owner through password-reset completion and reconciles its outcome', async () => {
     const f = fixture(); f.approval.action = 'initialize';
     f.inspect.mockResolvedValueOnce({ initialized: false }).mockResolvedValueOnce({ initialized: true });
