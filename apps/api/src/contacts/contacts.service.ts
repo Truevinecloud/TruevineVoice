@@ -21,6 +21,7 @@ import {
   ContactPhoneRestrictedError,
   ContactPhoneConflictError,
   ContactUpdateConflictError,
+  ContactGroupConflictError,
   type ContactRecord,
   type ContactStore,
   type ContactGroupRecord,
@@ -92,6 +93,8 @@ export class ContactsService {
 
   async createGroup(organizationId: string, actorUserId: string, input: unknown) {
     const body = this.body(input, 'Group details are required.');
+    if (Object.keys(body).some((key) => key !== 'name'))
+      invalid('Only the group name can be provided.');
     const group = this.groupName(body.name);
     try {
       return this.groupView(
@@ -120,6 +123,89 @@ export class ContactsService {
 
   async listGroups(organizationId: string): Promise<readonly unknown[]> {
     return (await this.store.listGroups(organizationId)).map((group) => this.groupView(group));
+  }
+
+  async getGroup(organizationId: string, groupIdValue: unknown) {
+    const group = await this.store.findGroup(organizationId, this.uuid(groupIdValue, 'Group id'));
+    if (!group) throw this.groupNotFound();
+    return this.groupView(group);
+  }
+
+  async updateGroup(
+    organizationId: string,
+    actorUserId: string,
+    groupIdValue: unknown,
+    input: unknown,
+  ) {
+    const groupId = this.uuid(groupIdValue, 'Group id');
+    const body = this.body(input, 'Group details are required.');
+    if (Object.keys(body).length !== 1 || !Object.hasOwn(body, 'name'))
+      invalid('Only the group name can be updated.');
+    try {
+      const group = await this.store.updateGroup({
+        organizationId,
+        actorUserId,
+        groupId,
+        ...this.groupName(body.name),
+      });
+      if (!group) throw this.groupNotFound();
+      return this.groupView(group);
+    } catch (error) {
+      if (error instanceof ContactGroupConflictError)
+        throw new ConflictException({
+          error: {
+            code: 'contact_group_exists',
+            message: 'A group with this name already exists.',
+          },
+        });
+      throw error;
+    }
+  }
+
+  async deleteGroup(organizationId: string, actorUserId: string, groupIdValue: unknown) {
+    const groupId = this.uuid(groupIdValue, 'Group id');
+    if (!(await this.store.deleteGroup({ organizationId, actorUserId, groupId })))
+      throw this.groupNotFound();
+    return { deleted: true };
+  }
+
+  async groupContacts(
+    organizationId: string,
+    groupIdValue: unknown,
+    query: { readonly limit?: unknown; readonly cursor?: unknown },
+  ) {
+    const group = await this.getGroup(organizationId, groupIdValue);
+    return this.listContacts(organizationId, { ...query, groupId: group.id });
+  }
+
+  async setGroupMembership(
+    organizationId: string,
+    actorUserId: string,
+    groupIdValue: unknown,
+    contactIdValue: unknown,
+    member: boolean,
+  ) {
+    const result = await this.store.setGroupMembership({
+      organizationId,
+      actorUserId,
+      groupId: this.uuid(groupIdValue, 'Group id'),
+      contactId: this.uuid(contactIdValue, 'Contact id'),
+      member,
+    });
+    if (!result)
+      throw new NotFoundException({
+        error: {
+          code: 'contact_group_member_not_found',
+          message: 'Group or contact not found in this organization.',
+        },
+      });
+    return result;
+  }
+
+  private groupNotFound() {
+    return new NotFoundException({
+      error: { code: 'contact_group_not_found', message: 'Group not found.' },
+    });
   }
 
   async createContact(organizationId: string, actorUserId: string, input: unknown) {
@@ -429,6 +515,8 @@ export class ContactsService {
   private groupName(value: unknown): { name: string; normalizedName: string } {
     if (typeof value !== 'string') invalid('Group name is required.');
     const name = value.trim().replace(/\s+/g, ' ');
+    if ([...name].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127))
+      invalid('Group name contains unsupported control characters.');
     if (!name || name.length > 120) invalid('Group name must be 1 to 120 characters.');
     return { name, normalizedName: name.toLocaleLowerCase('en-US') };
   }
@@ -485,7 +573,12 @@ export class ContactsService {
   }
 
   private groupView(group: ContactGroupRecord) {
-    return { id: group.id, name: group.name, createdAt: group.createdAt.toISOString() };
+    return {
+      id: group.id,
+      name: group.name,
+      createdAt: group.createdAt.toISOString(),
+      ...(group.memberCount === undefined ? {} : { memberCount: group.memberCount }),
+    };
   }
 
   private notFound() {

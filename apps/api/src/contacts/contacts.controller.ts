@@ -119,6 +119,72 @@ export class ContactsController {
   ) {
     return this.contacts.startImport(o.organizationId, p.userId, b);
   }
+
+  @Get('contact-groups/:groupId')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:read')
+  getGroup(@CurrentOrganization() o: { organizationId: string }, @Param('groupId') id: string) {
+    return this.contacts.getGroup(o.organizationId, id);
+  }
+  @Patch('contact-groups/:groupId')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:update')
+  updateGroup(
+    @CurrentOrganization() o: { organizationId: string },
+    @CurrentPrincipal() p: { userId: string },
+    @Param('groupId') id: string,
+    @Body() b: unknown,
+  ) {
+    return this.contacts.updateGroup(o.organizationId, p.userId, id, b);
+  }
+  @Delete('contact-groups/:groupId')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:update')
+  deleteGroup(
+    @CurrentOrganization() o: { organizationId: string },
+    @CurrentPrincipal() p: { userId: string },
+    @Param('groupId') id: string,
+  ) {
+    return this.contacts.deleteGroup(o.organizationId, p.userId, id);
+  }
+  @Get('contact-groups/:groupId/contacts')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:read')
+  groupContacts(
+    @CurrentOrganization() o: { organizationId: string },
+    @Param('groupId') id: string,
+    @Query() q: Record<string, unknown>,
+  ) {
+    return this.contacts.groupContacts(o.organizationId, id, q);
+  }
+  @Post('contact-groups/:groupId/contacts/:contactId')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:update')
+  addGroupContact(
+    @CurrentOrganization() o: { organizationId: string },
+    @CurrentPrincipal() p: { userId: string },
+    @Param('groupId') groupId: string,
+    @Param('contactId') contactId: string,
+  ) {
+    return this.contacts.setGroupMembership(o.organizationId, p.userId, groupId, contactId, true);
+  }
+  @Delete('contact-groups/:groupId/contacts/:contactId')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('contact:update')
+  removeGroupContact(
+    @CurrentOrganization() o: { organizationId: string },
+    @CurrentPrincipal() p: { userId: string },
+    @Param('groupId') groupId: string,
+    @Param('contactId') contactId: string,
+  ) {
+    return this.contacts.setGroupMembership(o.organizationId, p.userId, groupId, contactId, false);
+  }
   @Post('contact-imports/:importId/batches')
   @UseGuards(...Protected)
   @RequireAcceptedTerms()

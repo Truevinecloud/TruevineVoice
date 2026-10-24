@@ -1,5 +1,26 @@
 # Truevine Voice
 
+## W2-02 Increment 2 — Contact groups
+
+`/app/contact-groups?organization=<membership-organization-id>` supports group
+creation, viewing, renaming, deletion and adding/removing existing contacts.
+Group names are trimmed, whitespace-normalized, limited to 120 characters and
+unique ignoring case within an organization. A contact can belong to multiple
+groups. Member lists are paginated; the contact picker searches existing contacts.
+
+Existing `contact:read`, `contact:create` and `contact:update` permissions apply
+(Owner, Admin and Campaign Manager). Viewer/Billing gain no group access.
+Group writes recheck current permissions in the database transaction and audit
+the committed change. Membership retries are idempotent and do not duplicate
+links/audits. Deleting a group removes its links while preserving contacts,
+consent/suppression and campaign/call history. Membership grants no consent.
+
+The existing schema's composite tenant keys/foreign keys and normalized-name
+uniqueness are reused; no migration or dependency is required. CSV import,
+consent/suppression management and full UI redesign remain out of scope.
+See [W2-02 acceptance tracking](docs/w2-02-acceptance.md), including the pending
+Increment 1 deletion, Viewer/Billing and cross-tenant live checks.
+
 ## W2-02 phone corrections
 
 Users with `contact:update` (Owner, Admin and Campaign Manager) can correct a
