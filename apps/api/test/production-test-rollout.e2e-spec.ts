@@ -160,11 +160,14 @@ function inputs(action: string) {
 function runPrivateCommand(name: string, executable: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, timeout: number) {
   const result = spawnSync(executable, args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout, maxBuffer: 1024 * 1024 });
   if (result.error || result.status !== 0) {
+    const diagnostic = result.stderr?.trim();
+    const safeDiagnostic = diagnostic && /^(?:Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.|Disposable rollout transaction failed during [a-z-]+\.)$/.test(diagnostic)
+      ? ` Safe diagnostic: ${diagnostic}` : '';
     const spawnError = result.error as NodeJS.ErrnoException | undefined;
     const outcome = spawnError?.code === 'ETIMEDOUT' ? 'timed out'
       : Number.isInteger(result.status) ? `exited ${result.status}`
         : 'could not start';
-    throw new Error(`Disposable ${name} subprocess ${outcome}; captured output and private paths withheld.`);
+    throw new Error(`Disposable ${name} subprocess ${outcome}; captured output and private paths withheld.${safeDiagnostic}`);
   }
   return result.stdout;
 }
@@ -212,6 +215,15 @@ describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
     }
     expect(message).toContain('exited 23');
     expect(message).not.toContain(marker);
+    expect(message).not.toContain('Safe diagnostic:');
+    let safeMessage = '';
+    try {
+      runPrivateCommand('safe-diagnostic', process.execPath,
+        ['-e', `process.stderr.write('Private HTTP verification failed (role:denial); no secrets reported.\\n'); process.exit(24);`], process.cwd(), process.env, 5000);
+    } catch (error) {
+      safeMessage = (error as Error).message;
+    }
+    expect(safeMessage).toContain('Safe diagnostic: Private HTTP verification failed (role:denial); no secrets reported.');
   });
 
   it('bootstraps through immutable mechanism, initializes privately, provisions/retries, verifies eleven HTTP identities and disables', async () => {
