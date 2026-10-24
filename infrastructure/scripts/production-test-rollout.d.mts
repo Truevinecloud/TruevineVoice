@@ -14,6 +14,6 @@ export interface RolloutState {
   state?: string;
   initialized?: boolean;
 }
-export function validateRollout(approval: unknown, credentials: unknown, environment: NodeJS.ProcessEnv, confirmProduction?: boolean, now?: number): { origin: string };
+export function validateRollout(approval: unknown, credentials: unknown, environment: NodeJS.ProcessEnv, confirmProduction?: boolean, now?: number, pinnedOwnerPublicKeyDer?: Buffer): { origin: string; ownerAuthorization?: { keyId: string; digest: string } };
 export function executeRollout(approval: unknown, credentials: unknown, options?: unknown, dependencies?: unknown): Promise<RolloutState>;
 export function rolloutMain(argv?: string[]): Promise<void>;

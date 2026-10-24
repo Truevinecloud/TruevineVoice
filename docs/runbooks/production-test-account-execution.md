@@ -1,6 +1,6 @@
 # Executable production test-account workflow
 
-Status: implemented locally, **not authorized or executed on production**. Real PostgreSQL rehearsal remains blocked in this session. Preserve production environment/security settings and use the existing CI/CD workflow for code delivery. Never run a feature checkout or copied script against production.
+Status: owner-signature authorization is implemented in this branch for review; it is **not deployed or used on production**. Preserve production environment/security settings and use the existing CI/CD workflow for code delivery. Never run a feature checkout or copied script against production.
 
 ## Commands and private inputs
 
@@ -19,24 +19,43 @@ Every executable action requires `--approval /absolute/private/approval.json --c
 
 Use Linux, an operator-owned private local filesystem outside every release/checkout/web root/sync/backup/log collection location, 0700 directories, 0600 regular files, safe ancestors, no symlinks/hard links and trusted operator UID. The existing pinned-descriptor private reader enforces the same contract as bootstrap. Do not weaken those checks to run on Windows. The server's existing production configuration is loaded through the established private operator mechanism; these commands never load ambient .env files themselves.
 
+## Sole-owner authorization — owner approval, not independent review
+
+This narrowly scoped procedure replaces the unavailable second-person approval for this QA rollout with an explicit, accountable signature from the project owner. It does not claim independent security review. A signed action authorizes only one action and is limited to 24 hours. Production also requires the existing explicit confirmation, rollout opt-in, active release markers, HTTPS, exact database and PostgreSQL system identifier, account inventory, preserved-admin scope, fixture authorization and immutable bootstrap checks. `productionAuthorized: true` without a valid signature is rejected.
+
+The owner keeps an Ed25519 PKCS#8 private key in an operator-controlled Linux directory (0700 directory, 0600 regular key file). Do not put it in GitHub, the application release, production environment variables, chat or logs. A root operator pins the matching SPKI DER public key at `/etc/truevine/test-account-rollout-owner-public.der` (root-owned, no group/world write) through the approved host-configuration process. The executor ignores public keys supplied by the action process. The signature contains the key fingerprint and covers the exact action, release and provisioning SHA, inventory digest, all operation IDs, owner/admin/fixture IDs, credential reference, database identity, HTTPS origin, approval references, authorization booleans and expiry. The audit stores only the key ID and canonical approval digest.
+
+On an authorized Linux signing machine, place an unsigned action draft and the private key in a protected directory, then create a separate signed file without overwriting either input:
+
+```sh
+npm run rollout:test-accounts:sign-owner -- \\
+  --draft /absolute/private/bootstrap-approval.draft.json \\
+  --owner-key /absolute/private/owner-authentication.key \\
+  --output /absolute/private/bootstrap-approval.signed.json
+```
+
+The signer refuses non-production drafts, malformed scope, expired/overlong approvals, unsafe paths, non-Ed25519 keys and existing output files. It prints the public key DER and key ID for controlled pinning; neither is secret. Review the canonical action payload locally before signing. Repeat with a separate approval and signature for `initialize`, `provision`, `verify`, and `http`; do not reuse a signature across actions. Sign `disable` separately if cleanup is later authorized. Bootstrap remains protected by its immutable singleton and historical-owner checks; provisioning remains atomic and operation-fenced; initialization remains bound to the one-use reset token. The `verify` and `http` authorization UUIDs are recorded once in the append-only audit. An interrupted read/HTTP action needs a new signed operation UUID after read-only reconciliation; never replay it to bypass a failed check.
+
+This owner-signature procedure grants no independent security approval. The PR and all required CI checks still apply; deployment remains a separate explicit owner authorization. No production action is permitted before the approved code is deployed and the root-pinned public key is installed. Production writes remain disabled by default.
+
 ## Approval contract — no defaults grant authority
 
-`template` describes exact required keys. Independently reviewed approval must contain:
+`template` describes exact required keys. The owner-signed approval must contain:
 
 - version 1; one exact action; environment `production`; `productionAuthorized:true`; the exact current approved `releaseSha`; and `provisioningReleaseSha` identifying the initial batch release. On provision these SHAs must be equal. Later verify/http/disable can use a newer approved active tool release while binding to the original batch release.
-- the printed current `inventoryDigest`; owner email exactly `qa-platform-owner@truevoice.com`; `operationId`, `bootstrapOperationId`, `provisionOperationId` as stable UUIDs; distinct independent request/operator/credential/rehearsal references (uppercase letters/digits/underscore/hyphen, 3–64 characters); a UTC expiry in the next 24 hours at most.
+- the printed current `inventoryDigest`; owner email exactly `qa-platform-owner@truevoice.com`; `operationId`, `bootstrapOperationId`, `provisionOperationId` as stable UUIDs; distinct request/operator/credential/rehearsal references (uppercase letters/digits/underscore/hyphen, 3–64 characters); a UTC expiry in the next 24 hours at most.
 - exact database hostname, port as a string, database name and independently verified decimal `systemIdentifier`. The connection URL is supplied privately as DATABASE_URL, never in JSON examples/arguments/output. Only public-schema/SSL URL settings are allowed, not host redirection or arbitrary options. The connected database and `pg_control_system()` fingerprint are checked before every transaction; no permissions are granted to make this work. A physical clone may share the fingerprint, so independently verify routing/inventory.
 - `applicationOrigin` exactly `https://voice.truevinecloud.online`, matching existing WEB_PUBLIC_URL; production TLS verification cannot be disabled. Existing NODE_ENV must remain production. Private operator process APP_VERSION must equal the approved SHA. The code itself must reside in `/var/www/TruevineVoice/current` with matching deployed `REVISION` and `READY` markers; changing APP_VERSION cannot enable a dirty checkout or stale release.
 - after bootstrap, `actorUserId` exactly the new claimed owner UUID. `preservedAdmin.userId` and `preservedAdmin.organizationId` must come from separately approved read-only inventory of `admin@truevoice.com`. The executor requires its existing ACTIVE, sole OWNER membership and no platform assignment; it selects no password for that account and never updates it. An unexpected state or missing identity blocks execution.
 - for `initialize` or `http`, `httpAuthorized:true` in that action's independent approval. Bootstrap additionally requires the original `PLATFORM_OWNER_BOOTSTRAP_ENABLED=1`; normal execution uses `TEST_ACCOUNT_ROLLOUT_ENABLED=1`. Keep both unset by default and remove process opt-ins after execution.
 
-The private credential file has version 1, `reference` matching `credentialReference`, and `passwords` with exactly the eleven inventory emails. Custodians choose distinct nonblank 12–200 character passwords. No defaults, generated passwords or shared password are committed. New accounts use the existing Argon2id parameters. Existing accounts with missing provenance, different scope/status/password, or a different operation are **conflicts**, not repair targets. A field in JSON is not independent human approval; the executing operator verifies the signed-off record separately, as with existing bootstrap.
+The private credential file has version 1, `reference` matching `credentialReference`, and `passwords` with exactly the eleven inventory emails. Custodians supply distinct nonblank 12–200 character passwords. No defaults, generated passwords or shared password are committed. New accounts use the existing Argon2id parameters. Existing accounts with missing provenance, different scope/status/password, or a different operation are **conflicts**, not repair targets. For this QA rollout, a valid Ed25519 owner signature is the owner authorization; it is not independent security review. JSON flags alone do not authorize execution.
 
-## Exact staged execution after independent authorization
+## Exact staged execution after action-specific owner authorization
 
-1. Complete the isolated rehearsal described below and the [rollout approvals](production-test-account-rollout.md). Review source, real database/HTTP evidence, schema manifest/ledger, backup/recovery and release. Obtain explicit commit/push/PR/merge authorization. The branch remains uncommitted/unpushed from this task.
+1. Complete the isolated rehearsal described below and the [rollout approvals](production-test-account-rollout.md). Review source, real database/HTTP evidence, schema manifest/ledger, backup/recovery and release. Complete commit/push/PR review/merge through the repository's protected process, then deploy through the protected production workflow under separate explicit authorization.
 2. Deliver code through the existing main CI and human-authorized production workflow. It must be the current tested main SHA and pass existing deployment/migration gates. No workflow was changed. Account creation is not a deploy hook or Actions step; no credential file goes to GitHub.
-3. Independently authorize live read-only preflight: current release, production cluster identity, admin's non-secret scope, all eleven candidate email conflicts, both tenant slugs, any historical Platform Owner assignment and bootstrap claim. Confirm a protected HTTPS admin interface and private logs/client handling. Stop on any discrepancy. Reserve the fictional addresses against actual users; send no mail to them.
+3. Use a separate owner-signed read-only preflight authorization bound to the current release, database fingerprint and inventory. Check the production cluster identity, admin's non-secret scope, all eleven candidate email conflicts, both tenant slugs, any historical Platform Owner assignment and bootstrap claim. Confirm a protected HTTPS admin interface and private logs/client handling. Stop on any discrepancy. Reserve the fictional addresses against actual users; send no mail to them.
 4. Prepare private credentials and an approved bootstrap action record. Pick a stable bootstrap UUID and provision UUID **before** bootstrap. For this stage set operationId=bootstrapOperationId, and actorUserId may be null because it does not exist yet. The original bootstrap checks all previous owner assignments/claims and refuses them, even revoked/historical. Existing owner/claim requires reconciliation/revised authorization, never a second bootstrap.
 
    ```sh

@@ -20,6 +20,7 @@ export const AUDIT_ACTIONS = [
   'test_rollout.account_created',
   'test_rollout.provisioned',
   'test_rollout.disabled',
+  'test_rollout.owner_authorization_used',
   'test_account.seeded',
   'test_account.disabled',
   'test_organization.created',

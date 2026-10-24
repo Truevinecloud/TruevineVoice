@@ -77,7 +77,8 @@ function permissionProbes(organizationId) {
  * auto terms acceptance, paid action, fixture mutation or secret-bearing URL. */
 export async function executePrivateHttp(approval, credentials, options = {}, dependencies = {}) {
   const environment = dependencies.environment ?? process.env;
-  const { origin } = validateRollout(approval, credentials, environment, options.confirmProduction);
+  const validation = validateRollout(approval, credentials, environment, options.confirmProduction);
+  const { origin } = validation;
   assert(['initialize', 'http'].includes(approval.action));
   const inspect = dependencies.inspect ?? executeRollout;
   const state = await inspect(approval, credentials, options, dependencies);
@@ -93,7 +94,7 @@ export async function executePrivateHttp(approval, credentials, options = {}, de
         token: raw, newPassword: credentials.passwords['qa-platform-owner@truevoice.com'],
       });
       assert(result.status === 200 && result.payload?.ok === true);
-      const after = await inspect(approval, credentials, options, dependencies);
+      const after = await inspect(approval, credentials, { ...options, authorizationReconciliation: true }, dependencies);
       assert(after.initialized);
     }
     return { operationId: approval.operationId, ownerInitialized: true };
@@ -136,6 +137,8 @@ export async function executePrivateHttp(approval, credentials, options = {}, de
       roleAndReadPermissions: 'passed', tenantBoundary: 'denied', logoutInvalidation: 'passed' });
   }
   return { operationId: approval.operationId, accounts: results, mutationCoverage: 'not-exercised',
+    ...(validation.ownerAuthorization ? { ownerAuthorizationKeyId: validation.ownerAuthorization.keyId,
+      ownerAuthorizationDigest: validation.ownerAuthorization.digest } : {}),
     limitations: ['Platform billing/refund, tenant suspension, technical writes and admin management have no consuming endpoints.',
       'Custodians must accept terms through the normal interface before organization HTTP verification.',
       'Browser interface rendering and privileged mutations require separate approved checks.'] };
