@@ -76,6 +76,66 @@ afterEach(async () => {
 });
 
 describe('Contacts interactive integration through the same-origin API client', () => {
+  it('saves a corrected phone and renders the normalized server result', async () => {
+    await mount();
+    await click('View Contact');
+    await click('Edit Contact');
+    await fill('contact-phone', '0772 000 002');
+    fetchMock.mockResolvedValueOnce(reply({ ...contact, phone: '+256772000002' }));
+    await submit('.contact-editor form');
+    expect(JSON.parse(fetchMock.mock.lastCall![1].body)).toMatchObject({ phone: '0772 000 002' });
+    expect(fetchMock.mock.lastCall![1].method).toBe('PATCH');
+    expect(host.querySelector('.contact-editor')!.textContent).toContain('+256772000002');
+    expect(host.textContent).toContain('Contact saved.');
+  });
+
+  it.each([
+    ['invalid_contact', 400, 'Enter a valid international number or Uganda-local phone number.'],
+    ['contact_exists', 409, 'A contact with this phone number already exists in the organization.'],
+    [
+      'contact_phone_change_restricted',
+      409,
+      'Phone cannot be changed because this contact has campaign history.',
+    ],
+    [
+      'contact_update_conflict',
+      409,
+      'The contact changed concurrently. Refresh contacts and try again.',
+    ],
+  ])('shows %s without changing the saved contact', async (code, status, message) => {
+    await mount();
+    await click('View Contact');
+    await click('Edit Contact');
+    await fill('contact-phone', '0772000002');
+    fetchMock.mockResolvedValueOnce(reply({ error: { code, message } }, status));
+    await submit('.contact-editor form');
+    expect(host.querySelector('[role="alert"]')!.textContent).toContain(message);
+    expect(host.querySelector<HTMLInputElement>('#contact-phone')!.value).toBe('0772000002');
+    expect(host.querySelector('.contacts-list')!.textContent).toContain(contact.phone);
+    expect(host.textContent).not.toContain('Contact saved.');
+  });
+
+  it.each([{ suppressed: true }, { voiceConsent: 'RECORDED' }])(
+    'keeps the phone disabled for known restricted state %j but permits name editing',
+    async (state) => {
+      fetchMock.mockResolvedValueOnce(
+        reply({ items: [{ ...contact, ...state }], nextCursor: null }),
+      );
+      await mount();
+      await click('View Contact');
+      await click('Edit Contact');
+      expect(host.querySelector<HTMLInputElement>('#contact-phone')!.disabled).toBe(true);
+      expect(host.textContent).toContain('Consent does not transfer');
+      await fill('contact-name', 'Corrected name');
+      fetchMock.mockResolvedValueOnce(reply({ ...contact, ...state, name: 'Corrected name' }));
+      await submit('.contact-editor form');
+      expect(JSON.parse(fetchMock.mock.lastCall![1].body)).toEqual({
+        name: 'Corrected name',
+        email: contact.email,
+      });
+      expect(host.textContent).toContain('Contact saved.');
+    },
+  );
   it('submits blank optional fields as text accepted by the create API', async () => {
     await mount();
     await click('Add Contact');
@@ -122,13 +182,14 @@ describe('Contacts interactive integration through the same-origin API client', 
     expect(host.textContent).toContain('Contact added.');
     expect(host.querySelector('.contact-editor')!.textContent).toContain('+256772000002');
     await click('Edit Contact');
-    expect(host.querySelector<HTMLInputElement>('#contact-phone')!.disabled).toBe(true);
+    expect(host.querySelector<HTMLInputElement>('#contact-phone')!.disabled).toBe(false);
     await fill('contact-name', 'Synthetic Bea Updated');
     fetchMock.mockResolvedValueOnce(reply({ ...created, name: 'Synthetic Bea Updated' }));
     await submit('.contact-editor form');
     expect(JSON.parse(fetchMock.mock.lastCall![1].body)).toEqual({
       name: 'Synthetic Bea Updated',
       email: 'bea@example.invalid',
+      phone: created.phone,
     });
     expect(fetchMock.mock.lastCall![1].method).toBe('PATCH');
     expect(host.textContent).toContain('Contact saved.');

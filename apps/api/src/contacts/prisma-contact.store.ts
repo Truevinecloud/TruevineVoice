@@ -3,7 +3,13 @@ import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@truevine/database';
 
 import { DATABASE_CLIENT } from '../tokens.js';
-import { ContactAlreadyConsentedError } from './contact.store.js';
+import {
+  ContactAlreadyConsentedError,
+  ContactPhoneRestrictedError,
+  ContactPhoneConflictError,
+  ContactUpdateConflictError,
+} from './contact.store.js';
+import { authorizeTenantWrite } from '../auth/tenant-write.js';
 import type {
   ContactGroupRecord,
   ContactImportRecord,
@@ -263,7 +269,14 @@ export class PrismaContactStore implements ContactStore {
           where: { organizationId: i.organizationId, id: i.contactId, suppressedAt: null },
         });
         if (!deleted.count) return 'SUPPRESSED';
-        await this.audit(tx, i.organizationId, i.actorUserId, 'contact.deleted', 'contact', i.contactId);
+        await this.audit(
+          tx,
+          i.organizationId,
+          i.actorUserId,
+          'contact.deleted',
+          'contact',
+          i.contactId,
+        );
         return 'DELETED';
       });
     } catch (error) {
@@ -308,31 +321,83 @@ export class PrismaContactStore implements ContactStore {
     contactId: string;
     name?: string | null;
     email?: string | null;
+    phoneE164?: string;
   }): Promise<ContactRecord | undefined> {
-    return this.prisma.$transaction(async (tx) => {
-      const result = await tx.contact.updateMany({
-        where: { organizationId: i.organizationId, id: i.contactId },
-        data: {
-          ...(i.name !== undefined ? { label: i.name ?? '' } : {}),
-          ...(i.email !== undefined ? { email: i.email } : {}),
-        },
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await authorizeTenantWrite(tx, i.organizationId, i.actorUserId, 'contact:update');
+        // Re-read evidence after concurrent writers release this row lock.
+        const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM contacts
+        WHERE organization_id=${i.organizationId}::uuid AND id=${i.contactId}::uuid FOR UPDATE`;
+        if (!locked.length) return undefined;
+        const current = await tx.contact.findUniqueOrThrow({
+          where: { organizationId_id: { organizationId: i.organizationId, id: i.contactId } },
+        });
+        const phoneChanged =
+          i.phoneE164 !== undefined &&
+          (i.phoneE164 !== (current.phoneE164 ?? current.destination) ||
+            i.phoneE164 !== current.destination);
+        if (phoneChanged) {
+          const referenced = await tx.campaignRecipient.findFirst({
+            where: { organizationId: i.organizationId, contactId: i.contactId },
+            select: { id: true },
+          });
+          if (
+            current.voiceConsentAt !== null ||
+            current.voiceConsentSource !== null ||
+            current.voiceConsentPurpose !== null ||
+            current.voiceConsentEvidenceReference !== null ||
+            current.voiceConsentVerifiedById !== null ||
+            current.suppressedAt !== null ||
+            current.suppressionReason !== null ||
+            referenced
+          )
+            throw new ContactPhoneRestrictedError();
+          const duplicate = await tx.contact.findFirst({
+            where: {
+              organizationId: i.organizationId,
+              id: { not: i.contactId },
+              OR: [{ phoneE164: i.phoneE164 }, { destination: i.phoneE164 }],
+            },
+            select: { id: true },
+          });
+          if (duplicate) throw new ContactPhoneConflictError();
+        }
+        const result = await tx.contact.updateMany({
+          where: { organizationId: i.organizationId, id: i.contactId },
+          data: {
+            ...(i.name !== undefined ? { label: i.name ?? '' } : {}),
+            ...(i.email !== undefined ? { email: i.email } : {}),
+            ...(phoneChanged ? { phoneE164: i.phoneE164, destination: i.phoneE164 } : {}),
+          },
+        });
+        if (!result.count) return undefined;
+        const row = await tx.contact.findUnique({
+          where: { organizationId_id: { organizationId: i.organizationId, id: i.contactId } },
+          include: { groupLinks: { include: { group: true } } },
+        });
+        await this.audit(
+          tx,
+          i.organizationId,
+          i.actorUserId,
+          'contact.updated',
+          'contact',
+          i.contactId,
+          {
+            fields: [
+              ...Object.keys(i).filter((k) => k === 'name' || k === 'email'),
+              ...(phoneChanged ? ['phone'] : []),
+            ],
+          },
+        );
+        return row ? view(row as Row) : undefined;
       });
-      if (!result.count) return undefined;
-      const row = await tx.contact.findUnique({
-        where: { organizationId_id: { organizationId: i.organizationId, id: i.contactId } },
-        include: { groupLinks: { include: { group: true } } },
-      });
-      await this.audit(
-        tx,
-        i.organizationId,
-        i.actorUserId,
-        'contact.updated',
-        'contact',
-        i.contactId,
-        { fields: Object.keys(i).filter((k) => k === 'name' || k === 'email') },
-      );
-      return row ? view(row as Row) : undefined;
-    });
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') throw new ContactPhoneConflictError();
+      if ((error as { code?: string }).code === 'P2034') throw new ContactUpdateConflictError();
+      throw error;
+    }
   }
   async suppressContact(i: {
     organizationId: string;

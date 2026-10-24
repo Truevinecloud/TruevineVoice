@@ -1,5 +1,23 @@
 # Truevine Voice
 
+## W2-02 phone corrections
+
+Users with `contact:update` (Owner, Admin and Campaign Manager) can correct a
+contact's phone in Contacts. The API uses the same E.164 normalization as creation,
+rejects invalid input and organization-level duplicates (including legacy
+destinations), and updates both contact destination fields atomically.
+
+A different number is refused with `contact_phone_change_restricted` (HTTP 409)
+when any consent evidence, suppression data or campaign recipient reference
+exists, including draft campaigns. Keep the restricted record and create a
+separate contact; consent must be recorded independently for that number.
+Name/email edits and submitting the same normalized phone remain supported.
+Known consent/suppression disables the phone input; campaign-history restrictions
+are checked on save and shown in the form. The API rechecks restrictions under a
+database row lock and writes a transactional `contact.updated` audit containing
+changed field names, without copying phone numbers into the audit.
+No recipient snapshots, call history, consent policies or execution are changed.
+
 Production test-account executor (disabled by default):
 [executable commands, private inputs and approvals](docs/runbooks/production-test-account-execution.md).
 `npm run rollout:test-accounts -- inventory` and `-- template` print only public

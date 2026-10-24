@@ -18,6 +18,9 @@ import {
 import {
   CONTACT_STORE,
   ContactAlreadyConsentedError,
+  ContactPhoneRestrictedError,
+  ContactPhoneConflictError,
+  ContactUpdateConflictError,
   type ContactRecord,
   type ContactStore,
   type ContactGroupRecord,
@@ -200,12 +203,13 @@ export class ContactsService {
     const contactId = this.uuid(contactIdValue, 'Contact id');
     const body = this.body(input, 'Contact changes are required.');
     const keys = Object.keys(body);
-    if (keys.length === 0 || keys.some((key) => !['name', 'email'].includes(key))) {
+    if (keys.length === 0 || keys.some((key) => !['name', 'email', 'phone'].includes(key))) {
       invalid(
-        'Only name and email can be updated. Consent and suppression cannot be changed through this route.',
+        'Only name, email and phone can be updated. Consent and suppression cannot be changed through this route.',
       );
     }
-    const changes: { name?: string | null; email?: string | null } = {};
+    const changes: { name?: string | null; email?: string | null; phoneE164?: string } = {};
+    if (Object.hasOwn(body, 'phone')) changes.phoneE164 = this.phone(body.phone);
     if (Object.hasOwn(body, 'name')) {
       const name = this.optionalText(body.name, 200, 'Name', true);
       if (name === undefined) invalid('Name cannot be omitted from an update.');
@@ -216,14 +220,43 @@ export class ContactsService {
       if (email === undefined) invalid('Email cannot be omitted from an update.');
       changes.email = email;
     }
-    const contact = await this.store.updateContact({
-      organizationId,
-      actorUserId,
-      contactId,
-      ...changes,
-    });
-    if (!contact) throw this.notFound();
-    return this.contactView(contact);
+    try {
+      const contact = await this.store.updateContact({
+        organizationId,
+        actorUserId,
+        contactId,
+        ...changes,
+      });
+      if (!contact) throw this.notFound();
+      return this.contactView(contact);
+    } catch (error) {
+      if (error instanceof ContactPhoneRestrictedError) {
+        throw new ConflictException({
+          error: {
+            code: 'contact_phone_change_restricted',
+            message:
+              'Phone cannot be changed because this contact has consent evidence, suppression data or campaign history. Keep this record and create a separate contact for the new number; consent must be recorded separately.',
+          },
+        });
+      }
+      if (error instanceof ContactPhoneConflictError) {
+        throw new ConflictException({
+          error: {
+            code: 'contact_exists',
+            message: 'A contact with this phone number already exists in the organization.',
+          },
+        });
+      }
+      if (error instanceof ContactUpdateConflictError) {
+        throw new ConflictException({
+          error: {
+            code: 'contact_update_conflict',
+            message: 'The contact changed concurrently. Refresh contacts and try again.',
+          },
+        });
+      }
+      throw error;
+    }
   }
 
   async suppressContact(

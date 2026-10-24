@@ -2,6 +2,9 @@
 
 export const CONTACT_STORE = Symbol('CONTACT_STORE');
 export class ContactAlreadyConsentedError extends Error {}
+export class ContactPhoneRestrictedError extends Error {}
+export class ContactPhoneConflictError extends Error {}
+export class ContactUpdateConflictError extends Error {}
 
 export interface ContactGroupRecord {
   readonly organizationId: string;
@@ -147,6 +150,7 @@ export interface ContactStore {
     readonly contactId: string;
     readonly name?: string | null;
     readonly email?: string | null;
+    readonly phoneE164?: string;
   }): Promise<ContactRecord | undefined>;
   deleteContact(input: {
     readonly organizationId: string;

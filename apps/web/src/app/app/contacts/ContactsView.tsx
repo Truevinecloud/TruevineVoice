@@ -138,7 +138,7 @@ export function ContactsView({
           mode === 'edit' && selected ? `${base}/${encodeURIComponent(selected.id)}` : base,
           {
             method: mode === 'edit' ? 'PATCH' : 'POST',
-            body: mode === 'edit' ? fields : { ...fields, phone: String(form.get('phone') ?? '') },
+            body: { ...fields, ...(form.has('phone') ? { phone: String(form.get('phone')) } : {}) },
           },
         );
         setPage((previous) => ({
@@ -346,12 +346,18 @@ export function ContactsView({
                       required
                       maxLength={80}
                       defaultValue={selected?.phone ?? ''}
-                      disabled={busy || mode === 'edit'}
+                      disabled={
+                        busy ||
+                        (mode === 'edit' &&
+                          (selected?.suppressed === true || selected?.voiceConsent === 'RECORDED'))
+                      }
                       aria-describedby="contact-phone-hint"
                     />
                     <span id="contact-phone-hint" className="field-hint">
                       Use an international number or a Uganda local number. The server normalizes it
-                      to E.164. Phone cannot be changed after creation.
+                      to E.164. Phone changes are allowed only without consent evidence, suppression
+                      or campaign history. Restricted records must be kept; create a separate
+                      contact for a different number. Consent does not transfer.
                     </span>
                   </div>
                   <div className="field">
