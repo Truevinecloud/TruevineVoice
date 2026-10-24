@@ -330,4 +330,72 @@ describe('W2-02 PostgreSQL contacts acceptance', () => {
       await database.contact.count({ where: { organizationId, phoneE164: destination } }),
     ).toBe(0);
   });
+
+  it('deletes contacts within the tenant and retains suppressed or campaign-referenced records', async () => {
+    const deletable = await store.createContact({
+      organizationId,
+      actorUserId,
+      id: randomUUID(),
+      phoneE164: '+256772000061',
+      name: 'Synthetic disposable contact',
+      email: null,
+      groupNames: [],
+    });
+    await expect(store.deleteContact({ organizationId, actorUserId, contactId: deletable.id })).resolves.toBe('DELETED');
+    await expect(
+      database.contact.findUnique({ where: { organizationId_id: { organizationId, id: deletable.id } } }),
+    ).resolves.toBeNull();
+    await expect(
+      database.securityAuditEvent.findFirst({
+        where: { organizationId, actorUserId, action: 'contact.deleted', targetId: deletable.id },
+      }),
+    ).resolves.not.toBeNull();
+
+    const foreign = await store.createContact({
+      organizationId: otherOrganizationId,
+      actorUserId,
+      id: randomUUID(),
+      phoneE164: '+256772000062',
+      name: 'Synthetic foreign-tenant contact',
+      email: null,
+      groupNames: [],
+    });
+    await expect(store.deleteContact({ organizationId, actorUserId, contactId: foreign.id })).resolves.toBe('NOT_FOUND');
+    await expect(
+      database.contact.findUnique({ where: { organizationId_id: { organizationId: otherOrganizationId, id: foreign.id } } }),
+    ).resolves.not.toBeNull();
+
+    const suppressed = await store.createContact({
+      organizationId,
+      actorUserId,
+      id: randomUUID(),
+      phoneE164: '+256772000063',
+      name: 'Synthetic opted-out contact',
+      email: null,
+      groupNames: [],
+    });
+    await store.suppressContact({ organizationId, actorUserId, contactId: suppressed.id, reason: 'user_opt_out' });
+    await expect(store.deleteContact({ organizationId, actorUserId, contactId: suppressed.id })).resolves.toBe('SUPPRESSED');
+
+    const referenced = await store.createContact({
+      organizationId,
+      actorUserId,
+      id: randomUUID(),
+      phoneE164: '+256772000064',
+      name: 'Synthetic campaign-history contact',
+      email: null,
+      groupNames: [],
+    });
+    const campaignId = randomUUID();
+    await database.campaign.create({
+      data: { organizationId, id: campaignId, name: `Delete guard ${run}`, status: 'DRAFT', createdById: actorUserId },
+    });
+    await database.campaignRecipient.create({
+      data: { organizationId, id: randomUUID(), campaignId, contactId: referenced.id, destination: referenced.phoneE164 },
+    });
+    await expect(store.deleteContact({ organizationId, actorUserId, contactId: referenced.id })).resolves.toBe('HAS_RECIPIENTS');
+    await expect(
+      database.contact.findUnique({ where: { organizationId_id: { organizationId, id: referenced.id } } }),
+    ).resolves.not.toBeNull();
+  });
 });

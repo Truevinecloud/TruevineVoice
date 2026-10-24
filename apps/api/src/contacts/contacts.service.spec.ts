@@ -49,6 +49,32 @@ describe('ContactsService', () => {
     expect(updateContact).not.toHaveBeenCalled();
   });
 
+  it('deletes only an unreferenced, unsuppressed contact and preserves refusal statuses', async () => {
+    const deleteContact = vi.fn()
+      .mockResolvedValueOnce('DELETED')
+      .mockResolvedValueOnce('SUPPRESSED')
+      .mockResolvedValueOnce('HAS_RECIPIENTS')
+      .mockResolvedValueOnce('NOT_FOUND');
+    const service = new ContactsService({ deleteContact } as unknown as ContactStore);
+
+    await expect(service.deleteContact('org-a', 'user-a', contactRecord.id)).resolves.toEqual({ deleted: true });
+    await expect(service.deleteContact('org-a', 'user-a', contactRecord.id)).rejects.toMatchObject({
+      response: { error: { code: 'suppressed_contact_retained' } },
+    });
+    await expect(service.deleteContact('org-a', 'user-a', contactRecord.id)).rejects.toMatchObject({
+      response: { error: { code: 'contact_has_campaign_history' } },
+    });
+    await expect(service.deleteContact('org-a', 'user-a', contactRecord.id)).rejects.toMatchObject({
+      response: { error: { code: 'contact_not_found' } },
+    });
+    expect(deleteContact).toHaveBeenCalledTimes(4);
+    expect(deleteContact).toHaveBeenCalledWith({
+      organizationId: 'org-a',
+      actorUserId: 'user-a',
+      contactId: contactRecord.id,
+    });
+  });
+
   it('records consent only with verified evidence and a valid timestamp, purpose and opaque reference', async () => {
     const recordVoiceConsent = vi.fn(async () => ({ ...contactRecord, voiceConsentAt: new Date('2026-10-21T12:00:00Z') }));
     const service = new ContactsService({ recordVoiceConsent } as unknown as ContactStore);
