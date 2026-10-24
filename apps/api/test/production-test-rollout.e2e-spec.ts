@@ -159,7 +159,7 @@ function inputs(action: string) {
 
 function safeSubprocessDiagnostic(stderr: string | null) {
   const diagnostic = stderr?.split(/\r?\n/).find(line =>
-    /^(?:Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.|Disposable rollout transaction failed during [a-z-]+\.)$/.test(line));
+    /^(?:Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.|Disposable rollout transaction failed during [a-z-]+\.|Disposable CLI failed during [a-z-]+\.)$/.test(line));
   return diagnostic ? ` Safe diagnostic: ${diagnostic}` : '';
 }
 

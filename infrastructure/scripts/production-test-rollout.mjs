@@ -232,6 +232,7 @@ function recordOwnerAuthorization(tx, approval, options, audit, authorization) {
 }
 
 export async function rolloutMain(argv = process.argv.slice(2)) {
+  let stage = 'argument-validation';
   try {
     if (argv.length === 1 && argv[0] === 'inventory') {
       process.stdout.write(`${JSON.stringify({ inventoryDigest: INVENTORY_DIGEST, accounts: ROLLOUT_ACCOUNTS })}\n`); return;
@@ -257,20 +258,28 @@ export async function rolloutMain(argv = process.argv.slice(2)) {
       else if (['--approval', '--credentials', '--artifact', '--activation-directory'].includes(key) && !options[key] && args[index + 1] && !args[index + 1].startsWith('--')) options[key] = args[++index];
       else fail();
     }
+    stage = 'private-file-read';
     const approval = readBootstrapApproval(options['--approval']);
     const credentials = readBootstrapApproval(options['--credentials']);
     if (approval.action !== action) fail();
+    stage = 'authorization-validation';
     const validation = validateRollout(approval, credentials, process.env, options['--confirm-production']);
+    stage = 'release-validation';
     assertRelease(approval);
     let result;
     if (action === 'bootstrap') {
+      stage = 'bootstrap';
       result = await bootstrapPlatformOwner({ environment: approval.environment, email: OWNER, operationId: approval.operationId,
         approvalFile: options['--approval'], activationDirectory: options['--activation-directory'], confirmProduction: options['--confirm-production'],
         ownerAuthorization: validation.ownerAuthorization });
     } else if (['initialize', 'http'].includes(action)) {
+      stage = action === 'initialize' ? 'initialize' : 'http-verification';
       result = await executePrivateHttp(approval, credentials, { confirmProduction: options['--confirm-production'],
         artifact: action === 'initialize' ? readBootstrapApproval(options['--artifact']) : undefined });
-    } else result = await executeRollout(approval, credentials, { confirmProduction: options['--confirm-production'] });
+    } else {
+      stage = 'rollout';
+      result = await executeRollout(approval, credentials, { confirmProduction: options['--confirm-production'] });
+    }
     process.stdout.write(`${JSON.stringify({ ...result, ...(validation.ownerAuthorization ? { ownerAuthorizationKeyId: validation.ownerAuthorization.keyId,
       ownerAuthorizationDigest: validation.ownerAuthorization.digest } : {}) })}\n`);
   } catch (error) {
@@ -280,6 +289,11 @@ export async function rolloutMain(argv = process.argv.slice(2)) {
         (/^Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.$/.test(error.message) ||
          /^Disposable rollout transaction failed during [a-z-]+\.$/.test(error.message))) {
       process.stderr.write(`${error.message}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    if (process.env.NODE_ENV === 'test' && process.env.ROLLOUT_E2E_DISPOSABLE === '1') {
+      process.stderr.write(`Disposable CLI failed during ${stage}.\n`);
       process.exitCode = 1;
       return;
     }
