@@ -147,7 +147,7 @@ function inputs(action: string) {
       bootstrapOperationId, provisionOperationId, inventoryDigest: INVENTORY_DIGEST, credentialReference: credentials.reference,
       email: 'qa-platform-owner@truevoice.com', actorUserId: action === 'bootstrap' ? null : ownerId,
       approvalReference: 'APPROVAL-E2E', operatorReference: 'OPERATOR-E2E', rehearsalReference: 'REHEARSAL-E2E',
-      expiresAt: new Date(Date.now() + 3600000).toISOString(), applicationOrigin: origin, bootstrapApplicationOrigin: 'https://localhost', httpAuthorized: true,
+      expiresAt: new Date(Date.now() + 3600000).toISOString(), applicationOrigin: origin, bootstrapApplicationOrigin: origin, httpAuthorized: true,
       preservedAdmin: { userId: adminUserId, organizationId: adminOrganizationId },
       isolationOrganizationId: adminOrganizationId, isolationFixtureAuthorized: true,
       database: { hostname: target.hostname, port: target.port || '5432', name: createdName, systemIdentifier } },

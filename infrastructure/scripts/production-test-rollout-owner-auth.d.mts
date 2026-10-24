@@ -1,15 +1,23 @@
 import type { KeyObject } from 'node:crypto';
 
+export interface OwnerAuthorization {
+  algorithm: 'Ed25519';
+  keyId: string;
+  signature: string;
+}
+export type OwnerApproval = Record<string, unknown> & { ownerAuthorization?: OwnerAuthorization };
+export type SignedOwnerApproval = Record<string, unknown> & { ownerAuthorization: OwnerAuthorization };
+
 export function ownerAuthorizationPayload(approval: Record<string, unknown>): Buffer;
 export function ownerAuthorizationKeyId(publicKey: KeyObject): string;
 export function signOwnerAuthorization(
-  approval: Record<string, any>,
+  approval: OwnerApproval,
   privateKey: KeyObject | Buffer | string,
   options?: { allowTest?: boolean },
-): Record<string, any>;
+): SignedOwnerApproval;
 export function readPinnedOwnerPublicKey(): Buffer;
 export function verifyOwnerAuthorization(
-  approval: Record<string, any>,
+  approval: OwnerApproval,
   environment: NodeJS.ProcessEnv,
   now?: number,
   pinnedPublicKeyDer?: Buffer,
