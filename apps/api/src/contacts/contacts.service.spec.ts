@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ContactsService } from './contacts.service.js';
 import type { ContactStore } from './contact.store.js';
+import {
+  ContactPhoneRestrictedError,
+  ContactPhoneConflictError,
+  ContactUpdateConflictError,
+} from './contact.store.js';
 
 const contactRecord = {
   organizationId: 'org-a',
@@ -18,6 +23,57 @@ const contactRecord = {
 };
 
 describe('ContactsService', () => {
+  it('normalizes corrected phones and preserves the authenticated scope', async () => {
+    const updateContact = vi.fn(async () => ({ ...contactRecord, phoneE164: '+256772000002' }));
+    const service = new ContactsService({ updateContact } as unknown as ContactStore);
+    const result = await service.updateContact('org-a', 'user-a', contactRecord.id, {
+      phone: '0772 000 002',
+    });
+    expect(updateContact).toHaveBeenCalledWith({
+      organizationId: 'org-a',
+      actorUserId: 'user-a',
+      contactId: contactRecord.id,
+      phoneE164: '+256772000002',
+    });
+    expect(result).toMatchObject({
+      phone: '+256772000002',
+      voiceConsent: 'NOT_RECORDED',
+      suppressed: false,
+    });
+  });
+
+  it.each(['', '123', '+256123456789', '+000000000', '0772000002 ext 3', null, 772000002])(
+    'rejects invalid corrected phone %s before persistence',
+    async (phone) => {
+      const updateContact = vi.fn();
+      const service = new ContactsService({ updateContact } as unknown as ContactStore);
+      await expect(
+        service.updateContact('org-a', 'user-a', contactRecord.id, { phone }),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(updateContact).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [new ContactPhoneRestrictedError(), 'contact_phone_change_restricted'],
+    [new ContactPhoneConflictError(), 'contact_exists'],
+    [new ContactUpdateConflictError(), 'contact_update_conflict'],
+  ])('returns an actionable conflict for %s', async (error, code) => {
+    const updateContact = vi.fn().mockRejectedValue(error);
+    const service = new ContactsService({ updateContact } as unknown as ContactStore);
+    await expect(
+      service.updateContact('org-a', 'user-a', contactRecord.id, { phone: '0772000002' }),
+    ).rejects.toMatchObject({ status: 409, response: { error: { code } } });
+  });
+
+  it('does not resolve a contact from another tenant', async () => {
+    const service = new ContactsService({
+      updateContact: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ContactStore);
+    await expect(
+      service.updateContact('org-b', 'user-b', contactRecord.id, { phone: '0772000002' }),
+    ).rejects.toMatchObject({ status: 404 });
+  });
   it('normalizes Uganda phones and never creates a consent or unsuppressed opt-in claim', async () => {
     const createContact = vi.fn(async () => contactRecord);
     const service = new ContactsService({ createContact } as unknown as ContactStore);

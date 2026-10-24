@@ -96,6 +96,14 @@ describe('Contacts HTTP authorization contract', () => {
       expect((await call('patch').send({ name: 'Synthetic contact' })).status).toBe(
         allowed ? 200 : 403,
       );
+      expect((await call('patch').send({ phone: '0772000002' })).status).toBe(allowed ? 200 : 403);
+      if (allowed)
+        expect(service.updateContact).toHaveBeenLastCalledWith(
+          'org-1',
+          'user-1',
+          'synthetic-contact',
+          { phone: '0772000002' },
+        );
       expect((await call('delete')).status).toBe(allowed ? 200 : 403);
       if (!allowed)
         for (const operation of Object.values(service)) expect(operation).not.toHaveBeenCalled();
@@ -114,6 +122,21 @@ describe('Contacts HTTP authorization contract', () => {
     for (const operation of Object.values(service)) expect(operation).not.toHaveBeenCalled();
   });
   it('requires authentication, CSRF and accepted terms', async () => {
+    expect(
+      (
+        await request(app.getHttpServer())
+          .patch('/organizations/org-1/contacts/synthetic-contact')
+          .send({ phone: '0772000002' })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await request(app.getHttpServer())
+          .patch('/organizations/org-1/contacts/synthetic-contact')
+          .set('cookie', `tv_session=contacts-session; tv_csrf=${csrf}`)
+          .send({ phone: '0772000002' })
+      ).status,
+    ).toBe(403);
     expect((await request(app.getHttpServer()).get('/organizations/org-1/contacts')).status).toBe(
       401,
     );
@@ -125,6 +148,7 @@ describe('Contacts HTTP authorization contract', () => {
       ).status,
     ).toBe(403);
     auth.terms.length = 0;
+    expect((await call('patch').send({ phone: '0772000002' })).status).toBe(403);
     expect((await call('get')).status).toBe(403);
     for (const operation of Object.values(service)) expect(operation).not.toHaveBeenCalled();
   });
