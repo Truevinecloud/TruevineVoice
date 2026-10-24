@@ -104,7 +104,8 @@ export default async function DashboardPage({
       <div className="card-section">
         <h2>Not built yet</h2>
         <p>
-          Contacts and call history are not available. Billing and wallet are accessible to
+          Call history is not available. Contacts are accessible to authorized users through
+          the Contacts link. Billing and wallet are accessible to
           authorized billing users through the Billing link. This dashboard deliberately shows
           nothing for them rather than placeholder figures. The permissions that will govern them
           already exist in the registry.

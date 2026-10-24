@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { currentSession, type MembershipSummary } from '../../lib/session';
 
 import { SignOutButton } from './SignOutButton';
+import { ContactsNavigation } from './contacts/ContactsNavigation';
 
 /**
  * The authenticated application shell.
@@ -90,6 +91,7 @@ async function AppNavigation({
         {selected.organizationName}
       </span>
       <PermissionLink membership={selected} href="/app" label="Dashboard" permission={null} />
+      <ContactsNavigation memberships={memberships} />
       <PermissionLink
         membership={selected}
         href={`/app/campaigns?organization=${encodeURIComponent(selected.organizationId)}`}
