@@ -28,9 +28,11 @@ export function privateHttpClient(origin, transport = fetch, controls = {}) {
       const codes = [];
       for (let current = error, depth = 0; current && depth < 5; current = current.cause, depth++)
         if (typeof current.code === 'string') codes.push(current.code);
+      const undiciCode = codes.find(code => ['UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+        'UND_ERR_BODY_TIMEOUT', 'UND_ERR_ABORTED'].includes(code));
       const kind = codes.some(code => /^(?:ERR_TLS|ERR_SSL|CERT_|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER)/.test(code)) ? 'tls'
         : codes.some(code => /^(?:ECONN|ETIMEDOUT|EHOST|ENET|EAI_)/.test(code)) ? 'network'
-          : codes.some(code => code.startsWith('UND_ERR_')) ? 'undici' : 'unknown';
+          : undiciCode ? undiciCode.toLowerCase() : 'unknown';
       throw new Error(`Private HTTP verification failed (${route}:transport-${kind}); no secrets reported.`, { cause: error });
     }
     assert(!response.redirected && (response.status < 300 || response.status >= 400));

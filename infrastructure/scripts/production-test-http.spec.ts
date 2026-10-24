@@ -105,6 +105,12 @@ describe('private rollout HTTP verifier', () => {
     expect(message).not.toContain('private TLS detail');
     expect(message).not.toContain('private fetch detail');
   });
+  it('classifies known Undici socket failures without exposing socket details', async () => {
+    const cause = Object.assign(new Error('private socket detail'), { code: 'UND_ERR_SOCKET' });
+    const transport = vi.fn(async () => { throw Object.assign(new Error('private fetch detail'), { cause }); });
+    const client = privateHttpClient('https://127.0.0.1', transport);
+    await expect(client.call('GET', '/health')).rejects.toThrow('health:transport-und_err_socket');
+  });
   it('initializes only the approved owner through password-reset completion and reconciles its outcome', async () => {
     const f = fixture(); f.approval.action = 'initialize';
     f.inspect.mockResolvedValueOnce({ initialized: false }).mockResolvedValueOnce({ initialized: true });
