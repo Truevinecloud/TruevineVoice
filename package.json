@@ -89,8 +89,10 @@
                     "test-accounts:verify": "node infrastructure/scripts/test-account-seeder.mjs verify",
                     "test-accounts:disable": "node infrastructure/scripts/test-account-seeder.mjs disable",
                     "rollout:test-accounts": "node infrastructure/scripts/production-test-rollout.mjs",
+                    "rollout:test-accounts:sign-owner": "node infrastructure/scripts/production-test-rollout-owner-auth.mjs",
                     "test:production-rollout": "vitest run --config infrastructure/vitest.config.mts infrastructure/scripts/production-test-rollout.spec.ts infrastructure/scripts/production-test-http.spec.ts",
-                    "test:production-rollout:e2e": "npm run build:packages && npm run test:e2e --workspace @truevine/api -- production-test-rollout.e2e-spec.ts"
+                    "test:production-rollout:e2e": "npm run build:packages && npm run test:e2e --workspace @truevine/api -- production-test-rollout.e2e-spec.ts",
+                    "test:production-rollout:e2e:linux": "node infrastructure/scripts/run-production-test-rollout-e2e-linux.mjs"
                 },
     "devDependencies":  {
                             "@eslint/js":  "10.0.1",

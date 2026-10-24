@@ -175,6 +175,9 @@ function inPrivateDirectory(directory, work) {
   }
 }
 export function readBootstrapApproval(file) {
+  return JSON.parse(readBootstrapPrivateFile(file, 16384).toString('utf8'));
+}
+export function readBootstrapPrivateFile(file, maxBytes = 16384) {
   if (!isAbsolute(file ?? '')) refuse('bootstrap_approval_path_must_be_absolute');
   const canonicalFile = resolve(file);
   return inPrivateDirectory(dirname(canonicalFile), (_root, anchored) => {
@@ -185,11 +188,30 @@ export function readBootstrapApproval(file) {
     try {
       const stat = fstatSync(fd);
       assertPrivateStat(stat, process.getuid(), false);
-      if (stat.size > 16384) refuse('invalid_bootstrap_approval_file');
-      return JSON.parse(readFileSync(fd, 'utf8'));
+      if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || stat.size > maxBytes)
+        refuse('invalid_bootstrap_private_file');
+      return readFileSync(fd);
     } finally {
       closeSync(fd);
     }
+  });
+}
+export function createBootstrapPrivateFile(file, payload) {
+  if (!isAbsolute(file ?? '')) refuse('bootstrap_approval_path_must_be_absolute');
+  const canonicalFile = resolve(file);
+  const contents = Buffer.isBuffer(payload) ? payload : Buffer.from(String(payload));
+  return inPrivateDirectory(dirname(canonicalFile), (_root, anchored, dirFd) => {
+    const fd = openSync(`${anchored}/${basename(canonicalFile)}`,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    try {
+      assertPrivateStat(fstatSync(fd), process.getuid(), false);
+      writeFileSync(fd, contents);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    fsyncSync(dirFd);
+    return canonicalFile;
   });
 }
 export function prepareBootstrapArtifact(directory, operationId, payload) {
@@ -295,6 +317,10 @@ export async function bootstrapPlatformOwner(options, dependencies = {}) {
           actorKind: 'external_operator',
           operatorReference: approval.operatorReference,
           approvalReference: approval.approvalReference,
+          ...(options.ownerAuthorization ? {
+            ownerAuthorizationKeyId: options.ownerAuthorization.keyId,
+            ownerAuthorizationDigest: options.ownerAuthorization.digest,
+          } : {}),
           environment: options.environment,
           operationId: options.operationId,
           subjectUserId: userId,

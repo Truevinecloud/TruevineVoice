@@ -1,15 +1,24 @@
 # ADR 0022: Explicit operator workflow for production test accounts
 
-Status: implemented for review; production execution approval withheld.
+Status: owner-authorization implementation proposed in PR; not deployed or exercised on production.
 
 Commercial prelaunch does not turn the public deployment into development.
 Keep the existing isolated seeder, immutable first-owner bootstrap and deployment
 workflow unchanged. Use a separate disabled-by-default Linux operator CLI,
 never an endpoint/startup/deploy hook. Approved active release markers, exact
-production origin, independent expiring approvals, inventory/release/operation
-binding, current owner credentials, database name and PostgreSQL system identifier
-are mandatory. Private JSON files use the existing protected bootstrap reader.
-JSON authorization fields record external human approval; they cannot supply it.
+production origin, action-specific expiring owner signatures, inventory/release/
+operation binding, current owner credentials, database name and PostgreSQL system
+identifier are mandatory. Private JSON files use the existing protected bootstrap
+reader. A signature is owner authorization and is explicitly not independent
+security review. Each canonical signature binds every approval field, including
+the exact account inventory digest, credential reference and target fingerprint.
+The verifier reads an Ed25519 public key only from the root-owned, non-writable
+`/etc/truevine/test-account-rollout-owner-public.der`; an operator cannot replace
+the trust key via a CLI argument or environment override. Successful bootstrap
+and provisioning audits record the key ID and approval digest. Initialize, verify
+and HTTP actions consume their action UUID in the append-only identity audit; a
+failed/uncertain action requires a fresh, separately signed UUID after
+reconciliation. Provision retries remain fenced by their durable batch operation.
 
 First-owner creation delegates to ADR 0014's mechanism. Its one-time token is
 consumed privately through the existing audited CSRF-protected HTTP completion
@@ -39,6 +48,10 @@ the sole bootstrap owner are preserved; owner retirement requires separate lifec
 authorization. Code rollback never rolls back identities/audits/claim. Unknown
 commit outcomes are reconciled, not blindly retried with fresh operation IDs.
 
-No schema/migration, dependency, permission grant or CI workflow change is required.
-Isolated real PostgreSQL/HTTP, Linux private-file and HTTPS evidence plus independent
-release/bootstrap/execution approvals remain prerequisites to production use.
+No schema/migration, dependency, permission grant or production deployment
+workflow change is required. The CI disposable PostgreSQL fixture will run the
+Linux CLI rehearsal with protected temporary files and a loopback HTTPS endpoint.
+The owner must separately authorize deployment of this policy change and install
+the public key through the root-owned host configuration path. That process does
+not assert or substitute an independent security reviewer. No production account
+write is authorized by this ADR or PR.

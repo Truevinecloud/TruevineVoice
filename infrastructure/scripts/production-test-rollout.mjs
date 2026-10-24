@@ -7,6 +7,8 @@ import { checkPassword, hashPassword, verifyPassword } from '@truevine/auth/pass
 import { createDatabaseClient } from '@truevine/database';
 import { INVENTORY } from './qa-role-test-kit.mjs';
 import { bootstrapPlatformOwner, readBootstrapApproval } from './bootstrap-platform-owner.mjs';
+import { readPinnedOwnerPublicKey, verifyOwnerAuthorization } from './production-test-rollout-owner-auth.mjs';
+import { executePrivateHttp } from './production-test-http.mjs';
 
 export const ROLLOUT_ACCOUNTS = INVENTORY.map(account => ({ ...account, email: account.email.replace('@example.invalid', '@truevoice.com') }));
 export const INVENTORY_DIGEST = createHash('sha256').update(JSON.stringify(ROLLOUT_ACCOUNTS)).digest('hex');
@@ -17,7 +19,7 @@ const OWNER = 'qa-platform-owner@truevoice.com';
 const ACTIONS = ['bootstrap', 'initialize', 'provision', 'verify', 'http', 'disable'];
 const fail = () => { throw new Error('Rollout refused; reconcile approved operation securely.'); };
 
-export function validateRollout(approval, credentials, environment, confirmProduction = false, now = Date.now()) {
+export function validateRollout(approval, credentials, environment, confirmProduction = false, now = Date.now(), pinnedOwnerPublicKeyDer) {
   if (environment.TEST_ACCOUNT_ROLLOUT_ENABLED !== '1' || approval?.version !== 1 ||
       !ACTIONS.includes(approval.action) || !['test', 'production'].includes(approval.environment) ||
       environment.NODE_ENV !== approval.environment || environment.APP_VERSION !== approval.releaseSha ||
@@ -50,16 +52,24 @@ export function validateRollout(approval, credentials, environment, confirmProdu
       !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ||
       !/^truevine_bootstrap_test_[a-f0-9]{16}$/.test(approval.database.name) ||
       !['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname) || !['http:', 'https:'].includes(origin.protocol)) fail();
+  let pinnedKey = pinnedOwnerPublicKeyDer;
+  if (approval.environment === 'production' && !pinnedKey) {
+    try { pinnedKey = readPinnedOwnerPublicKey(); } catch { fail(); }
+  }
+  const ownerAuthorization = verifyOwnerAuthorization(approval, environment, now, pinnedKey);
+  if ((approval.environment === 'production' || approval.ownerAuthorization) && !ownerAuthorization) fail();
   if (approval.action === 'bootstrap') {
     if (approval.operationId !== approval.bootstrapOperationId || environment.PLATFORM_OWNER_BOOTSTRAP_ENABLED !== '1') fail();
   } else if (!UUID.test(approval.actorUserId ?? '')) fail();
+  if (!['bootstrap', 'provision'].includes(approval.action) &&
+      [approval.bootstrapOperationId, approval.provisionOperationId].includes(approval.operationId)) fail();
   if (approval.action === 'provision' && (approval.operationId !== approval.provisionOperationId || approval.provisioningReleaseSha !== approval.releaseSha)) fail();
   if (['initialize', 'http'].includes(approval.action) && approval.httpAuthorized !== true) fail();
   if (credentials?.version !== 1 || Object.keys(credentials.passwords ?? {}).length !== 11 ||
       Object.keys(credentials.passwords).some(email => !ROLLOUT_ACCOUNTS.some(account => account.email === email)) ||
       ROLLOUT_ACCOUNTS.some(account => checkPassword(credentials.passwords[account.email]) !== undefined) ||
       new Set(Object.values(credentials.passwords)).size !== 11) fail();
-  return { origin: origin.origin };
+  return { origin: origin.origin, ownerAuthorization };
 }
 
 function assertRelease(approval) {
@@ -82,7 +92,7 @@ const include = { memberships: true, platformRole: true };
  * changes or alternate first-owner claim are introduced. */
 export async function executeRollout(approval, credentials, options = {}, dependencies = {}) {
   const environment = dependencies.environment ?? process.env;
-  validateRollout(approval, credentials, environment, options.confirmProduction);
+  const validation = validateRollout(approval, credentials, environment, options.confirmProduction);
   assertRelease(approval);
   if (approval.action === 'bootstrap') fail();
   const database = (dependencies.createClient ?? createDatabaseClient)(environment.DATABASE_URL, { log: [] });
@@ -92,6 +102,8 @@ export async function executeRollout(approval, credentials, options = {}, depend
       source: SOURCE, releaseSha: approval.releaseSha, provisionOperationId: approval.provisionOperationId,
       bootstrapOperationId: approval.bootstrapOperationId, approvalReference: approval.approvalReference,
       operatorReference: approval.operatorReference, inventoryDigest: INVENTORY_DIGEST, ...metadata,
+      ...(validation.ownerAuthorization ? { ownerAuthorizationKeyId: validation.ownerAuthorization.keyId,
+        ownerAuthorizationDigest: validation.ownerAuthorization.digest } : {}),
     };
     if (!isSafeAuditMetadata(safe)) fail();
     return tx.identityAuditEvent.create({ data: { id, actorUserId: approval.actorUserId, action, outcome: 'SUCCESS', metadata: safe } });
@@ -126,6 +138,7 @@ export async function executeRollout(approval, credentials, options = {}, depend
         if (!raw || !/^[A-Za-z0-9_-]{40,100}$/.test(raw)) fail();
         const token = await tx.passwordResetToken.findUnique({ where: { tokenHash: hashToken(raw) } });
         if (token?.userId !== owner.id || (token.usedAt ? !passwordReady : token.expiresAt <= new Date())) fail();
+        await recordOwnerAuthorization(tx, approval, options, audit, validation.ownerAuthorization);
         return { ownerId: owner.id, initialized: passwordReady && Boolean(token.usedAt), preservedAdminId: admin.id };
       }
       if (!passwordReady) fail();
@@ -183,12 +196,30 @@ export async function executeRollout(approval, credentials, options = {}, depend
         }
         if (!prior) await audit(tx, approval.operationId, 'test_rollout.disabled', { organizationId: organization.id });
       }
+      if (['verify', 'http'].includes(approval.action))
+        await recordOwnerAuthorization(tx, approval, options, audit, validation.ownerAuthorization);
       if (Date.parse(approval.expiresAt) <= Date.now()) fail();
       return { operationId: approval.operationId, organizationId: organization.id, isolationOrganizationId: isolation.id,
-        preservedAdminId: admin.id, ownerId: owner.id, accountCount: 11, state: approval.action === 'disable' ? 'ten-disabled-owner-preserved' : 'verified' };
+        preservedAdminId: admin.id, ownerId: owner.id, accountCount: 11, state: approval.action === 'disable' ? 'ten-disabled-owner-preserved' : 'verified',
+        ...(validation.ownerAuthorization ? { ownerAuthorizationKeyId: validation.ownerAuthorization.keyId,
+          ownerAuthorizationDigest: validation.ownerAuthorization.digest } : {}) };
     }, { isolationLevel: 'Serializable', timeout: 120000 });
   } catch { fail(); }
   finally { try { await database.$disconnect(); } catch { fail(); } }
+}
+
+function recordOwnerAuthorization(tx, approval, options, audit, authorization) {
+  if (!authorization) return;
+  return tx.identityAuditEvent.findUnique({ where: { id: approval.operationId } }).then(async prior => {
+    if (prior) {
+      if (options.authorizationReconciliation === true && prior.action === 'test_rollout.owner_authorization_used' &&
+          prior.actorUserId === approval.actorUserId && prior.metadata?.action === approval.action &&
+          prior.metadata?.ownerAuthorizationDigest === authorization.digest && prior.metadata?.ownerAuthorizationKeyId === authorization.keyId) return;
+      fail();
+    }
+    await audit(tx, approval.operationId, 'test_rollout.owner_authorization_used', { action: approval.action,
+      credentialReference: approval.credentialReference, expiresAt: approval.expiresAt });
+  });
 }
 
 export async function rolloutMain(argv = process.argv.slice(2)) {
@@ -203,6 +234,7 @@ export async function rolloutMain(argv = process.argv.slice(2)) {
         email: OWNER, actorUserId: null, preservedAdmin: { userId: null, organizationId: null },
         isolationOrganizationId: null, isolationFixtureAuthorized: false,
         approvalReference: null, operatorReference: null, credentialReference: null, rehearsalReference: null, expiresAt: null,
+        ownerAuthorization: null,
         database: { hostname: null, port: null, name: null, systemIdentifier: null }, applicationOrigin: 'https://voice.truevinecloud.online', httpAuthorized: false,
       }, credentials: { version: 1, reference: null, passwords: Object.fromEntries(ROLLOUT_ACCOUNTS.map(account => [account.email, null])) } }, null, 2)}\n`); return;
     }
@@ -219,18 +251,19 @@ export async function rolloutMain(argv = process.argv.slice(2)) {
     const approval = readBootstrapApproval(options['--approval']);
     const credentials = readBootstrapApproval(options['--credentials']);
     if (approval.action !== action) fail();
-    validateRollout(approval, credentials, process.env, options['--confirm-production']);
+    const validation = validateRollout(approval, credentials, process.env, options['--confirm-production']);
     assertRelease(approval);
     let result;
     if (action === 'bootstrap') {
       result = await bootstrapPlatformOwner({ environment: approval.environment, email: OWNER, operationId: approval.operationId,
-        approvalFile: options['--approval'], activationDirectory: options['--activation-directory'], confirmProduction: options['--confirm-production'] });
+        approvalFile: options['--approval'], activationDirectory: options['--activation-directory'], confirmProduction: options['--confirm-production'],
+        ownerAuthorization: validation.ownerAuthorization });
     } else if (['initialize', 'http'].includes(action)) {
-      const { executePrivateHttp } = await import('./production-test-http.mjs');
       result = await executePrivateHttp(approval, credentials, { confirmProduction: options['--confirm-production'],
         artifact: action === 'initialize' ? readBootstrapApproval(options['--artifact']) : undefined });
     } else result = await executeRollout(approval, credentials, { confirmProduction: options['--confirm-production'] });
-    process.stdout.write(`${JSON.stringify(result)}\n`);
+    process.stdout.write(`${JSON.stringify({ ...result, ...(validation.ownerAuthorization ? { ownerAuthorizationKeyId: validation.ownerAuthorization.keyId,
+      ownerAuthorizationDigest: validation.ownerAuthorization.digest } : {}) })}\n`);
   } catch {
     process.stderr.write('Production test rollout refused or failed. No success claimed. Reconcile privately before retrying.\n');
     process.exitCode = 1;

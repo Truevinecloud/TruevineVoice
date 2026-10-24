@@ -7,7 +7,7 @@ for actual verification status. References below to missing tooling describe the
 original planning baseline, not authorization to run it. No live execution or
 successful real-database rehearsal is implied by this update.
 
-Status: **prepared for review; execution not authorized**. No production connection, account inspection, bootstrap, password initialization, HTTP test, migration, push, merge, workflow dispatch or deployment has occurred. Commercial launch status does not change the production security boundary. This document does not constitute human review or approval.
+Status: **owner-authorization change proposed for review; execution not authorized**. No production connection, account inspection, bootstrap, password initialization, HTTP test, migration, push, merge, workflow dispatch or deployment has occurred. Commercial launch status does not change the production security boundary.
 
 Use the [review-only inventory](../production-test-account-inventory.json), [existing bootstrap procedure](platform-owner-bootstrap.md), [ADR 0014](../adr/0014-first-platform-owner-bootstrap.md), [deployment procedure](production-deployment.md) and [role matrix](../qa-role-permission-matrix.md). The matrix's permission grants remain authoritative; its `.invalid` usernames belong to local tests and are not this rollout's identities.
 
@@ -23,17 +23,17 @@ These are fictional login identifiers, not proof of control over mailboxes. Befo
 
 ## Explicit approvals and stop gates
 
-| Gate | Required concrete review record | Must be complete before |
+| Gate | Required concrete owner decision or evidence | Must be complete before |
 | --- | --- | --- |
-| A — scope | This procedure version, eleven emails/roles, separate preserved admin policy, test-only fixture boundaries, custodians and retention deadline | Production executor implementation is finalized for release |
-| B — implementation | Production executor, protected credential reader, HTTP initializer/verifier, disable path, exact approval schema, append-only provenance, concurrency/rollback tests and isolated Linux/PostgreSQL/HTTPS rehearsal evidence | Release approval |
-| C — schema/release | Exact immutable release SHA, actual migration SQL/set, expand/contract review, current deployed migration ledger, backup/restore evidence, deployment/rollback plan and production workflow environment approval | Merge/deploy and any schema execution |
-| D — bootstrap | Exact new owner email, stable operation UUID, independent approver/operator/recipient, approved release, database host/port/name/system identifier, HTTPS origin, expiry and `productionAuthorized: true` | First-owner bootstrap invocation |
-| E — remaining accounts | Exact ten identities, private credential-file commitment/reference (never contents), approved owner/grantor ID, database fingerprint, operation IDs, expiry, no-conflict findings and direct-password authorization | Production executor invocation |
-| F — HTTP tests | Exact eleven users, synthetic organization/fixture IDs, approved endpoints/actions, controlled negative login attempts, rate-limit pacing and evidence redaction | Actual sign-ins and authorization probes |
+| A — scope | Owner-signed procedure version, eleven emails/roles, separate preserved admin policy, test-only fixture boundaries, credential custodian and retention deadline | Production executor release |
+| B — implementation | Production executor, protected credential reader, HTTP initializer/verifier, disable path, exact signature schema, append-only provenance, concurrency/rollback tests and isolated Linux/PostgreSQL/HTTPS rehearsal evidence | Owner signs a bootstrap/provision action |
+| C — schema/release | Exact immutable release SHA, migration set/ledger, backup/restore evidence, rollback plan and successful protected CI/deployment status | Owner signs a production action |
+| D — bootstrap | Exact new owner email, stable operation UUID, owner signature, approved release, database host/port/name/system identifier, HTTPS origin, expiry and `productionAuthorized: true` | First-owner bootstrap invocation |
+| E — remaining accounts | Exact ten identities, private credential-file reference (never contents), approved owner/grantor ID, database fingerprint, operation IDs, expiry, no-conflict findings and direct-password authorization | Production executor invocation |
+| F — HTTP tests | Exact eleven users, synthetic organization/fixture IDs, owner-signed endpoints/actions, controlled negative login attempts, rate-limit pacing and evidence redaction | Actual sign-ins and authorization probes |
 | G — retirement | Exact managed user/fixture IDs, time window, session/support-access revocation, owner retirement/recovery decision, recovery custodian and retention rules | Disable/cleanup |
 
-No gate is currently satisfied by a JSON field in this repository. A private approval record documents independent authorization; it cannot grant itself authority. Execution stops on unknown or failed checks. Do not infer a deployed database state from source, old snapshots, schema files, user-reported account status or previous fake-backed tests.
+The owner-signature procedure makes the project owner's decision auditable and does not represent independent security review. An unsigned approval or JSON authorization flag has no authority. Execution stops on unknown or failed checks. Do not infer a deployed database state from source, old snapshots, schema files, user-reported account status or previous fake-backed tests.
 
 ## Authorized read-only production preflight — not performed
 
@@ -47,7 +47,7 @@ Conflict decisions:
 - Any candidate email exists without this operation's verified immutable provisioning provenance: stop. An identical role is not consent to adopt the user or replace its password. A different email requires revised approval; do not improvise suffixes.
 - A committed candidate from the same approved operation exists: reconcile its exact ID, role, organization, credential-verification outcome and audit IDs; report unchanged. A password mismatch stops; no rotation or silent repair.
 - `truevoice-testing` exists without verified rollout ownership/provenance: stop; never repurpose or erase it. Extra memberships, unexpected tenant data, suspension or role combinations also stop.
-- Any first-owner claim or historical owner assignment exists: **do not bootstrap**. Reconcile and use the already authorized owner only if that is independently approved. An existing owner under a different email blocks the proposed first-owner inventory; revise it or use separately reviewed recovery, never manufacture a second first owner.
+- Any first-owner claim or historical owner assignment exists: **do not bootstrap**. Reconcile and use an existing owner only under a separately scoped owner authorization. An existing owner under a different email blocks the proposed first-owner inventory; revise it or use separately reviewed recovery, never manufacture a second first owner.
 
 ## Release and deployment plan
 
@@ -61,7 +61,7 @@ Review actual `infrastructure/migrations-reviewed.json` and deployed ledger toge
 
 ## First Platform Owner initialization
 
-Use the existing bootstrap implementation unchanged from the approved deployed release. Approval must name `qa-platform-owner@truevoice.com`, production origin, exact database hostname/port/name and verified `database.systemIdentifier`, a stable operation UUID, operator/approval references, and expiry no more than 24 hours away. Set `productionAuthorized: true` only after independent Gate D approval. The command verifies the connected database and fingerprint and writes user, role, immutable singleton claim and linked audit atomically. It refuses every prior owner/claim and existing email.
+Use the existing bootstrap implementation unchanged from the approved deployed release. The action-specific owner signature must name `qa-platform-owner@truevoice.com`, production origin, exact database hostname/port/name and verified `database.systemIdentifier`, a stable operation UUID, operator/approval references, and expiry no more than 24 hours away. Set `productionAuthorized: true` only in the exact draft that the owner signs. The command verifies the connected database and fingerprint and writes user, role, immutable singleton claim and linked audit atomically. It refuses every prior owner/claim and existing email.
 
 Prepare separate private Linux approval, credential and activation directories outside all checkouts, release trees, web roots, CI, backup/sync collection and shared folders. Operator/recipient ownership, 0700 directories, 0600 regular files, safe ancestors, no symlinks/hard links and `/proc/self/fd` requirements apply. Privately load the established production environment; never print or change its values. The following is the **existing command shape, not authorization to run it**:
 
@@ -85,15 +85,15 @@ This changes the delivery method for synthetic test custodians from the existing
 
 The proposed production executor must accept only a private configuration path, not password arguments, environment passwords, plaintext samples, shell heredocs, logs or CI uploads. Configuration contains version, stable operation IDs, approval reference, approved release/fingerprint/origin, exact email/scope/role inventory, credential custodian and distinct privately supplied passwords. Each password must pass the existing nonblank 12–200 character policy and existing Argon2id hashing; no emailed activation is needed for these newly created users. No real password or executable authorization template is committed in this review package.
 
-Before any write, verify production opt-in plus independent signed-off scope, approval expiry, exact target/cluster identity, authenticated approving Platform Owner, singleton claim and all conflicts. Acquire durable transaction serialization and database uniqueness fencing for the operation. Bind account operation provenance to immutable audit IDs so retries and cleanup cannot adopt unrelated users. Preflight the whole ten-account batch, then create the new organization, five tenant-scoped memberships and five platform-only assignments with proper grantor/audit metadata in one transaction. No platform user gets an implicit customer membership. Never write an existing user's password/role/status automatically. Audit creation must fail the whole batch on failure; every status returned must follow confirmed commit.
+Before any write, verify production opt-in plus a valid action-specific owner signature, approval expiry, exact target/cluster identity, authenticated approving Platform Owner, singleton claim and all conflicts. Acquire durable transaction serialization and database uniqueness fencing for the operation. Bind account operation provenance to immutable audit IDs so retries and cleanup cannot adopt unrelated users. Preflight the whole ten-account batch, then create the new organization, five tenant-scoped memberships and five platform-only assignments with proper grantor/audit metadata in one transaction. No platform user gets an implicit customer membership. Never write an existing user's password/role/status automatically. Audit creation must fail the whole batch on failure; every status returned must follow confirmed commit.
 
 Reruns verify rather than repair. Ambiguous commit/network/disconnect errors fail with a fixed secret-free message; preserve protected inputs, reconcile by operation IDs, and retry only after the outcome is known. No in-memory/Redis-only idempotency, artificial claim rows, direct SQL fixes or new bootstrap path is permitted. The implementation selects an append-only completed-batch identity audit whose primary key is the stable provision UUID, combined with serializable preflight, advisory locking and existing uniqueness. Its real database rehearsal remains required.
 
-The production inventory deliberately differs from the completed `.invalid` local seeder. No current command accepts this production manifest. Executable provision/verify/disable actions now exist, but Gate B rehearsal and independent production execution authorization remain incomplete. Do not substitute a staging/local command or change NODE_ENV/database names to defeat its refusal.
+The production inventory deliberately differs from the completed `.invalid` local seeder. No current command accepts this production manifest. Executable provision/verify/disable actions now exist; owner authorization is specific to each action. Do not substitute a staging/local command or change NODE_ENV/database names to defeat its refusal.
 
 ## Actual HTTP and interface acceptance — execute only after Gate F
 
-Use [the separate HTTP acceptance checklist](production-test-account-http-checklist.md). Every one of the eleven must produce independent correct-password, incorrect-password, identity/role, authorization and logout evidence over actual HTTPS. A stored hash match, local AuthService fake, inferred role or successful migration cannot count as a live sign-in. Do not claim full permitted functionality when an endpoint/dashboard is absent.
+Use [the separate HTTP acceptance checklist](production-test-account-http-checklist.md). Every one of the eleven must produce correct-password, incorrect-password, identity/role, authorization and logout evidence over actual HTTPS. A stored hash match, local AuthService fake, inferred role or successful migration cannot count as a live sign-in. Do not claim full permitted functionality when an endpoint/dashboard is absent.
 
 ## Cleanup and rollback
 
@@ -105,4 +105,4 @@ On application regression use the existing reviewed release rollback procedure a
 
 ## Readiness verdict
 
-Procedure and inventory: prepared for human review. Production executor/private HTTP client: implemented; see execution runbook and current results. Isolated real-database/Linux rehearsal: pending. Live read-only preflight, release, bootstrap, ten-account provisioning, HTTP acceptance, cleanup: **not run and not authorized**. The request authorizes preparation only. Retain this status until each gate has independently recorded evidence and approval.
+Procedure and inventory: prepared for review. Production executor/private HTTP client: implemented; see execution runbook and current results. Isolated real-database/Linux rehearsal: required CI evidence pending. Live read-only preflight, release, bootstrap, ten-account provisioning, HTTP acceptance, cleanup: **not run and not authorized**. This branch proposes the owner-signature policy; production execution remains unauthorized until CI passes, the PR completes the repository's review process, the policy is deployed through the protected workflow, the root-pinned public key is installed, and separate action signatures are supplied. The signature is owner authorization, not independent security review.

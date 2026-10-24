@@ -243,6 +243,14 @@ jobs:
           QA_OWNER_RECOVERY_DISPOSABLE: '1'
         run: npm run test:qa-owner-recovery:linux
 
+      # Uses only the owned disposable database in this Compose stack and an ephemeral test signing key.
+      - name: Rehearse signed QA rollout on Linux with disposable PostgreSQL and HTTPS
+        env:
+          NODE_ENV: test
+          ROLLOUT_E2E_DISPOSABLE: '1'
+          ROLLOUT_TEST_ADMIN_URL: postgresql://truevine:truevine@localhost:55432/postgres?schema=public
+        run: npm run test:production-rollout:e2e:linux
+
       # Runs the RBAC-001 remediation suite. It does not touch `truevine_voice`:
       # `infrastructure/scripts/run-security-tests.mjs` creates its own databases
       # named `rbac_security_<timestamp>_<pid>_<suffix>`, applies the migrations to

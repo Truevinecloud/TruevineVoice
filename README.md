@@ -6,7 +6,10 @@ Production test-account executor (disabled by default):
 inventory/invalid blank input shapes. Actions `bootstrap`, `initialize`,
 `provision`, `verify`, `http` and `disable` require private approval/credential
 files; production additionally requires explicit confirmation and a matching
-active READY release. Focused checks: `test:production-rollout`; real isolated
+active READY release and an action-bound Ed25519 owner signature. The owner signs
+each short-lived approval with `npm run rollout:test-accounts:sign-owner --` on
+Linux using a protected key file; this is owner authorization, not independent
+security review. Focused checks: `test:production-rollout`; real isolated
 database/HTTP rehearsal: `test:production-rollout:e2e` (required before production).
 
 Developer-controlled no-email test account seeder:

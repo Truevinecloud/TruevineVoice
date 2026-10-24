@@ -1,6 +1,10 @@
-import { execFileSync } from 'node:child_process';
-import { randomBytes, randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
+import { execFileSync, spawn } from 'node:child_process';
+import { generateKeyPairSync, randomBytes, randomUUID, type KeyObject } from 'node:crypto';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { RequestMethod, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { createDatabaseClient, type PrismaClient } from '@truevine/database';
@@ -13,6 +17,7 @@ import { RATE_LIMITER } from '../src/auth/tokens.js';
 import { bootstrapPlatformOwner } from '../../../infrastructure/scripts/bootstrap-platform-owner.mjs';
 import { executeRollout, INVENTORY_DIGEST, ROLLOUT_ACCOUNTS } from '../../../infrastructure/scripts/production-test-rollout.mjs';
 import { executePrivateHttp, privateHttpClient } from '../../../infrastructure/scripts/production-test-http.mjs';
+import { signOwnerAuthorization } from '../../../infrastructure/scripts/production-test-rollout-owner-auth.mjs';
 
 let admin: PrismaClient | undefined;
 let database: PrismaClient | undefined;
@@ -20,6 +25,11 @@ let app: INestApplication | undefined;
 let createdName: string | undefined;
 let databaseUrl: string;
 let origin: string;
+let apiPort: number | undefined;
+let httpsProxy: HttpsServer | undefined;
+let privateDirectory: string | undefined;
+let ownerKeyPair: { privateKey: KeyObject; publicKey: KeyObject } | undefined;
+const priorWebPublicUrl = process.env['WEB_PUBLIC_URL'];
 let systemIdentifier: string;
 const revision = 'a'.repeat(40);
 const adminUserId = randomUUID(), adminOrganizationId = randomUUID();
@@ -62,6 +72,36 @@ beforeAll(async () => {
     await tx.user.create({ data: { id: adminUserId, email: 'admin@truevoice.com', passwordHash: preservedPasswordHash } });
     await tx.membership.create({ data: { organizationId: adminOrganizationId, userId: adminUserId, role: 'OWNER' } });
   });
+  if (process.env['ROLLOUT_E2E_HTTPS'] === '1') {
+    if (process.platform !== 'linux' || !process.env['ROLLOUT_E2E_TLS_CERT'] || !process.env['ROLLOUT_E2E_TLS_KEY'])
+      throw new Error('Linux HTTPS rehearsal requires its disposable TLS certificate.');
+    privateDirectory = mkdtempSync(join(tmpdir(), 'truevine-rollout-private-'));
+    chmodSync(privateDirectory, 0o700);
+    ownerKeyPair = generateKeyPairSync('ed25519');
+    const proxy = createHttpsServer({ cert: readFileSync(process.env['ROLLOUT_E2E_TLS_CERT']), key: readFileSync(process.env['ROLLOUT_E2E_TLS_KEY']) }, (request, response) => {
+      if (apiPort === undefined) { response.writeHead(503).end(); return; }
+      const upstream = httpRequest({ hostname: '127.0.0.1', port: apiPort, path: request.url, method: request.method,
+        headers: { ...request.headers, host: `127.0.0.1:${apiPort}` } }, result => {
+        response.writeHead(result.statusCode ?? 502, result.headers); result.pipe(response);
+      });
+      upstream.on('error', () => { response.writeHead(502).end(); });
+      request.pipe(upstream);
+    });
+    await new Promise<void>((resolvePromise, reject) => {
+      proxy.once('error', reject); proxy.listen(0, '127.0.0.1', () => { proxy.off('error', reject); resolvePromise(); });
+    });
+    httpsProxy = proxy;
+    const address = proxy.address();
+    if (!address || typeof address === 'string') throw new Error('Disposable HTTPS listener failed.');
+    origin = `https://127.0.0.1:${address.port}`;
+    process.env['WEB_PUBLIC_URL'] = origin;
+    const credentialsPath = join(privateDirectory, 'credentials.json');
+    const ownerKeyPath = join(privateDirectory, 'owner-authentication.key');
+    writeFileSync(credentialsPath, `${JSON.stringify(credentials)}\n`, { mode: 0o600, flag: 'wx' });
+    writeFileSync(ownerKeyPath, ownerKeyPair.privateKey.export({ format: 'pem', type: 'pkcs8' }), { mode: 0o600, flag: 'wx' });
+    if ((statSync(privateDirectory).mode & 0o777) !== 0o700 || (statSync(credentialsPath).mode & 0o777) !== 0o600 ||
+        (statSync(ownerKeyPath).mode & 0o777) !== 0o600) throw new Error('Disposable private-file permissions did not hold.');
+  }
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(APP_CONFIG).useValue({ host: '127.0.0.1', port: 0, environment: 'test', version: revision,
       databaseUrl, redisUrl: 'redis://stub:6379', healthTimeoutMs: 50, serviceName: 'truevine-voice-api' })
@@ -74,11 +114,22 @@ beforeAll(async () => {
   app = moduleRef.createNestApplication();
   app.setGlobalPrefix('api', { exclude: [{ path: 'health', method: RequestMethod.GET }] });
   await app.listen(0, '127.0.0.1');
-  origin = await app.getUrl();
+  const apiAddress = app.getHttpServer().address();
+  if (!apiAddress || typeof apiAddress === 'string') throw new Error('Disposable API listener failed.');
+  apiPort = apiAddress.port;
+  if (!origin) origin = await app.getUrl();
 }, 60000);
 
 afterAll(async () => {
-  await app?.close(); await database?.$disconnect();
+  await app?.close();
+  if (httpsProxy) await new Promise<void>((resolvePromise, reject) => httpsProxy!.close(error => error ? reject(error) : resolvePromise()));
+  if (privateDirectory) {
+    const exactTemp = resolve(tmpdir(), privateDirectory.slice(resolve(tmpdir()).length + 1));
+    if (exactTemp !== resolve(privateDirectory) || !privateDirectory.includes('truevine-rollout-private-')) throw new Error('Unsafe temporary cleanup target.');
+    rmSync(privateDirectory, { recursive: true });
+  }
+  if (priorWebPublicUrl === undefined) delete process.env['WEB_PUBLIC_URL']; else process.env['WEB_PUBLIC_URL'] = priorWebPublicUrl;
+  await database?.$disconnect();
   // Only the exact database successfully created above may be removed. No audit
   // immutability is bypassed; retire the entire owned disposable fixture.
   if (createdName) {
@@ -91,36 +142,146 @@ afterAll(async () => {
 function inputs(action: string) {
   const target = new URL(databaseUrl);
   return {
-    approval: { version: 1, action, environment: 'test', releaseSha: revision, provisioningReleaseSha: revision, operationId: action === 'provision' ? provisionOperationId : randomUUID(),
+    approval: { version: 1, action, environment: 'test', releaseSha: revision, provisioningReleaseSha: revision,
+      operationId: action === 'bootstrap' ? bootstrapOperationId : action === 'provision' ? provisionOperationId : randomUUID(),
       bootstrapOperationId, provisionOperationId, inventoryDigest: INVENTORY_DIGEST, credentialReference: credentials.reference,
-      email: 'qa-platform-owner@truevoice.com', actorUserId: ownerId,
+      email: 'qa-platform-owner@truevoice.com', actorUserId: action === 'bootstrap' ? null : ownerId,
       approvalReference: 'APPROVAL-E2E', operatorReference: 'OPERATOR-E2E', rehearsalReference: 'REHEARSAL-E2E',
-      expiresAt: new Date(Date.now() + 3600000).toISOString(), applicationOrigin: origin, bootstrapApplicationOrigin: 'https://localhost', httpAuthorized: true,
+      expiresAt: new Date(Date.now() + 3600000).toISOString(), applicationOrigin: origin,
+      bootstrapApplicationOrigin: privateDirectory ? origin : 'https://localhost', httpAuthorized: true,
       preservedAdmin: { userId: adminUserId, organizationId: adminOrganizationId },
       isolationOrganizationId: adminOrganizationId, isolationFixtureAuthorized: true,
       database: { hostname: target.hostname, port: target.port || '5432', name: createdName, systemIdentifier } },
-    dependencies: { environment: { NODE_ENV: 'test', APP_VERSION: revision, TEST_ACCOUNT_ROLLOUT_ENABLED: '1', ROLLOUT_E2E_DISPOSABLE: '1', DATABASE_URL: databaseUrl, WEB_PUBLIC_URL: origin } },
+    dependencies: { environment: { NODE_ENV: 'test', APP_VERSION: revision, TEST_ACCOUNT_ROLLOUT_ENABLED: '1', ROLLOUT_E2E_DISPOSABLE: '1', DATABASE_URL: databaseUrl, WEB_PUBLIC_URL: origin,
+      ...(ownerKeyPair ? { TEST_ACCOUNT_ROLLOUT_OWNER_PUBLIC_KEY_DER: ownerKeyPair.publicKey.export({ format: 'der', type: 'spki' }).toString('base64url') } : {}) } },
   };
 }
 
-describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
-  it('bootstraps through immutable mechanism, initializes privately, provisions/retries, verifies eleven HTTP identities and disables', async () => {
-    const target = new URL(databaseUrl);
-    const bootstrapApproval = { version: 1, environment: 'test', email: 'qa-platform-owner@truevoice.com', operationId: bootstrapOperationId,
-      approvalReference: 'APPROVAL-E2E', operatorReference: 'OPERATOR-E2E', expiresAt: new Date(Date.now() + 3600000).toISOString(),
-      database: { hostname: target.hostname, port: target.port || '5432', name: createdName }, applicationOrigin: 'https://localhost' };
-    const result = await bootstrapPlatformOwner({ environment: 'test', email: bootstrapApproval.email, operationId: bootstrapOperationId,
-      approvalFile: 'memory-private-approval', activationDirectory: 'memory-private-artifact' }, {
-      environment: { NODE_ENV: 'test', PLATFORM_OWNER_BOOTSTRAP_ENABLED: '1', DATABASE_URL: databaseUrl, WEB_PUBLIC_URL: 'https://localhost' },
-      readApproval: () => bootstrapApproval,
-      prepareArtifact: (_directory, _operation, payload) => { artifact = payload; return { path: 'memory-only', discard: () => undefined }; },
+async function runPrivateCommand(name: string, executable: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, timeout: number) {
+  const maxOutputBytes = 1024 * 1024;
+  return await new Promise<string>((resolvePromise, reject) => {
+    const child = spawn(executable, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32', windowsHide: true });
+    const stdout: Buffer[] = [], stderr: Buffer[] = [];
+    let outputBytes = 0, timedOut = false, outputLimitExceeded = false, spawnFailed = false;
+    const terminateTree = () => {
+      if (child.pid && process.platform !== 'win32') {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+      } else child.kill('SIGKILL');
+    };
+    const timeoutTimer = setTimeout(() => { timedOut = true; terminateTree(); }, timeout);
+    const capture = (target: Buffer[], chunk: Buffer) => {
+      outputBytes += chunk.length;
+      if (outputBytes > maxOutputBytes) {
+        outputLimitExceeded = true;
+        terminateTree();
+        return;
+      }
+      target.push(chunk);
+    };
+    child.stdout.on('data', (chunk: Buffer) => capture(stdout, chunk));
+    child.stderr.on('data', (chunk: Buffer) => capture(stderr, chunk));
+    child.once('error', () => { spawnFailed = true; });
+    child.once('close', (code, signal) => {
+      clearTimeout(timeoutTimer);
+      if (code === 0 && !timedOut && !outputLimitExceeded && !spawnFailed) {
+        resolvePromise(Buffer.concat(stdout).toString('utf8'));
+        return;
+      }
+      const outcome = timedOut ? 'timed out' : outputLimitExceeded ? 'exceeded output limit'
+        : spawnFailed ? 'could not start' : Number.isInteger(code) ? `exited ${code}` : `terminated (${signal ?? 'unknown'})`;
+      reject(new Error(`Disposable ${name} subprocess ${outcome}; captured output and private paths withheld.`));
     });
-    ownerId = result.userId;
-    const initialization = inputs('initialize');
-    const initialized = await executePrivateHttp(initialization.approval, credentials, { artifact }, initialization.dependencies);
-    expect(initialized.ownerInitialized).toBe(true);
-    expect((await executePrivateHttp(initialization.approval, credentials, { artifact }, initialization.dependencies)).ownerInitialized).toBe(true);
+  });
+}
+
+async function runSignedLinuxCli(action: 'bootstrap' | 'initialize' | 'provision' | 'verify' | 'http', extra?: { activationDirectory?: string; artifactPath?: string }) {
+  if (!privateDirectory || !ownerKeyPair) throw new Error('Protected Linux rehearsal files are unavailable.');
+  const { approval } = inputs(action);
+  const draftPath = join(privateDirectory, `${action}-${approval.operationId}.draft.json`);
+  const signedPath = join(privateDirectory, `${action}-${approval.operationId}.signed.json`);
+  writeFileSync(draftPath, `${JSON.stringify(approval)}\n`, { mode: 0o600, flag: 'wx' });
+  const base = resolve(import.meta.dirname, '../../..');
+  const environment: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'test', WEB_PUBLIC_URL: origin, DATABASE_URL: databaseUrl,
+    APP_VERSION: revision, TEST_ACCOUNT_ROLLOUT_ENABLED: '1', ROLLOUT_E2E_DISPOSABLE: '1',
+    TEST_ACCOUNT_ROLLOUT_OWNER_PUBLIC_KEY_DER: ownerKeyPair.publicKey.export({ format: 'der', type: 'spki' }).toString('base64url') };
+  const signer = resolve(base, 'infrastructure/scripts/production-test-rollout-owner-auth.mjs');
+  const rollout = resolve(base, 'infrastructure/scripts/production-test-rollout.mjs');
+  const signed = await runPrivateCommand('owner-signer', process.execPath,
+    [signer, '--draft', draftPath, '--owner-key', join(privateDirectory, 'owner-authentication.key'), '--output', signedPath], base, environment, 30000);
+  const signerResult = JSON.parse(signed) as { action: string; keyId: string; outputPath: string };
+  if (signerResult.action !== action || signerResult.outputPath !== signedPath) throw new Error('Owner signer did not bind the requested action.');
+  const args = [rollout, action, '--approval', signedPath, '--credentials', join(privateDirectory, 'credentials.json')];
+  if (action === 'bootstrap') {
+    if (!extra?.activationDirectory) throw new Error('Bootstrap rehearsal activation directory is missing.');
+    environment.PLATFORM_OWNER_BOOTSTRAP_ENABLED = '1'; args.push('--activation-directory', extra.activationDirectory);
+  }
+  if (action === 'initialize') {
+    if (!extra?.artifactPath) throw new Error('Initialization rehearsal artifact is missing.');
+    args.push('--artifact', extra.artifactPath);
+  }
+  const output = await runPrivateCommand(action, process.execPath, args, base, environment, 120000);
+  if (Object.values(passwords).some(password => output.includes(password))) throw new Error('Disposable CLI exposed a password.');
+  return JSON.parse(output) as { userId?: string; activationFile?: string; ownerInitialized?: boolean; accountCount?: number;
+    accounts?: Array<{ email: string; httpSignIn: string }>; ownerAuthorizationKeyId?: string };
+}
+
+describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
+  it('bounds asynchronous private subprocesses and withholds captured output on failure', async () => {
+    const marker = 'private-output-must-not-escape';
+    let message = '';
+    try {
+      await runPrivateCommand('synthetic', process.execPath,
+        ['-e', `process.stderr.write(${JSON.stringify(marker)}); process.exit(23);`], process.cwd(), process.env, 5000);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('exited 23');
+    expect(message).not.toContain(marker);
+    let timeoutMessage = '';
+    try {
+      await runPrivateCommand('timeout', process.execPath, ['-e', 'setInterval(() => undefined, 1000);'], process.cwd(), process.env, 50);
+    } catch (error) {
+      timeoutMessage = (error as Error).message;
+    }
+    expect(timeoutMessage).toContain('timed out');
+  });
+
+  it('serves real health requests while a subprocess runs beside the API', async () => {
+    const script = `fetch(${JSON.stringify(`${origin}/health`)}).then(async response => { process.stdout.write(String(response.status)); if (!response.ok) process.exitCode = 1; }).catch(() => { process.exitCode = 1; });`;
+    const output = await runPrivateCommand('concurrent-health-probe', process.execPath, ['-e', script], process.cwd(),
+      { ...process.env, WEB_PUBLIC_URL: origin }, 10000);
+    expect(output).toBe('200');
+  });
+
+  it('bootstraps through immutable mechanism, initializes privately, provisions/retries, verifies eleven HTTP identities and disables', async () => {
+    if (privateDirectory) {
+      const activationDirectory = join(privateDirectory, 'activation');
+      mkdirSync(activationDirectory, { mode: 0o700 }); chmodSync(activationDirectory, 0o700);
+      const bootstrapped = await runSignedLinuxCli('bootstrap', { activationDirectory });
+      if (!bootstrapped.userId || !bootstrapped.activationFile) throw new Error('Private CLI bootstrap produced no reconciliation identifiers.');
+      ownerId = bootstrapped.userId;
+      artifact = JSON.parse(readFileSync(bootstrapped.activationFile, 'utf8')) as typeof artifact;
+      expect((await runSignedLinuxCli('initialize', { artifactPath: bootstrapped.activationFile })).ownerInitialized).toBe(true);
+    } else {
+      const target = new URL(databaseUrl);
+      const bootstrapApproval = { version: 1, environment: 'test', email: 'qa-platform-owner@truevoice.com', operationId: bootstrapOperationId,
+        approvalReference: 'APPROVAL-E2E', operatorReference: 'OPERATOR-E2E', expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        database: { hostname: target.hostname, port: target.port || '5432', name: createdName }, applicationOrigin: 'https://localhost' };
+      const result = await bootstrapPlatformOwner({ environment: 'test', email: bootstrapApproval.email, operationId: bootstrapOperationId,
+        approvalFile: 'memory-private-approval', activationDirectory: 'memory-private-artifact' }, {
+        environment: { NODE_ENV: 'test', PLATFORM_OWNER_BOOTSTRAP_ENABLED: '1', DATABASE_URL: databaseUrl, WEB_PUBLIC_URL: 'https://localhost' },
+        readApproval: () => bootstrapApproval,
+        prepareArtifact: (_directory, _operation, payload) => { artifact = payload; return { path: 'memory-only', discard: () => undefined }; },
+      });
+      ownerId = result.userId;
+      const initialization = inputs('initialize');
+      const initialized = await executePrivateHttp(initialization.approval, credentials, { artifact }, initialization.dependencies);
+      expect(initialized.ownerInitialized).toBe(true);
+      expect((await executePrivateHttp(initialization.approval, credentials, { artifact }, initialization.dependencies)).ownerInitialized).toBe(true);
+    }
     const provision = inputs('provision');
+    if (ownerKeyPair) Object.assign(provision.approval, signOwnerAuthorization(provision.approval, ownerKeyPair.privateKey, { allowTest: true }));
     const beforeAdmin = await database!.user.findUniqueOrThrow({ where: { id: adminUserId }, select: { passwordHash: true } });
     const failureClient = {
       $disconnect: async () => undefined,
@@ -134,17 +295,29 @@ describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
     await expect(executeRollout(provision.approval, credentials, {}, { ...provision.dependencies, createClient: () => failureClient })).rejects.toThrow();
     expect(await database!.user.count()).toBe(2);
     expect(await database!.organization.count()).toBe(1);
-    const initial = await Promise.allSettled([executeRollout(provision.approval, credentials, {}, provision.dependencies), executeRollout(provision.approval, credentials, {}, provision.dependencies)]);
-    const success = initial.find(attempt => attempt.status === 'fulfilled');
-    if (!success) throw new Error('No concurrent provisioning operation committed.');
-    const created = success.value;
-    expect(created.accountCount).toBe(11);
-    expect((await executeRollout(provision.approval, credentials, {}, provision.dependencies)).organizationId).toBe(created.organizationId);
-    const concurrent = await Promise.allSettled([executeRollout(provision.approval, credentials, {}, provision.dependencies), executeRollout(provision.approval, credentials, {}, provision.dependencies)]);
-    expect(concurrent.some(attempt => attempt.status === 'fulfilled')).toBe(true);
+    let created: { organizationId?: string; accountCount?: number };
+    if (privateDirectory) {
+      const provisioned = await runSignedLinuxCli('provision');
+      if (!provisioned.accountCount) throw new Error('Protected CLI provisioning did not report its committed batch.');
+      const state = await executeRollout(provision.approval, credentials, {}, provision.dependencies);
+      created = { organizationId: state.organizationId!, accountCount: state.accountCount };
+      expect(created.accountCount).toBe(11);
+      const concurrent = await Promise.allSettled([executeRollout(provision.approval, credentials, {}, provision.dependencies), executeRollout(provision.approval, credentials, {}, provision.dependencies)]);
+      expect(concurrent.some(attempt => attempt.status === 'fulfilled')).toBe(true);
+    } else {
+      const initial = await Promise.allSettled([executeRollout(provision.approval, credentials, {}, provision.dependencies), executeRollout(provision.approval, credentials, {}, provision.dependencies)]);
+      const success = initial.find(attempt => attempt.status === 'fulfilled');
+      if (!success) throw new Error('No concurrent provisioning operation committed.');
+      created = success.value;
+      expect(created.accountCount).toBe(11);
+      expect((await executeRollout(provision.approval, credentials, {}, provision.dependencies)).organizationId).toBe(created.organizationId);
+      const concurrent = await Promise.allSettled([executeRollout(provision.approval, credentials, {}, provision.dependencies), executeRollout(provision.approval, credentials, {}, provision.dependencies)]);
+      expect(concurrent.some(attempt => attempt.status === 'fulfilled')).toBe(true);
+    }
     expect(await database!.user.count()).toBe(12);
     const conflict = { ...credentials, passwords: { ...passwords, 'qa-viewer@truevoice.com': randomBytes(24).toString('base64url') } };
     await expect(executeRollout(provision.approval, conflict, {}, provision.dependencies)).rejects.toThrow();
+    if (privateDirectory) expect((await runSignedLinuxCli('verify')).accountCount).toBe(11);
     // Synthetic custodians accept real terms through HTTP; no direct insertion
     // or automatic terms acceptance is included in the production verifier.
     for (const account of ROLLOUT_ACCOUNTS) {
@@ -155,7 +328,9 @@ describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
       await client.call('POST', '/api/auth/sign-out');
     }
     const http = inputs('http');
-    const verified = await executePrivateHttp(http.approval, credentials, {}, http.dependencies);
+    const verified = privateDirectory
+      ? await runSignedLinuxCli('http')
+      : await executePrivateHttp(http.approval, credentials, {}, http.dependencies);
     expect(verified.accounts).toHaveLength(11);
     const disable = inputs('disable');
     const stale = privateHttpClient(origin);

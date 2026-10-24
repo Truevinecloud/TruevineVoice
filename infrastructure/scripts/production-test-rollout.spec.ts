@@ -1,9 +1,10 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { hashToken } from '@truevine/auth';
 import { hashPassword, verifyPassword } from '@truevine/auth/passwords';
 const path = './production-test-rollout.mjs';
 const { executeRollout, validateRollout, INVENTORY_DIGEST, ROLLOUT_ACCOUNTS } = await import(path);
+const { signOwnerAuthorization, ownerAuthorizationKeyId } = await import('./production-test-rollout-owner-auth.mjs');
 
 async function rolloutFixture() {
   const credentials = { version: 1, reference: 'CREDENTIALS-TEST', passwords: Object.fromEntries(ROLLOUT_ACCOUNTS.map(account => [account.email, randomBytes(24).toString('base64url')])) };
@@ -70,14 +71,43 @@ describe('production test rollout executor', () => {
     await expect(executeRollout(f.approval, f.credentials, {}, { environment: f.environment, createClient })).rejects.toThrow();
     expect(createClient).not.toHaveBeenCalled();
   });
-  it('requires independent explicit production authorization and confirmation', async () => {
+  it('requires a valid action-bound Ed25519 owner signature and production confirmation', async () => {
     const { approval, credentials, environment } = await rolloutFixture();
     approval.environment = 'production'; environment.NODE_ENV = 'production';
     approval.applicationOrigin = environment.WEB_PUBLIC_URL = 'https://voice.truevinecloud.online';
-    expect(() => validateRollout(approval, credentials, environment, true)).toThrow();
-    Object.assign(approval, { productionAuthorized: true });
-    expect(() => validateRollout(approval, credentials, environment, false)).toThrow();
-    expect(validateRollout(approval, credentials, environment, true).origin).toBe('https://voice.truevinecloud.online');
+    approval.productionAuthorized = true;
+    const pair = generateKeyPairSync('ed25519');
+    const publicKeyDer = pair.publicKey.export({ format: 'der', type: 'spki' });
+    environment.TEST_ACCOUNT_ROLLOUT_OWNER_PUBLIC_KEY_DER = publicKeyDer.toString('base64url');
+    const signed = signOwnerAuthorization(approval, pair.privateKey);
+    expect(() => validateRollout(signed, credentials, environment, false)).toThrow();
+    expect(() => validateRollout(signed, credentials, environment, true)).toThrow();
+    const checked = validateRollout(signed, credentials, environment, true, Date.now(), publicKeyDer);
+    expect(checked.origin).toBe('https://voice.truevinecloud.online');
+    expect(checked.ownerAuthorization?.keyId).toBe(signed.ownerAuthorization.keyId);
+    for (const field of ['action', 'releaseSha', 'inventoryDigest', 'operationId', 'credentialReference', 'expiresAt']) {
+      const altered = structuredClone(signed);
+      altered[field] = field === 'action' ? 'http' : field === 'expiresAt' ? new Date(Date.now() + 1800000).toISOString() : `${altered[field]}x`;
+      expect(() => validateRollout(altered, credentials, environment, true, Date.now(), publicKeyDer)).toThrow();
+    }
+    const wrongKey = generateKeyPairSync('ed25519');
+    const mismatched = { ...signed, ownerAuthorization: { ...signed.ownerAuthorization, keyId: ownerAuthorizationKeyId(wrongKey.publicKey) } };
+    expect(() => validateRollout(mismatched, credentials, environment, true, Date.now(), publicKeyDer)).toThrow();
+  });
+  it('records a signed authorization for read-only verification once and refuses replay', async () => {
+    const f = await rolloutFixture();
+    const pair = generateKeyPairSync('ed25519');
+    f.environment.TEST_ACCOUNT_ROLLOUT_OWNER_PUBLIC_KEY_DER = pair.publicKey.export({ format: 'der', type: 'spki' }).toString('base64url');
+    Object.assign(f.approval, signOwnerAuthorization(f.approval, pair.privateKey, { allowTest: true }));
+    await executeRollout(f.approval, f.credentials, {}, f.dependencies);
+    f.approval.action = 'verify'; f.approval.operationId = randomUUID(); delete f.approval.ownerAuthorization;
+    Object.assign(f.approval, signOwnerAuthorization(f.approval, pair.privateKey, { allowTest: true }));
+    const result = await executeRollout(f.approval, f.credentials, {}, f.dependencies);
+    const event = f.events.get(f.approval.operationId);
+    expect(event.action).toBe('test_rollout.owner_authorization_used');
+    expect(event.metadata.ownerAuthorizationKeyId).toBe(result.ownerAuthorizationKeyId);
+    expect(event.metadata.ownerAuthorizationDigest).toBe(result.ownerAuthorizationDigest);
+    await expect(executeRollout(f.approval, f.credentials, {}, f.dependencies)).rejects.toThrow();
   });
   it('creates ten exact identities with durable operation provenance and never replaces credentials on rerun', async () => {
     const f = await rolloutFixture();
@@ -141,7 +171,7 @@ describe('production test rollout executor', () => {
   });
   it('binds owner initialization to the approved claim, token hash and matching initialized password', async () => {
     const f = await rolloutFixture();
-    f.approval.action = 'initialize';
+    f.approval.action = 'initialize'; f.approval.operationId = randomUUID();
     const raw = randomBytes(32).toString('base64url');
     const artifact = { operationId: f.approval.bootstrapOperationId, email: f.approval.email, activationUrl: `${f.approval.applicationOrigin}/set-password?token=${raw}` };
     f.tx.passwordResetToken.findUnique.mockImplementation(async ({ where }) => {
