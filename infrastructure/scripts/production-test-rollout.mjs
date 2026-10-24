@@ -236,6 +236,7 @@ function recordOwnerAuthorization(tx, approval, options, audit, authorization) {
 }
 
 export async function rolloutMain(argv = process.argv.slice(2)) {
+  trace(process.env, 'cli-entered');
   try {
     if (argv.length === 1 && argv[0] === 'inventory') {
       process.stdout.write(`${JSON.stringify({ inventoryDigest: INVENTORY_DIGEST, accounts: ROLLOUT_ACCOUNTS })}\n`); return;
@@ -262,9 +263,11 @@ export async function rolloutMain(argv = process.argv.slice(2)) {
       else fail();
     }
     const approval = readBootstrapApproval(options['--approval']);
+    trace(process.env, `${action}:approval-read`);
     const credentials = readBootstrapApproval(options['--credentials']);
     if (approval.action !== action) fail();
     const validation = validateRollout(approval, credentials, process.env, options['--confirm-production']);
+    trace(process.env, `${action}:approval-validated`);
     assertRelease(approval);
     let result;
     if (action === 'bootstrap') {
@@ -272,7 +275,9 @@ export async function rolloutMain(argv = process.argv.slice(2)) {
         approvalFile: options['--approval'], activationDirectory: options['--activation-directory'], confirmProduction: options['--confirm-production'],
         ownerAuthorization: validation.ownerAuthorization });
     } else if (['initialize', 'http'].includes(action)) {
+      trace(process.env, `${action}:http-module-import`);
       const { executePrivateHttp } = await import('./production-test-http.mjs');
+      trace(process.env, `${action}:http-module-ready`);
       result = await executePrivateHttp(approval, credentials, { confirmProduction: options['--confirm-production'],
         artifact: action === 'initialize' ? readBootstrapApproval(options['--artifact']) : undefined });
     } else result = await executeRollout(approval, credentials, { confirmProduction: options['--confirm-production'] });
