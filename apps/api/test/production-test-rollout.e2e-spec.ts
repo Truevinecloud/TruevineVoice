@@ -160,9 +160,9 @@ function inputs(action: string) {
 function runPrivateCommand(name: string, executable: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, timeout: number) {
   const result = spawnSync(executable, args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout, maxBuffer: 1024 * 1024 });
   if (result.error || result.status !== 0) {
-    const diagnostic = result.stderr?.trim();
-    const safeDiagnostic = diagnostic && /^(?:Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.|Disposable rollout transaction failed during [a-z-]+\.)$/.test(diagnostic)
-      ? ` Safe diagnostic: ${diagnostic}` : '';
+    const diagnostic = result.stderr?.split(/\r?\n/).find(line =>
+      /^(?:Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.|Disposable rollout transaction failed during [a-z-]+\.)$/.test(line));
+    const safeDiagnostic = diagnostic ? ` Safe diagnostic: ${diagnostic}` : '';
     const spawnError = result.error as NodeJS.ErrnoException | undefined;
     const outcome = spawnError?.code === 'ETIMEDOUT' ? 'timed out'
       : Number.isInteger(result.status) ? `exited ${result.status}`
@@ -219,11 +219,12 @@ describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
     let safeMessage = '';
     try {
       runPrivateCommand('safe-diagnostic', process.execPath,
-        ['-e', `process.stderr.write('Private HTTP verification failed (role:denial); no secrets reported.\\n'); process.exit(24);`], process.cwd(), process.env, 5000);
+        ['-e', `process.stderr.write('unrelated private marker\nPrivate HTTP verification failed (role:denial); no secrets reported.\n'); process.exit(24);`], process.cwd(), process.env, 5000);
     } catch (error) {
       safeMessage = (error as Error).message;
     }
     expect(safeMessage).toContain('Safe diagnostic: Private HTTP verification failed (role:denial); no secrets reported.');
+    expect(safeMessage).not.toContain('unrelated private marker');
   });
 
   it('bootstraps through immutable mechanism, initializes privately, provisions/retries, verifies eleven HTTP identities and disables', async () => {
