@@ -109,6 +109,7 @@ export async function executeRollout(approval, credentials, options = {}, depend
     return tx.identityAuditEvent.create({ data: { id, actorUserId: approval.actorUserId, action, outcome: 'SUCCESS', metadata: safe } });
   };
   try {
+    let phase = 'database-fingerprint';
     return await database.$transaction(async tx => {
       const identity = await tx.$queryRaw`SELECT current_database() AS name`;
       const cluster = await tx.$queryRaw`SELECT system_identifier::text AS name FROM pg_catalog.pg_control_system()`;
@@ -118,17 +119,21 @@ export async function executeRollout(approval, credentials, options = {}, depend
       await tx.$queryRaw`SELECT id FROM users WHERE id=${approval.actorUserId}::uuid FOR SHARE`;
       await tx.$queryRaw`SELECT user_id FROM platform_role_assignments WHERE user_id=${approval.actorUserId}::uuid FOR SHARE`;
       const admin = await tx.user.findUnique({ where: { email: 'admin@truevoice.com' }, select: { id: true, status: true, memberships: true, platformRole: true } });
+      phase = 'administrator-preservation';
       if (admin?.id !== approval.preservedAdmin.userId || admin.status !== 'ACTIVE' || admin.platformRole ||
           admin.memberships.length !== 1 || admin.memberships[0].organizationId !== approval.preservedAdmin.organizationId || admin.memberships[0].role !== 'OWNER') fail();
       const claim = await tx.platformOwnerBootstrap.findUnique({ where: { slot: 'first_platform_owner' } });
       const owner = await tx.user.findUnique({ where: { email: OWNER }, include });
+      phase = 'bootstrap-state';
       if (!owner || claim?.userId !== owner.id || claim.operationId !== approval.bootstrapOperationId || owner.id !== approval.actorUserId ||
           owner.status !== 'ACTIVE' || !checkAssignment(owner, { scope: 'platform', role: 'PLATFORM_OWNER' })) fail();
       const bootstrapAudit = await tx.identityAuditEvent.findUnique({ where: { id: claim.auditEventId } });
+      phase = 'bootstrap-audit';
       if (bootstrapAudit?.action !== 'platform.owner.bootstrapped' || bootstrapAudit.actorUserId !== owner.id || bootstrapAudit.outcome !== 'SUCCESS' ||
           bootstrapAudit.metadata.environment !== approval.environment || bootstrapAudit.metadata.subjectUserId !== owner.id || bootstrapAudit.metadata.operationId !== claim.operationId) fail();
       const passwordReady = await verifyPassword(owner.passwordHash, credentials.passwords[OWNER]);
       if (approval.action === 'initialize') {
+        phase = 'initialization-state';
         const artifact = options.artifact;
         const link = new URL(artifact?.activationUrl);
         if (artifact.operationId !== claim.operationId || artifact.email !== OWNER ||
@@ -204,7 +209,11 @@ export async function executeRollout(approval, credentials, options = {}, depend
         ...(validation.ownerAuthorization ? { ownerAuthorizationKeyId: validation.ownerAuthorization.keyId,
           ownerAuthorizationDigest: validation.ownerAuthorization.digest } : {}) };
     }, { isolationLevel: 'Serializable', timeout: 120000 });
-  } catch { fail(); }
+  } catch (error) {
+    if (process.env.NODE_ENV === 'test' && process.env.ROLLOUT_E2E_DISPOSABLE === '1')
+      throw new Error(`Disposable rollout transaction failed during ${phase}.`);
+    fail();
+  }
   finally { try { await database.$disconnect(); } catch { fail(); } }
 }
 
@@ -267,8 +276,9 @@ export async function rolloutMain(argv = process.argv.slice(2)) {
   } catch (error) {
     // Disposable E2E diagnostics may expose only a fixed-format HTTP assertion
     // label. Never forward arbitrary exception text, child output, or paths.
-    if (process.env.NODE_ENV === 'test' && process.env.ROLLOUT_E2E_DISPOSABLE === '1' &&
-        error instanceof Error && /^Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.$/.test(error.message)) {
+    if (process.env.NODE_ENV === 'test' && process.env.ROLLOUT_E2E_DISPOSABLE === '1' && error instanceof Error &&
+        (/^Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.$/.test(error.message) ||
+         /^Disposable rollout transaction failed during [a-z-]+\.$/.test(error.message))) {
       process.stderr.write(`${error.message}\n`);
       process.exitCode = 1;
       return;
