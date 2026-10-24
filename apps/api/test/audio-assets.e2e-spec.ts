@@ -15,12 +15,6 @@ const run = randomUUID().replace(/-/g, '').slice(0, 10);
 beforeAll(async () => {
   loadEnvFiles();
   database = createDatabaseClient(requireEnv('DATABASE_URL'));
-  await database.organization.createMany({
-    data: [
-      { id: organizationA, slug: `audio-a-${run}`, name: 'Audio E2E A' },
-      { id: organizationB, slug: `audio-b-${run}`, name: 'Audio E2E B' },
-    ],
-  });
   await database.user.create({
     data: {
       id: userId,
@@ -28,11 +22,20 @@ beforeAll(async () => {
       passwordHash: 'e2e-only-not-a-credential',
     },
   });
-  await database.membership.create({
-    data: { organizationId: organizationA, userId, role: 'OWNER' },
-  });
-  await database.membership.create({
-    data: { organizationId: organizationB, userId, role: 'ADMIN' },
+  await database.$transaction(async (tx) => {
+    await tx.organization.createMany({
+      data: [
+        { id: organizationA, slug: `audio-a-${run}`, name: 'Audio E2E A' },
+        { id: organizationB, slug: `audio-b-${run}`, name: 'Audio E2E B' },
+      ],
+    });
+    await tx.membership.createMany({
+      data: [organizationA, organizationB].map((organizationId) => ({
+        organizationId,
+        userId,
+        role: 'OWNER' as const,
+      })),
+    });
   });
   await database.audioAsset.create({
     data: {
