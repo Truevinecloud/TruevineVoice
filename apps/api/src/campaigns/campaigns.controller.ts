@@ -90,9 +90,14 @@ export class CampaignsController {
   async create(
     @CurrentOrganization() context: { organizationId: string },
     @CurrentPrincipal() principal: { userId: string },
-    @Body() body: { readonly name?: unknown },
+    @Body() body: { readonly name?: unknown; readonly audioAssetId?: unknown },
   ): Promise<CampaignView> {
-    return this.campaigns.create(context.organizationId, principal.userId, body.name);
+    return this.campaigns.create(
+      context.organizationId,
+      principal.userId,
+      body.name,
+      body.audioAssetId,
+    );
   }
 
   /** `GET /organizations/:organizationId/campaigns/:campaignId` */
@@ -116,11 +121,13 @@ export class CampaignsController {
     @CurrentOrganization() context: { organizationId: string },
     @CurrentPrincipal() principal: { userId: string },
     @Param('campaignId') campaignId: string,
-    @Body() body: { readonly name?: unknown; readonly status?: unknown },
+    @Body()
+    body: { readonly name?: unknown; readonly status?: unknown; readonly audioAssetId?: unknown },
   ): Promise<CampaignView> {
     return this.campaigns.update(context.organizationId, principal.userId, campaignId, {
       name: body.name,
       status: body.status,
+      audioAssetId: body.audioAssetId,
     });
   }
 

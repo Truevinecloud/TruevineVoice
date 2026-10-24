@@ -24,6 +24,37 @@ describe('loadApiConfig', () => {
     expect(config.port).toBe(3001);
     expect(config.environment).toBe('development');
     expect(config.healthTimeoutMs).toBe(2_000);
+    expect(config.audioStorage).toBeNull();
+    expect(config.audioTtsRegion).toBeNull();
+  });
+
+  it('enables only the audio capabilities with complete provider configuration', () => {
+    const config = loadApiConfig({
+      DATABASE_URL: 'postgresql://localhost/db',
+      REDIS_URL: 'redis://localhost:6379',
+      AUDIO_STORAGE_BUCKET: 'private-audio',
+      AUDIO_STORAGE_REGION: 'af-south-1',
+      AUDIO_STORAGE_ENDPOINT: 'https://objects.example.invalid',
+      AUDIO_STORAGE_FORCE_PATH_STYLE: 'true',
+      AUDIO_TTS_REGION: 'af-south-1',
+    });
+    expect(config.audioStorage).toEqual({
+      bucket: 'private-audio',
+      region: 'af-south-1',
+      endpoint: 'https://objects.example.invalid',
+      forcePathStyle: true,
+    });
+    expect(config.audioTtsRegion).toBe('af-south-1');
+  });
+
+  it('requires a storage region when a bucket is configured', () => {
+    expect(() =>
+      loadApiConfig({
+        DATABASE_URL: 'postgresql://localhost/db',
+        REDIS_URL: 'redis://localhost:6379',
+        AUDIO_STORAGE_BUCKET: 'private-audio',
+      }),
+    ).toThrow(/AUDIO_STORAGE_REGION/);
   });
 
   it('lets explicit environment variables win', () => {

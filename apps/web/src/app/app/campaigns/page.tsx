@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 
 import { fetchCampaigns } from '../../../lib/org-api';
+import { CampaignAudio } from './campaign-audio';
 import { currentSession, hasPermission } from '../../../lib/session';
 
 /** Read-only campaign inventory for organization members with campaign:read. */
@@ -25,13 +26,14 @@ export default async function CampaignsPage({
   if (!membership || !hasPermission(membership, 'campaign:read')) {
     return <p role="alert">You do not have campaign access in this organization.</p>;
   }
+  const canUpdate = hasPermission(membership, 'campaign:update');
 
   const campaigns = await fetchCampaigns(membership.organizationId);
 
   return (
     <>
       <h1 className="page-title">Campaigns — {membership.organizationName}</h1>
-      <p>Read-only campaign status and dates for this organization.</p>
+      <p>Campaign status and dates for this organization.</p>
       {campaigns === null ? (
         <p role="alert">Campaigns could not be loaded.</p>
       ) : campaigns.length === 0 ? (
@@ -44,6 +46,7 @@ export default async function CampaignsPage({
               <th scope="col">Status</th>
               <th scope="col">Created</th>
               <th scope="col">Updated</th>
+              <th scope="col">Audio</th>
             </tr>
           </thead>
           <tbody>
@@ -53,6 +56,13 @@ export default async function CampaignsPage({
                 <td>{campaign.status}</td>
                 <td>{new Date(campaign.createdAt).toISOString().slice(0, 10)}</td>
                 <td>{new Date(campaign.updatedAt).toISOString().slice(0, 10)}</td>
+                <td>
+                  <CampaignAudio
+                    organizationId={membership.organizationId}
+                    campaign={campaign}
+                    canUpdate={canUpdate}
+                  />
+                </td>
               </tr>
             ))}
           </tbody>

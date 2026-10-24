@@ -35,6 +35,7 @@ export interface CampaignView {
   readonly emergencyStoppedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly audioAssetId: string | null;
 }
 
 /** Aggregated read-only report over campaign records for one organization. */
@@ -78,13 +79,21 @@ export class CampaignsService {
   }
 
   /** Creates a campaign in `DRAFT`. Starting it is a separate, deliberate act. */
-  async create(organizationId: string, actorUserId: string, name: unknown): Promise<CampaignView> {
+  async create(
+    organizationId: string,
+    actorUserId: string,
+    name: unknown,
+    audioAssetId?: unknown,
+  ): Promise<CampaignView> {
     const created = await this.campaigns.createCampaign({
       organizationId,
       id: randomUUID(),
       name: this.validateName(name),
       status: 'DRAFT',
       createdById: actorUserId,
+      ...(audioAssetId === undefined
+        ? {}
+        : { audioAssetId: this.validateAudioAssetId(audioAssetId) }),
     });
 
     return this.toView(created);
@@ -95,21 +104,29 @@ export class CampaignsService {
     organizationId: string,
     actorUserId: string,
     campaignId: string,
-    changes: { readonly name?: unknown; readonly status?: unknown },
+    changes: {
+      readonly name?: unknown;
+      readonly status?: unknown;
+      readonly audioAssetId?: unknown;
+    },
   ): Promise<CampaignView> {
     const hasName = changes.name !== undefined;
     const hasStatus = changes.status !== undefined;
 
     // An empty patch is a client bug, not a no-op worth a 200: accepting it
     // would make a broken form look like it worked.
-    if (!hasName && !hasStatus) {
+    const hasAudio = changes.audioAssetId !== undefined;
+    if (!hasName && !hasStatus && !hasAudio) {
       throw invalidCampaign('Provide a name or a status to update.');
     }
 
-    const data: { name?: string; status?: CampaignStatus } = {};
+    const data: { name?: string; status?: CampaignStatus; audioAssetId?: string | null } = {};
 
     if (hasName) data.name = this.validateName(changes.name);
     if (hasStatus) data.status = this.validateStatus(changes.status);
+    if (hasAudio)
+      data.audioAssetId =
+        changes.audioAssetId === null ? null : this.validateAudioAssetId(changes.audioAssetId);
 
     const updated = await this.campaigns.updateCampaign(
       organizationId,
@@ -160,6 +177,17 @@ export class CampaignsService {
       emergencyStoppedAt: campaign.emergencyStoppedAt?.toISOString() ?? null,
       createdAt: campaign.createdAt.toISOString(),
       updatedAt: campaign.updatedAt.toISOString(),
+      audioAssetId: campaign.audioAssetId ?? null,
     };
+  }
+
+  private validateAudioAssetId(value: unknown): string {
+    if (
+      typeof value !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ) {
+      throw invalidCampaign('Choose a valid audio asset.');
+    }
+    return value;
   }
 }

@@ -7,9 +7,10 @@
  * forwarded or something that must be refused, and the refusals matter more.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
 
-import { allowedRoutes, buildUpstreamResponse, isAllowed } from '../app/api/[...path]/route';
+import { allowedRoutes, buildUpstreamResponse, isAllowed, POST } from '../app/api/[...path]/route';
 
 describe('proxy allowlist', () => {
   describe('forwards the operations the application actually calls', () => {
@@ -31,6 +32,14 @@ describe('proxy allowlist', () => {
       'DELETE /organizations/abc/invitations/ghi',
       'POST /organizations/abc/ownership/transfer',
       'GET /organizations/abc/contacts',
+      'GET /organizations/abc/audio-assets',
+      'GET /organizations/abc/audio-assets/voices',
+      'POST /organizations/abc/audio-assets/recordings',
+      'POST /organizations/abc/audio-assets/tts',
+      'POST /organizations/abc/audio-assets/asset-id/playback-link',
+      'GET /organizations/abc/campaigns',
+      'POST /organizations/abc/campaigns',
+      'PATCH /organizations/abc/campaigns/campaign-id',
       'POST /organizations/abc/contacts',
       'PATCH /organizations/abc/contacts/def',
       'DELETE /organizations/abc/contacts/def',
@@ -70,6 +79,10 @@ describe('proxy allowlist', () => {
       'GET /health',
       // A path that merely looks similar to an allowed one.
       'GET /organizations/abc/settings/secret',
+      'POST /organizations/abc/audio-assets',
+      'DELETE /organizations/abc/audio-assets/asset-id',
+      'PUT /organizations/abc/audio-assets/asset-id/playback-link',
+      'POST /organizations/abc/audio-assets/asset-id/extra',
       'GET /organizations/abc/members/def/permissions',
       // Contact routing stays exact and method-qualified.
       'DELETE /organizations/abc/contacts/def/voice-consent',
@@ -133,6 +146,47 @@ describe('proxy allowlist', () => {
     it('refuses an empty organization segment', () => {
       expect(isAllowed('GET', '/organizations/')).toBe(false);
     });
+  });
+
+  it('preserves multipart bytes, boundary and idempotency header for recordings', async () => {
+    const priorApiUrl = process.env['TRUEVINE_API_URL'];
+    process.env['TRUEVINE_API_URL'] = 'http://api.test';
+    const bytes = Uint8Array.from([0x00, 0xff, 0x61, 0x1a, 0x45, 0xdf, 0xa3]);
+    const boundary = 'audio-upload-boundary';
+    const contentType = `multipart/form-data; boundary=${boundary}`;
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response('{"id":"asset"}', {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    try {
+      const request = new NextRequest(
+        'http://web.test/api/organizations/tenant-a/audio-assets/recordings',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': contentType,
+            'x-truevine-csrf': 'csrf',
+            'idempotency-key': 'recording-key-001',
+            cookie: 'tv_session=session',
+          },
+          body: bytes,
+        },
+      );
+      await POST(request);
+      const [, init] = fetchSpy.mock.calls[0]!;
+      expect(new Uint8Array(init!.body as ArrayBuffer)).toEqual(bytes);
+      expect(new Headers(init!.headers).get('content-type')).toBe(contentType);
+      expect(new Headers(init!.headers).get('idempotency-key')).toBe('recording-key-001');
+      expect(new Headers(init!.headers).get('cookie')).toBe('tv_session=session');
+    } finally {
+      fetchSpy.mockRestore();
+      if (priorApiUrl === undefined) delete process.env['TRUEVINE_API_URL'];
+      else process.env['TRUEVINE_API_URL'] = priorApiUrl;
+    }
   });
 
   describe('building the response the browser receives', () => {

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { PrismaClient } from '@truevine/database';
 import { authorizeTenantWrite, type TenantWriteSql } from '../auth/tenant-write.js';
+import { invalidCampaign } from '@truevine/auth';
 import {
   campaignAuditState,
   writeMutationAudit,
@@ -14,7 +15,11 @@ import type {
   NewCampaign,
 } from './campaign.store.js';
 
-type CampaignClient = Pick<PrismaClient, 'campaign' | 'securityAuditEvent'> & TenantWriteSql;
+type CampaignClient = Pick<
+  PrismaClient,
+  'campaign' | 'audioAssetUsage' | 'audioAsset' | 'securityAuditEvent'
+> &
+  TenantWriteSql;
 type CampaignDatabase = CampaignClient & {
   $transaction<T>(work: (tx: CampaignClient) => Promise<T>): Promise<T>;
 };
@@ -31,7 +36,47 @@ export class PrismaCampaignStore implements CampaignStore {
           campaign.createdById,
           'campaign:create',
         );
-        const created = await tx.campaign.create({ data: campaign });
+        const created = await tx.campaign.create({
+          data: {
+            ...campaign,
+            audioOrganizationId: campaign.audioAssetId ? campaign.organizationId : null,
+          },
+        });
+        if (campaign.audioAssetId) {
+          const asset = await tx.audioAsset.findUnique({
+            where: {
+              organizationId_id: {
+                organizationId: campaign.organizationId,
+                id: campaign.audioAssetId,
+              },
+            },
+          });
+          if (!asset)
+            throw invalidCampaign('Selected audio asset was not found in this organization.');
+          await tx.audioAssetUsage.create({
+            data: {
+              organizationId: campaign.organizationId,
+              assetId: asset.id,
+              actorUserId: campaign.createdById,
+              action: 'CAMPAIGN_SELECTED',
+              campaignId: created.id,
+              byteSize: asset.byteSize,
+              durationMs: asset.durationMs,
+              ttsCharacterCount: asset.ttsCharacterCount,
+            },
+          });
+          await writeMutationAudit(tx, {
+            organizationId: campaign.organizationId,
+            actorUserId: campaign.createdById,
+            action: 'campaign.audio_selected',
+            targetType: 'campaign',
+            targetId: created.id,
+            before: null,
+            change: { audioSelected: true },
+            after: { audioSelected: true },
+            reasonCode: 'campaign_audio_selected',
+          });
+        }
         await writeMutationAudit(tx, {
           organizationId: campaign.organizationId,
           actorUserId: campaign.createdById,
@@ -94,6 +139,9 @@ export class PrismaCampaignStore implements CampaignStore {
         const data = {
           ...(changes.name === undefined ? {} : { name: changes.name }),
           ...(changes.status === undefined ? {} : { status: changes.status }),
+          ...(Object.hasOwn(changes, 'audioAssetId')
+            ? { audioOrganizationId: changes.audioAssetId ? organizationId : null }
+            : {}),
         };
         const result = await tx.campaign.updateMany({
           where: {
@@ -104,6 +152,38 @@ export class PrismaCampaignStore implements CampaignStore {
           data,
         });
         if (result.count !== 1) return undefined;
+        if (Object.hasOwn(changes, 'audioAssetId')) {
+          if (changes.audioAssetId) {
+            const asset = await tx.audioAsset.findUnique({
+              where: { organizationId_id: { organizationId, id: changes.audioAssetId } },
+            });
+            if (!asset)
+              throw invalidCampaign('Selected audio asset was not found in this organization.');
+            await tx.audioAssetUsage.create({
+              data: {
+                organizationId,
+                assetId: asset.id,
+                actorUserId,
+                action: 'CAMPAIGN_SELECTED',
+                campaignId,
+                byteSize: asset.byteSize,
+                durationMs: asset.durationMs,
+                ttsCharacterCount: asset.ttsCharacterCount,
+              },
+            });
+          }
+          await writeMutationAudit(tx, {
+            organizationId,
+            actorUserId,
+            action: 'campaign.audio_selected',
+            targetType: 'campaign',
+            targetId: campaignId,
+            before: { audioSelected: before.audioAssetId !== null },
+            change: { audioSelected: changes.audioAssetId !== null },
+            after: { audioSelected: changes.audioAssetId !== null },
+            reasonCode: 'campaign_audio_selected',
+          });
+        }
         const after = await tx.campaign.findUniqueOrThrow({
           where: { organizationId_id: { organizationId, id: campaignId } },
         });

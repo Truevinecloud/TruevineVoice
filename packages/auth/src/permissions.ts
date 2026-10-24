@@ -42,6 +42,8 @@ export const ORGANIZATION_PERMISSIONS = [
   'campaign:create',
   'campaign:update',
   'campaign:delete',
+  'audio:read',
+  'audio:create',
   'contact:read',
   'contact:create',
   'contact:update',
@@ -124,6 +126,8 @@ export const ORGANIZATION_ROLE_PERMISSIONS: Readonly<
     'campaign:create',
     'campaign:update',
     'campaign:delete',
+    'audio:read',
+    'audio:create',
     'contact:read',
     'contact:create',
     'contact:update',
@@ -140,6 +144,8 @@ export const ORGANIZATION_ROLE_PERMISSIONS: Readonly<
     'campaign:create',
     'campaign:update',
     'campaign:delete',
+    'audio:read',
+    'audio:create',
     'contact:read',
     'contact:create',
     'contact:update',
@@ -154,7 +160,7 @@ export const ORGANIZATION_ROLE_PERMISSIONS: Readonly<
   // Read-only. See `MUTATING_ORGANIZATION_PERMISSIONS` for the invariant that
   // makes "viewer cannot mutate data" a structural fact rather than a review
   // convention.
-  VIEWER: ['organization:read', 'member:read', 'campaign:read', 'reporting:read'],
+  VIEWER: ['organization:read', 'member:read', 'campaign:read', 'audio:read', 'reporting:read'],
 });
 
 /** Explicit platform role -> permission mapping. Independent of every tenant role. */

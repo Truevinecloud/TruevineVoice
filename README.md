@@ -388,6 +388,7 @@ new database on its disposable Linux Compose stack; this command refuses other e
 | `npm run typecheck` | Builds packages, then `tsc --noEmit` everywhere     |
 | `npm run test`      | Unit tests. **No infrastructure required**          |
 | `npm run test:e2e`  | End-to-end tests. **Requires PostgreSQL and Redis** |
+| `npm run test:audio:e2e` | Audio tenant-key, foreign-tenant and append-only PostgreSQL checks |
 | `npm run build`     | Builds packages, then all apps                      |
 
 ### RBAC-001 security remediation
@@ -518,10 +519,11 @@ model Membership   { ... }   // principal <-> organization, coarse role
 enum MembershipRole { OWNER, ADMIN, OPERATOR, VIEWER }
 ```
 
-`Contact`, `Campaign`, `Call`, `Audio`, `Wallet`, `LedgerEntry` and `Billing` do
-**not** exist yet. Money handling (AGENTS.md 6-7) and idempotency (AGENTS.md 9)
-are not expressed anywhere in the schema, so no financial table is introduced
-before those rules are agreed.
+`Contact`, `Campaign`, `Audio`, and billing data models exist in this checkout.
+Audio metadata and append-only usage records are tenant-scoped; binary objects
+stay in private object storage. Campaign records can select same-organization
+audio, but campaign call execution remains disconnected. Money handling
+(AGENTS.md 6-7) remains governed by the immutable wallet ledger.
 
 ### Tenant isolation lives in the schema
 
@@ -595,6 +597,11 @@ safe placeholders only.
 | `API_HOST`                | no       | `0.0.0.0`     | API bind address                            |
 | `API_PORT`                | no       | `3001`        | API port                                    |
 | `HEALTH_CHECK_TIMEOUT_MS` | no       | `2000`        | Per-dependency health timeout               |
+| `AUDIO_STORAGE_BUCKET` | no | unset | Private S3-compatible bucket; enables recording uploads and playback |
+| `AUDIO_STORAGE_REGION` | when bucket is set | — | S3-compatible region |
+| `AUDIO_STORAGE_ENDPOINT` | no | AWS default | Optional S3-compatible endpoint |
+| `AUDIO_STORAGE_FORCE_PATH_STYLE` | no | `false` | Path-style addressing for compatible S3 services |
+| `AUDIO_TTS_REGION` | no | unset | AWS Polly region; enables speech synthesis |
 | `POSTGRES_PORT`           | no       | `5432`        | Host port Compose publishes PostgreSQL on   |
 | `REDIS_PORT`              | no       | `6379`        | Host port Compose publishes Redis on        |
 | `LOG_LEVEL`               | no       | —             | `debug` enables extra Prisma client logging |
@@ -605,9 +612,11 @@ degrading silently at runtime. `.env` lives at the repository root and is
 gitignored; `packages/*` and `apps/*` find it by walking up from the current
 working directory.
 
-Authentication secrets, Africa's Talking credentials, payment credentials and
-object storage credentials are **not** defined yet. They are added when the
-corresponding behaviour is implemented.
+Authentication secrets, Africa's Talking credentials and payment credentials
+are not configured by these audio settings. S3 and Polly credentials must be
+provided through the runtime AWS credential chain; they never belong in source.
+Without storage configuration, audio mutations are unavailable. Without the
+Polly region, the UI offers recording and upload but disables synthesis.
 
 ---
 
@@ -637,7 +646,7 @@ hard-pins the vulnerable `1.9.0`.
 
 Not implemented in this step, by design:
 
-- **Product functionality:** Contacts, Campaigns, Audio, Wallet, Billing, Voice,
+- **Product functionality:** Contacts, Campaigns, Wallet, Billing, Voice,
   SMS, WhatsApp, RBAC, authentication, admin functionality.
 - **Africa's Talking adapter:** will be the first Voice provider, behind the
   `@truevine/telephony` interface. Not started. The `VoicePort` interface and a
@@ -648,8 +657,7 @@ Not implemented in this step, by design:
   state machine exist in `@truevine/domain`, but no `Call` database model,
   worker dispatch or idempotency-key uniqueness/replay does. Those belong to a
   later persistence/worker task.
-- **Database models beyond tenancy:** Contact, Campaign, Call, Audio, Wallet,
-  LedgerEntry, Billing. Only Organization and Membership exist. See
+- **Database models beyond tenancy:** Call, LedgerEntry. See
   [Database](#database).
 - **Production migration execution:** the tenancy migration is authored and
   reviewed on paper but has **not** been applied to production. See

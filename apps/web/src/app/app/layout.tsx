@@ -100,6 +100,12 @@ async function AppNavigation({
       />
       <PermissionLink
         membership={selected}
+        href={`/app/audio?organization=${encodeURIComponent(selected.organizationId)}`}
+        label="Audio"
+        permission="audio:read"
+      />
+      <PermissionLink
+        membership={selected}
         href={`/app/reports?organization=${encodeURIComponent(selected.organizationId)}`}
         label="Reports"
         permission="reporting:read"

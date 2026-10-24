@@ -96,7 +96,7 @@ describe('an Organization Owner is confined to its own organization', () => {
 describe('a Viewer cannot mutate data', () => {
   it('has exactly the approved dashboard, campaign, report, and team read permissions', () => {
     expect([...ORGANIZATION_ROLE_PERMISSIONS.VIEWER].sort()).toEqual(
-      ['campaign:read', 'member:read', 'organization:read', 'reporting:read'].sort(),
+      ['audio:read', 'campaign:read', 'member:read', 'organization:read', 'reporting:read'].sort(),
     );
   });
 
@@ -117,6 +117,18 @@ describe('a Viewer cannot mutate data', () => {
     expect(can('VIEWER', 'campaign:read')).toBe(true);
     expect(can('VIEWER', 'member:read')).toBe(true);
     expect(can('VIEWER', 'reporting:read')).toBe(true);
+    expect(can('VIEWER', 'audio:read')).toBe(true);
+    expect(can('VIEWER', 'audio:create')).toBe(false);
+  });
+});
+
+describe('audio permissions', () => {
+  it('allows campaign work to create audio while keeping billing and viewers read-only', () => {
+    expect(can('CAMPAIGN_MANAGER', 'audio:create')).toBe(true);
+    expect(can('ADMIN', 'audio:create')).toBe(true);
+    expect(can('BILLING', 'audio:read')).toBe(false);
+    expect(can('BILLING', 'audio:create')).toBe(false);
+    expect(can('VIEWER', 'audio:create')).toBe(false);
   });
 });
 
@@ -186,6 +198,8 @@ describe('the Campaign Manager matrix is exactly as specified', () => {
       'campaign:create',
       'campaign:update',
       'campaign:delete',
+      'audio:read',
+      'audio:create',
       'contact:read',
       'contact:create',
       'contact:update',
@@ -234,6 +248,8 @@ describe('a Billing member cannot reach campaigns', () => {
       'campaign:create',
       'campaign:update',
       'campaign:delete',
+      'audio:read',
+      'audio:create',
     ] as const) {
       expect(can('BILLING', permission)).toBe(false);
     }
@@ -270,6 +286,8 @@ describe('the Organization Admin matrix is exactly as specified', () => {
       'campaign:create',
       'campaign:update',
       'campaign:delete',
+      'audio:read',
+      'audio:create',
       'contact:read',
       'contact:create',
       'contact:update',
