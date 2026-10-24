@@ -108,8 +108,8 @@ export async function executeRollout(approval, credentials, options = {}, depend
     if (!isSafeAuditMetadata(safe)) fail();
     return tx.identityAuditEvent.create({ data: { id, actorUserId: approval.actorUserId, action, outcome: 'SUCCESS', metadata: safe } });
   };
+  let phase = 'database-fingerprint';
   try {
-    let phase = 'database-fingerprint';
     return await database.$transaction(async tx => {
       const identity = await tx.$queryRaw`SELECT current_database() AS name`;
       const cluster = await tx.$queryRaw`SELECT system_identifier::text AS name FROM pg_catalog.pg_control_system()`;
@@ -209,7 +209,7 @@ export async function executeRollout(approval, credentials, options = {}, depend
         ...(validation.ownerAuthorization ? { ownerAuthorizationKeyId: validation.ownerAuthorization.keyId,
           ownerAuthorizationDigest: validation.ownerAuthorization.digest } : {}) };
     }, { isolationLevel: 'Serializable', timeout: 120000 });
-  } catch (error) {
+  } catch {
     if (process.env.NODE_ENV === 'test' && process.env.ROLLOUT_E2E_DISPOSABLE === '1')
       throw new Error(`Disposable rollout transaction failed during ${phase}.`);
     fail();
