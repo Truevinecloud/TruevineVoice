@@ -108,7 +108,6 @@ export async function executeRollout(approval, credentials, options = {}, depend
     if (!isSafeAuditMetadata(safe)) fail();
     return tx.identityAuditEvent.create({ data: { id, actorUserId: approval.actorUserId, action, outcome: 'SUCCESS', metadata: safe } });
   };
-  let phase = 'database-fingerprint';
   try {
     return await database.$transaction(async tx => {
       const identity = await tx.$queryRaw`SELECT current_database() AS name`;
@@ -119,21 +118,17 @@ export async function executeRollout(approval, credentials, options = {}, depend
       await tx.$queryRaw`SELECT id FROM users WHERE id=${approval.actorUserId}::uuid FOR SHARE`;
       await tx.$queryRaw`SELECT user_id FROM platform_role_assignments WHERE user_id=${approval.actorUserId}::uuid FOR SHARE`;
       const admin = await tx.user.findUnique({ where: { email: 'admin@truevoice.com' }, select: { id: true, status: true, memberships: true, platformRole: true } });
-      phase = 'administrator-preservation';
       if (admin?.id !== approval.preservedAdmin.userId || admin.status !== 'ACTIVE' || admin.platformRole ||
           admin.memberships.length !== 1 || admin.memberships[0].organizationId !== approval.preservedAdmin.organizationId || admin.memberships[0].role !== 'OWNER') fail();
       const claim = await tx.platformOwnerBootstrap.findUnique({ where: { slot: 'first_platform_owner' } });
       const owner = await tx.user.findUnique({ where: { email: OWNER }, include });
-      phase = 'bootstrap-state';
       if (!owner || claim?.userId !== owner.id || claim.operationId !== approval.bootstrapOperationId || owner.id !== approval.actorUserId ||
           owner.status !== 'ACTIVE' || !checkAssignment(owner, { scope: 'platform', role: 'PLATFORM_OWNER' })) fail();
       const bootstrapAudit = await tx.identityAuditEvent.findUnique({ where: { id: claim.auditEventId } });
-      phase = 'bootstrap-audit';
       if (bootstrapAudit?.action !== 'platform.owner.bootstrapped' || bootstrapAudit.actorUserId !== owner.id || bootstrapAudit.outcome !== 'SUCCESS' ||
           bootstrapAudit.metadata.environment !== approval.environment || bootstrapAudit.metadata.subjectUserId !== owner.id || bootstrapAudit.metadata.operationId !== claim.operationId) fail();
       const passwordReady = await verifyPassword(owner.passwordHash, credentials.passwords[OWNER]);
       if (approval.action === 'initialize') {
-        phase = 'initialization-state';
         const artifact = options.artifact;
         const link = new URL(artifact?.activationUrl);
         if (artifact.operationId !== claim.operationId || artifact.email !== OWNER ||
@@ -209,11 +204,7 @@ export async function executeRollout(approval, credentials, options = {}, depend
         ...(validation.ownerAuthorization ? { ownerAuthorizationKeyId: validation.ownerAuthorization.keyId,
           ownerAuthorizationDigest: validation.ownerAuthorization.digest } : {}) };
     }, { isolationLevel: 'Serializable', timeout: 120000 });
-  } catch {
-    if (process.env.NODE_ENV === 'test' && process.env.ROLLOUT_E2E_DISPOSABLE === '1')
-      throw new Error(`Disposable rollout transaction failed during ${phase}.`);
-    fail();
-  }
+  } catch { fail(); }
   finally { try { await database.$disconnect(); } catch { fail(); } }
 }
 
@@ -232,7 +223,6 @@ function recordOwnerAuthorization(tx, approval, options, audit, authorization) {
 }
 
 export async function rolloutMain(argv = process.argv.slice(2)) {
-  let stage = 'argument-validation';
   try {
     if (argv.length === 1 && argv[0] === 'inventory') {
       process.stdout.write(`${JSON.stringify({ inventoryDigest: INVENTORY_DIGEST, accounts: ROLLOUT_ACCOUNTS })}\n`); return;
@@ -258,46 +248,23 @@ export async function rolloutMain(argv = process.argv.slice(2)) {
       else if (['--approval', '--credentials', '--artifact', '--activation-directory'].includes(key) && !options[key] && args[index + 1] && !args[index + 1].startsWith('--')) options[key] = args[++index];
       else fail();
     }
-    stage = 'private-file-read';
     const approval = readBootstrapApproval(options['--approval']);
     const credentials = readBootstrapApproval(options['--credentials']);
     if (approval.action !== action) fail();
-    stage = 'authorization-validation';
     const validation = validateRollout(approval, credentials, process.env, options['--confirm-production']);
-    stage = 'release-validation';
     assertRelease(approval);
     let result;
     if (action === 'bootstrap') {
-      stage = 'bootstrap';
       result = await bootstrapPlatformOwner({ environment: approval.environment, email: OWNER, operationId: approval.operationId,
         approvalFile: options['--approval'], activationDirectory: options['--activation-directory'], confirmProduction: options['--confirm-production'],
         ownerAuthorization: validation.ownerAuthorization });
     } else if (['initialize', 'http'].includes(action)) {
-      stage = action === 'initialize' ? 'initialize' : 'http-verification';
       result = await executePrivateHttp(approval, credentials, { confirmProduction: options['--confirm-production'],
         artifact: action === 'initialize' ? readBootstrapApproval(options['--artifact']) : undefined });
-    } else {
-      stage = 'rollout';
-      result = await executeRollout(approval, credentials, { confirmProduction: options['--confirm-production'] });
-    }
+    } else result = await executeRollout(approval, credentials, { confirmProduction: options['--confirm-production'] });
     process.stdout.write(`${JSON.stringify({ ...result, ...(validation.ownerAuthorization ? { ownerAuthorizationKeyId: validation.ownerAuthorization.keyId,
       ownerAuthorizationDigest: validation.ownerAuthorization.digest } : {}) })}\n`);
-  } catch (error) {
-    // Disposable E2E diagnostics may expose only a fixed-format HTTP assertion
-    // label. Never forward arbitrary exception text, child output, or paths.
-    if (process.env.NODE_ENV === 'test' && process.env.ROLLOUT_E2E_DISPOSABLE === '1' && error instanceof Error &&
-        (/^Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.$/.test(error.message) ||
-         /^Disposable private HTTP execution failed during [a-z-]+\.$/.test(error.message) ||
-         /^Disposable rollout transaction failed during [a-z-]+\.$/.test(error.message))) {
-      process.stderr.write(`${error.message}\n`);
-      process.exitCode = 1;
-      return;
-    }
-    if (process.env.NODE_ENV === 'test' && process.env.ROLLOUT_E2E_DISPOSABLE === '1') {
-      process.stderr.write(`Disposable CLI failed during ${stage}.\n`);
-      process.exitCode = 1;
-      return;
-    }
+  } catch {
     process.stderr.write('Production test rollout refused or failed. No success claimed. Reconcile privately before retrying.\n');
     process.exitCode = 1;
   }

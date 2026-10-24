@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { generateKeyPairSync, randomBytes, randomUUID, type KeyObject } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
@@ -157,26 +157,45 @@ function inputs(action: string) {
   };
 }
 
-function safeSubprocessDiagnostic(stderr: string | null) {
-  const diagnostic = stderr?.split(/\r?\n/).find(line =>
-    /^(?:Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.|Disposable private HTTP execution failed during [a-z-]+\.|Disposable rollout transaction failed during [a-z-]+\.|Disposable CLI failed during [a-z-]+\.)$/.test(line));
-  return diagnostic ? ` Safe diagnostic: ${diagnostic}` : '';
+async function runPrivateCommand(name: string, executable: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, timeout: number) {
+  const maxOutputBytes = 1024 * 1024;
+  return await new Promise<string>((resolvePromise, reject) => {
+    const child = spawn(executable, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32', windowsHide: true });
+    const stdout: Buffer[] = [], stderr: Buffer[] = [];
+    let outputBytes = 0, timedOut = false, outputLimitExceeded = false, spawnFailed = false;
+    const terminateTree = () => {
+      if (child.pid && process.platform !== 'win32') {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+      } else child.kill('SIGKILL');
+    };
+    const timeoutTimer = setTimeout(() => { timedOut = true; terminateTree(); }, timeout);
+    const capture = (target: Buffer[], chunk: Buffer) => {
+      outputBytes += chunk.length;
+      if (outputBytes > maxOutputBytes) {
+        outputLimitExceeded = true;
+        terminateTree();
+        return;
+      }
+      target.push(chunk);
+    };
+    child.stdout.on('data', (chunk: Buffer) => capture(stdout, chunk));
+    child.stderr.on('data', (chunk: Buffer) => capture(stderr, chunk));
+    child.once('error', () => { spawnFailed = true; });
+    child.once('close', (code, signal) => {
+      clearTimeout(timeoutTimer);
+      if (code === 0 && !timedOut && !outputLimitExceeded && !spawnFailed) {
+        resolvePromise(Buffer.concat(stdout).toString('utf8'));
+        return;
+      }
+      const outcome = timedOut ? 'timed out' : outputLimitExceeded ? 'exceeded output limit'
+        : spawnFailed ? 'could not start' : Number.isInteger(code) ? `exited ${code}` : `terminated (${signal ?? 'unknown'})`;
+      reject(new Error(`Disposable ${name} subprocess ${outcome}; captured output and private paths withheld.`));
+    });
+  });
 }
 
-function runPrivateCommand(name: string, executable: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, timeout: number) {
-  const result = spawnSync(executable, args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout, maxBuffer: 1024 * 1024 });
-  if (result.error || result.status !== 0) {
-    const safeDiagnostic = safeSubprocessDiagnostic(result.stderr);
-    const spawnError = result.error as NodeJS.ErrnoException | undefined;
-    const outcome = spawnError?.code === 'ETIMEDOUT' ? 'timed out'
-      : Number.isInteger(result.status) ? `exited ${result.status}`
-        : 'could not start';
-    throw new Error(`Disposable ${name} subprocess ${outcome}; captured output and private paths withheld.${safeDiagnostic}`);
-  }
-  return result.stdout;
-}
-
-function runSignedLinuxCli(action: 'bootstrap' | 'initialize' | 'provision' | 'verify' | 'http', extra?: { activationDirectory?: string; artifactPath?: string }) {
+async function runSignedLinuxCli(action: 'bootstrap' | 'initialize' | 'provision' | 'verify' | 'http', extra?: { activationDirectory?: string; artifactPath?: string }) {
   if (!privateDirectory || !ownerKeyPair) throw new Error('Protected Linux rehearsal files are unavailable.');
   const { approval } = inputs(action);
   const draftPath = join(privateDirectory, `${action}-${approval.operationId}.draft.json`);
@@ -188,7 +207,7 @@ function runSignedLinuxCli(action: 'bootstrap' | 'initialize' | 'provision' | 'v
     TEST_ACCOUNT_ROLLOUT_OWNER_PUBLIC_KEY_DER: ownerKeyPair.publicKey.export({ format: 'der', type: 'spki' }).toString('base64url') };
   const signer = resolve(base, 'infrastructure/scripts/production-test-rollout-owner-auth.mjs');
   const rollout = resolve(base, 'infrastructure/scripts/production-test-rollout.mjs');
-  const signed = runPrivateCommand('owner-signer', process.execPath,
+  const signed = await runPrivateCommand('owner-signer', process.execPath,
     [signer, '--draft', draftPath, '--owner-key', join(privateDirectory, 'owner-authentication.key'), '--output', signedPath], base, environment, 30000);
   const signerResult = JSON.parse(signed) as { action: string; keyId: string; outputPath: string };
   if (signerResult.action !== action || signerResult.outputPath !== signedPath) throw new Error('Owner signer did not bind the requested action.');
@@ -201,39 +220,49 @@ function runSignedLinuxCli(action: 'bootstrap' | 'initialize' | 'provision' | 'v
     if (!extra?.artifactPath) throw new Error('Initialization rehearsal artifact is missing.');
     args.push('--artifact', extra.artifactPath);
   }
-  const output = runPrivateCommand(action, process.execPath, args, base, environment, 120000);
+  const output = await runPrivateCommand(action, process.execPath, args, base, environment, 120000);
   if (Object.values(passwords).some(password => output.includes(password))) throw new Error('Disposable CLI exposed a password.');
   return JSON.parse(output) as { userId?: string; activationFile?: string; ownerInitialized?: boolean; accountCount?: number;
     accounts?: Array<{ email: string; httpSignIn: string }>; ownerAuthorizationKeyId?: string };
 }
 
 describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
-  it('bounds private subprocesses and withholds captured output on failure', () => {
+  it('bounds asynchronous private subprocesses and withholds captured output on failure', async () => {
     const marker = 'private-output-must-not-escape';
     let message = '';
     try {
-      runPrivateCommand('synthetic', process.execPath,
+      await runPrivateCommand('synthetic', process.execPath,
         ['-e', `process.stderr.write(${JSON.stringify(marker)}); process.exit(23);`], process.cwd(), process.env, 5000);
     } catch (error) {
       message = (error as Error).message;
     }
     expect(message).toContain('exited 23');
     expect(message).not.toContain(marker);
-    expect(message).not.toContain('Safe diagnostic:');
-    expect(safeSubprocessDiagnostic('unrelated private marker\nPrivate HTTP verification failed (role:denial); no secrets reported.\n'))
-      .toBe(' Safe diagnostic: Private HTTP verification failed (role:denial); no secrets reported.');
-    expect(safeSubprocessDiagnostic('unrelated private marker')).toBe('');
+    let timeoutMessage = '';
+    try {
+      await runPrivateCommand('timeout', process.execPath, ['-e', 'setInterval(() => undefined, 1000);'], process.cwd(), process.env, 50);
+    } catch (error) {
+      timeoutMessage = (error as Error).message;
+    }
+    expect(timeoutMessage).toContain('timed out');
+  });
+
+  it('serves real health requests while a subprocess runs beside the API', async () => {
+    const script = `fetch(${JSON.stringify(`${origin}/health`)}).then(async response => { process.stdout.write(String(response.status)); if (!response.ok) process.exitCode = 1; }).catch(() => { process.exitCode = 1; });`;
+    const output = await runPrivateCommand('concurrent-health-probe', process.execPath, ['-e', script], process.cwd(),
+      { ...process.env, WEB_PUBLIC_URL: origin }, 10000);
+    expect(output).toBe('200');
   });
 
   it('bootstraps through immutable mechanism, initializes privately, provisions/retries, verifies eleven HTTP identities and disables', async () => {
     if (privateDirectory) {
       const activationDirectory = join(privateDirectory, 'activation');
       mkdirSync(activationDirectory, { mode: 0o700 }); chmodSync(activationDirectory, 0o700);
-      const bootstrapped = runSignedLinuxCli('bootstrap', { activationDirectory });
+      const bootstrapped = await runSignedLinuxCli('bootstrap', { activationDirectory });
       if (!bootstrapped.userId || !bootstrapped.activationFile) throw new Error('Private CLI bootstrap produced no reconciliation identifiers.');
       ownerId = bootstrapped.userId;
       artifact = JSON.parse(readFileSync(bootstrapped.activationFile, 'utf8')) as typeof artifact;
-      expect(runSignedLinuxCli('initialize', { artifactPath: bootstrapped.activationFile }).ownerInitialized).toBe(true);
+      expect((await runSignedLinuxCli('initialize', { artifactPath: bootstrapped.activationFile })).ownerInitialized).toBe(true);
     } else {
       const target = new URL(databaseUrl);
       const bootstrapApproval = { version: 1, environment: 'test', email: 'qa-platform-owner@truevoice.com', operationId: bootstrapOperationId,
@@ -268,7 +297,7 @@ describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
     expect(await database!.organization.count()).toBe(1);
     let created: { organizationId?: string; accountCount?: number };
     if (privateDirectory) {
-      const provisioned = runSignedLinuxCli('provision');
+      const provisioned = await runSignedLinuxCli('provision');
       if (!provisioned.accountCount) throw new Error('Protected CLI provisioning did not report its committed batch.');
       const state = await executeRollout(provision.approval, credentials, {}, provision.dependencies);
       created = { organizationId: state.organizationId!, accountCount: state.accountCount };
@@ -288,7 +317,7 @@ describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
     expect(await database!.user.count()).toBe(12);
     const conflict = { ...credentials, passwords: { ...passwords, 'qa-viewer@truevoice.com': randomBytes(24).toString('base64url') } };
     await expect(executeRollout(provision.approval, conflict, {}, provision.dependencies)).rejects.toThrow();
-    if (privateDirectory) expect(runSignedLinuxCli('verify').accountCount).toBe(11);
+    if (privateDirectory) expect((await runSignedLinuxCli('verify')).accountCount).toBe(11);
     // Synthetic custodians accept real terms through HTTP; no direct insertion
     // or automatic terms acceptance is included in the production verifier.
     for (const account of ROLLOUT_ACCOUNTS) {
@@ -300,7 +329,7 @@ describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
     }
     const http = inputs('http');
     const verified = privateDirectory
-      ? runSignedLinuxCli('http')
+      ? await runSignedLinuxCli('http')
       : await executePrivateHttp(http.approval, credentials, {}, http.dependencies);
     expect(verified.accounts).toHaveLength(11);
     const disable = inputs('disable');

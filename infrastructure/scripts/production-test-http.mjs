@@ -17,24 +17,8 @@ export function privateHttpClient(origin, transport = fetch, controls = {}) {
     const headers = { 'content-type': 'application/json', origin };
     if (jar.size) headers.cookie = [...jar].map(([key, value]) => `${key}=${value}`).join('; ');
     if (method !== 'GET' && jar.get('tv_csrf')) headers['x-truevine-csrf'] = jar.get('tv_csrf');
-    const route = path === '/health' ? 'health' : path === '/api/auth/terms' ? 'terms'
-      : path === '/api/auth/sign-in' ? 'sign-in' : path === '/api/auth/sign-out' ? 'sign-out'
-        : path === '/api/auth/password-reset/complete' ? 'password-reset' : 'authorization';
-    let response;
-    try {
-      response = await transport(`${origin}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
-        redirect: 'error', signal: AbortSignal.timeout(15000) });
-    } catch (error) {
-      const codes = [];
-      for (let current = error, depth = 0; current && depth < 5; current = current.cause, depth++)
-        if (typeof current.code === 'string') codes.push(current.code);
-      const undiciCode = codes.find(code => ['UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
-        'UND_ERR_BODY_TIMEOUT', 'UND_ERR_ABORTED'].includes(code));
-      const kind = codes.some(code => /^(?:ERR_TLS|ERR_SSL|CERT_|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER)/.test(code)) ? 'tls'
-        : codes.some(code => /^(?:ECONN|ETIMEDOUT|EHOST|ENET|EAI_)/.test(code)) ? 'network'
-          : undiciCode ? undiciCode.toLowerCase() : 'unknown';
-      throw new Error(`Private HTTP verification failed (${route}:transport-${kind}); no secrets reported.`, { cause: error });
-    }
+    const response = await transport(`${origin}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+      redirect: 'error', signal: AbortSignal.timeout(15000) });
     assert(!response.redirected && (response.status < 300 || response.status >= 400));
     for (const cookie of response.headers.getSetCookie()) {
       const pair = cookie.split(';')[0];
@@ -93,32 +77,23 @@ function permissionProbes(organizationId) {
  * auto terms acceptance, paid action, fixture mutation or secret-bearing URL. */
 export async function executePrivateHttp(approval, credentials, options = {}, dependencies = {}) {
   const environment = dependencies.environment ?? process.env;
-  let phase = 'authorization-validation';
-  try {
   const validation = validateRollout(approval, credentials, environment, options.confirmProduction);
   const { origin } = validation;
   assert(['initialize', 'http'].includes(approval.action));
   const inspect = dependencies.inspect ?? executeRollout;
-  phase = 'database-preflight';
   const state = await inspect(approval, credentials, options, dependencies);
   const controls = { expiresAt: approval.expiresAt, intervalMs: approval.environment === 'production' ? 1000 : 0 };
-  phase = 'health-probe';
   const health = await privateHttpClient(origin, dependencies.transport, controls).call('GET', '/health');
-  assert(health.status === 200, 'health:status');
-  assert(health.payload?.version === approval.releaseSha, 'health:version');
-  assert(health.payload?.environment === approval.environment, 'health:environment');
+  assert(health.status === 200 && health.payload?.version === approval.releaseSha && health.payload?.environment === approval.environment);
   if (approval.action === 'initialize') {
     if (!state.initialized) {
       const client = privateHttpClient(origin, dependencies.transport, controls);
-      phase = 'terms-probe';
       assert((await client.call('GET', '/api/auth/terms')).status === 200 && client.hasCsrf());
       const raw = new URL(options.artifact.activationUrl).searchParams.get('token');
-      phase = 'password-initialization';
       const result = await client.call('POST', '/api/auth/password-reset/complete', {
         token: raw, newPassword: credentials.passwords['qa-platform-owner@truevoice.com'],
       });
       assert(result.status === 200 && result.payload?.ok === true);
-      phase = 'initialization-reconciliation';
       const after = await inspect(approval, credentials, { ...options, authorizationReconciliation: true }, dependencies);
       assert(after.initialized);
     }
@@ -126,7 +101,6 @@ export async function executePrivateHttp(approval, credentials, options = {}, de
   }
   const results = [];
   for (const account of ROLLOUT_ACCOUNTS) {
-    phase = 'account-http-verification';
     assert(Date.parse(approval.expiresAt) > Date.now());
     const client = privateHttpClient(origin, dependencies.transport, controls);
     assert((await client.call('GET', '/api/auth/terms')).status === 200 && client.hasCsrf());
@@ -168,10 +142,4 @@ export async function executePrivateHttp(approval, credentials, options = {}, de
     limitations: ['Platform billing/refund, tenant suspension, technical writes and admin management have no consuming endpoints.',
       'Custodians must accept terms through the normal interface before organization HTTP verification.',
       'Browser interface rendering and privileged mutations require separate approved checks.'] };
-  } catch (error) {
-    if (error instanceof Error && /^Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.$/.test(error.message)) throw error;
-    if (environment.ROLLOUT_E2E_DISPOSABLE === '1' && environment.NODE_ENV === 'test')
-      throw new Error(`Disposable private HTTP execution failed during ${phase}.`, { cause: error });
-    throw error;
-  }
 }
