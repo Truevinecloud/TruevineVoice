@@ -164,6 +164,7 @@ export async function executePrivateHttp(approval, credentials, options = {}, de
       'Custodians must accept terms through the normal interface before organization HTTP verification.',
       'Browser interface rendering and privileged mutations require separate approved checks.'] };
   } catch (error) {
+    if (error instanceof Error && /^Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.$/.test(error.message)) throw error;
     if (environment.ROLLOUT_E2E_DISPOSABLE === '1' && environment.NODE_ENV === 'test')
       throw new Error(`Disposable private HTTP execution failed during ${phase}.`, { cause: error });
     throw error;
