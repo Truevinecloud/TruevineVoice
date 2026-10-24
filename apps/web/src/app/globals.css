@@ -240,6 +240,49 @@ a:focus-visible {
 
 /* Application shell ------------------------------------------------------- */
 
+.contacts-toolbar,
+.contact-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.contacts-search {
+  flex: 1 1 16rem;
+  margin-bottom: 0;
+}
+.contact-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.contact-row p {
+  margin: 0.4rem 0;
+}
+.contact-editor {
+  margin-top: 1.5rem;
+  scroll-margin-top: 1rem;
+}
+.contact-editor dd {
+  margin: 0.3rem 0 1rem;
+  overflow-wrap: anywhere;
+}
+.contact-editor dt {
+  font-weight: 600;
+}
+.contact-close {
+  margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+  .contacts-toolbar > button,
+  .contact-row > button {
+    width: 100%;
+  }
+}
+
 .app-shell {
   display: flex;
   flex-direction: column;

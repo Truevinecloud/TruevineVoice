@@ -133,6 +133,22 @@ loopback test database with the new migration applied, `NODE_ENV=test`, and
 Tests fail loudly if those requirements are missing. Do not point them at
 production or a database whose test records cannot be discarded.
 
+## W2-02 Increment 1 Contacts UI
+
+`/app/contacts` lists organization contacts, searches name/phone/email across API
+pages, and supports add, view, edit and eligible deletion. Navigation and controls
+use the authenticated membership's permissions: OWNER, ADMIN and CAMPAIGN_MANAGER
+can manage contacts; BILLING and VIEWER cannot access them. API guards remain
+authoritative for session, current terms, CSRF, organization scope and permissions.
+Phone numbers are normalized by the server and cannot be edited; name and email
+can be updated. Suppressed and campaign-referenced contacts are retained by the API.
+This increment adds no Groups, CSV import, consent management or call history UI.
+
+`npm test` includes React DOM interaction tests using the pinned development-only
+`happy-dom` dependency, route/navigation tests and Contacts HTTP guard tests.
+The existing `npm run test:e2e` covers real PostgreSQL contact isolation and deletion
+restrictions and requires the disposable infrastructure described below.
+
 ## RBAC-005 customer Viewer (development)
 
 VIEWER memberships can open the organization dashboard, read campaign status and dates, and view a campaign status summary at `/app/reports`. API reads are scoped to the authorized organization and guarded by `campaign:read` or `reporting:read`; the role has no campaign, billing, wallet, organization, or membership write permission. Reports currently summarize campaign records only. Campaign execution, call outcomes, and performance reporting are not implemented.

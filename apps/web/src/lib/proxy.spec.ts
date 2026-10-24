@@ -33,6 +33,7 @@ describe('proxy allowlist', () => {
       'GET /organizations/abc/contacts',
       'POST /organizations/abc/contacts',
       'PATCH /organizations/abc/contacts/def',
+      'DELETE /organizations/abc/contacts/def',
       'POST /organizations/abc/contacts/def/voice-consent',
       'POST /organizations/abc/contacts/def/suppress',
       'GET /organizations/abc/contact-groups',
@@ -65,7 +66,8 @@ describe('proxy allowlist', () => {
       'GET /organizations/abc/settings/secret',
       'GET /organizations/abc/members/def/permissions',
       // Contact routing stays exact and method-qualified.
-      'DELETE /organizations/abc/contacts/def',
+      'DELETE /organizations/abc/contacts/def/voice-consent',
+      'DELETE /organizations/abc/contacts/def/extra',
       'PUT /organizations/abc/contact-imports/def/batches',
       'GET /organizations/abc/contact-imports/def/batches',
       'POST /organizations/abc/contact-imports/def/batches/extra',
