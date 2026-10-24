@@ -264,7 +264,15 @@ export async function rolloutMain(argv = process.argv.slice(2)) {
     } else result = await executeRollout(approval, credentials, { confirmProduction: options['--confirm-production'] });
     process.stdout.write(`${JSON.stringify({ ...result, ...(validation.ownerAuthorization ? { ownerAuthorizationKeyId: validation.ownerAuthorization.keyId,
       ownerAuthorizationDigest: validation.ownerAuthorization.digest } : {}) })}\n`);
-  } catch {
+  } catch (error) {
+    // Disposable E2E diagnostics may expose only a fixed-format HTTP assertion
+    // label. Never forward arbitrary exception text, child output, or paths.
+    if (process.env.NODE_ENV === 'test' && process.env.ROLLOUT_E2E_DISPOSABLE === '1' &&
+        error instanceof Error && /^Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.$/.test(error.message)) {
+      process.stderr.write(`${error.message}\n`);
+      process.exitCode = 1;
+      return;
+    }
     process.stderr.write('Production test rollout refused or failed. No success claimed. Reconcile privately before retrying.\n');
     process.exitCode = 1;
   }
