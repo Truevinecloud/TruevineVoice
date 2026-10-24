@@ -74,6 +74,7 @@ const ORG_A = randomUUID();
 const ORG_B = randomUUID();
 const USER_A = randomUUID();
 const USER_B = randomUUID();
+const USER_VIEWER = randomUUID();
 const SLUG_A = `e2e-a-${RUN}`;
 const SLUG_B = `e2e-b-${RUN}`;
 
@@ -86,6 +87,7 @@ const SLUG_B = `e2e-b-${RUN}`;
  */
 const EMAIL_A = `e2e-a-${RUN}@example.invalid`;
 const EMAIL_B = `e2e-b-${RUN}@example.invalid`;
+const EMAIL_VIEWER = `e2e-viewer-${RUN}@example.invalid`;
 /** A third owner, suspended mid-suite, so deactivation has its own account. */
 const USER_DEACTIVATE = randomUUID();
 const ORG_DEACTIVATE = randomUUID();
@@ -102,8 +104,8 @@ const EMAIL_DEACTIVATE = `e2e-d-${RUN}@example.invalid`;
  * rows in a development database.
  */
 async function removeFixtures(client: PrismaClient): Promise<void> {
-  await client.$executeRaw`DELETE FROM sessions WHERE user_id IN (${USER_A}::uuid, ${USER_B}::uuid, ${USER_DEACTIVATE}::uuid)`;
-  await client.$executeRaw`DELETE FROM terms_acceptances WHERE user_id IN (${USER_A}::uuid, ${USER_B}::uuid, ${USER_DEACTIVATE}::uuid)`;
+  await client.$executeRaw`DELETE FROM sessions WHERE user_id IN (${USER_A}::uuid, ${USER_B}::uuid, ${USER_VIEWER}::uuid, ${USER_DEACTIVATE}::uuid)`;
+  await client.$executeRaw`DELETE FROM terms_acceptances WHERE user_id IN (${USER_A}::uuid, ${USER_B}::uuid, ${USER_VIEWER}::uuid, ${USER_DEACTIVATE}::uuid)`;
   await client.$executeRaw`DELETE FROM invitations WHERE organization_id IN (${ORG_A}::uuid, ${ORG_B}::uuid)`;
 }
 
@@ -133,14 +135,15 @@ beforeAll(async () => {
     INSERT INTO users (id, email, password_hash, updated_at) VALUES
       (${USER_A}::uuid, ${EMAIL_A}, ${passwordHash}, now()),
       (${USER_B}::uuid, ${EMAIL_B}, ${passwordHash}, now()),
+      (${USER_VIEWER}::uuid, ${EMAIL_VIEWER}, ${passwordHash}, now()),
       (${USER_DEACTIVATE}::uuid, ${EMAIL_DEACTIVATE}, ${passwordHash}, now())
   `;
 
     await tx.$executeRaw`
     INSERT INTO memberships (organization_id, user_id, role, updated_at) VALUES
       (${ORG_A}::uuid, ${USER_A}::uuid, 'OWNER', now()),
-      (${ORG_A}::uuid, ${USER_B}::uuid, 'VIEWER', now()),
       (${ORG_B}::uuid, ${USER_B}::uuid, 'OWNER', now()),
+      (${ORG_A}::uuid, ${USER_VIEWER}::uuid, 'VIEWER', now()),
       (${ORG_DEACTIVATE}::uuid, ${USER_DEACTIVATE}::uuid, 'OWNER', now())
   `;
   });
@@ -151,8 +154,10 @@ beforeAll(async () => {
     ORG_B,
     USER_A,
     USER_B,
+    USER_VIEWER,
     EMAIL_A,
     EMAIL_B,
+    EMAIL_VIEWER,
     ORG_DEACTIVATE,
     USER_DEACTIVATE,
     SLUG_DEACTIVATE,
@@ -503,7 +508,7 @@ describe('tenant isolation over HTTP', () => {
 });
 
 describe('contacts, import preview and RBAC over HTTP', () => {
-  it('scopes search and group membership to the tenant and denies Viewer mutations', async () => {
+  it('scopes search and group membership to the tenant and denies Viewer contact access', async () => {
     const owner = await signIn(EMAIL_A);
     const ownerCookie = `${owner.cookie}; ${CSRF_COOKIE}=${owner.csrf}`;
     const created = await request(server)
@@ -550,10 +555,10 @@ describe('contacts, import preview and RBAC over HTTP', () => {
       .set('cookie', owner.cookie);
     expect(foreignTenant.status).toBe(403);
 
-    const viewer = await signIn(EMAIL_B);
+    const viewer = await signIn(EMAIL_VIEWER);
     const viewerCookie = `${viewer.cookie}; ${CSRF_COOKIE}=${viewer.csrf}`;
     const viewerRead = await request(server).get(`/organizations/${ORG_A}/contacts?q=HTTP`).set('cookie', viewer.cookie);
-    expect(viewerRead.status).toBe(200);
+    expect(viewerRead.status).toBe(403);
     const viewerWrite = await request(server)
       .post(`/organizations/${ORG_A}/contacts`)
       .set('cookie', viewerCookie)
