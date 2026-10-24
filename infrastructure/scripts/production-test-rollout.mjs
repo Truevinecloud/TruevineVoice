@@ -287,6 +287,7 @@ export async function rolloutMain(argv = process.argv.slice(2)) {
     // label. Never forward arbitrary exception text, child output, or paths.
     if (process.env.NODE_ENV === 'test' && process.env.ROLLOUT_E2E_DISPOSABLE === '1' && error instanceof Error &&
         (/^Private HTTP verification failed(?: \([A-Za-z0-9:_-]+\))?; no secrets reported\.$/.test(error.message) ||
+         /^Disposable private HTTP execution failed during [a-z-]+\.$/.test(error.message) ||
          /^Disposable rollout transaction failed during [a-z-]+\.$/.test(error.message))) {
       process.stderr.write(`${error.message}\n`);
       process.exitCode = 1;

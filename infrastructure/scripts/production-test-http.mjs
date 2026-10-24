@@ -77,23 +77,30 @@ function permissionProbes(organizationId) {
  * auto terms acceptance, paid action, fixture mutation or secret-bearing URL. */
 export async function executePrivateHttp(approval, credentials, options = {}, dependencies = {}) {
   const environment = dependencies.environment ?? process.env;
+  let phase = 'authorization-validation';
+  try {
   const validation = validateRollout(approval, credentials, environment, options.confirmProduction);
   const { origin } = validation;
   assert(['initialize', 'http'].includes(approval.action));
   const inspect = dependencies.inspect ?? executeRollout;
+  phase = 'database-preflight';
   const state = await inspect(approval, credentials, options, dependencies);
   const controls = { expiresAt: approval.expiresAt, intervalMs: approval.environment === 'production' ? 1000 : 0 };
+  phase = 'health-probe';
   const health = await privateHttpClient(origin, dependencies.transport, controls).call('GET', '/health');
   assert(health.status === 200 && health.payload?.version === approval.releaseSha && health.payload?.environment === approval.environment);
   if (approval.action === 'initialize') {
     if (!state.initialized) {
       const client = privateHttpClient(origin, dependencies.transport, controls);
+      phase = 'terms-probe';
       assert((await client.call('GET', '/api/auth/terms')).status === 200 && client.hasCsrf());
       const raw = new URL(options.artifact.activationUrl).searchParams.get('token');
+      phase = 'password-initialization';
       const result = await client.call('POST', '/api/auth/password-reset/complete', {
         token: raw, newPassword: credentials.passwords['qa-platform-owner@truevoice.com'],
       });
       assert(result.status === 200 && result.payload?.ok === true);
+      phase = 'initialization-reconciliation';
       const after = await inspect(approval, credentials, { ...options, authorizationReconciliation: true }, dependencies);
       assert(after.initialized);
     }
@@ -101,6 +108,7 @@ export async function executePrivateHttp(approval, credentials, options = {}, de
   }
   const results = [];
   for (const account of ROLLOUT_ACCOUNTS) {
+    phase = 'account-http-verification';
     assert(Date.parse(approval.expiresAt) > Date.now());
     const client = privateHttpClient(origin, dependencies.transport, controls);
     assert((await client.call('GET', '/api/auth/terms')).status === 200 && client.hasCsrf());
@@ -142,4 +150,9 @@ export async function executePrivateHttp(approval, credentials, options = {}, de
     limitations: ['Platform billing/refund, tenant suspension, technical writes and admin management have no consuming endpoints.',
       'Custodians must accept terms through the normal interface before organization HTTP verification.',
       'Browser interface rendering and privileged mutations require separate approved checks.'] };
+  } catch (error) {
+    if (environment.ROLLOUT_E2E_DISPOSABLE === '1' && environment.NODE_ENV === 'test')
+      throw new Error(`Disposable private HTTP execution failed during ${phase}.`, { cause: error });
+    throw error;
+  }
 }
