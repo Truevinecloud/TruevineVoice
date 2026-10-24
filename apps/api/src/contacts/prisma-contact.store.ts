@@ -8,6 +8,7 @@ import {
   ContactPhoneRestrictedError,
   ContactPhoneConflictError,
   ContactUpdateConflictError,
+  ContactGroupConflictError,
 } from './contact.store.js';
 import { authorizeTenantWrite } from '../auth/tenant-write.js';
 import type {
@@ -114,6 +115,7 @@ export class PrismaContactStore implements ContactStore {
   }): Promise<ContactGroupRecord> {
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await authorizeTenantWrite(tx, i.organizationId, i.actorUserId, 'contact:create');
         const row = await tx.contactGroup.create({
           data: {
             organizationId: i.organizationId,
@@ -131,7 +133,7 @@ export class PrismaContactStore implements ContactStore {
           'contact_group',
           i.id,
         );
-        return row;
+        return { ...row, memberCount: 0 };
       });
     } catch (e) {
       if ((e as { code?: string }).code === 'P2002')
@@ -140,9 +142,115 @@ export class PrismaContactStore implements ContactStore {
     }
   }
   async listGroups(organizationId: string): Promise<readonly ContactGroupRecord[]> {
-    return this.prisma.contactGroup.findMany({
+    const rows = await this.prisma.contactGroup.findMany({
       where: { organizationId },
-      orderBy: { name: 'asc' },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      include: { _count: { select: { contacts: true } } },
+    });
+    return rows.map((row) => ({ ...row, memberCount: row._count.contacts }));
+  }
+
+  async findGroup(
+    organizationId: string,
+    groupId: string,
+  ): Promise<ContactGroupRecord | undefined> {
+    const row = await this.prisma.contactGroup.findUnique({
+      where: { organizationId_id: { organizationId, id: groupId } },
+      include: { _count: { select: { contacts: true } } },
+    });
+    return row ? { ...row, memberCount: row._count.contacts } : undefined;
+  }
+
+  async updateGroup(i: {
+    organizationId: string;
+    actorUserId: string;
+    groupId: string;
+    name: string;
+    normalizedName: string;
+  }) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await authorizeTenantWrite(tx, i.organizationId, i.actorUserId, 'contact:update');
+        const result = await tx.contactGroup.updateMany({
+          where: { organizationId: i.organizationId, id: i.groupId },
+          data: { name: i.name, normalizedName: i.normalizedName },
+        });
+        if (!result.count) return undefined;
+        const row = await tx.contactGroup.findUniqueOrThrow({
+          where: { organizationId_id: { organizationId: i.organizationId, id: i.groupId } },
+          include: { _count: { select: { contacts: true } } },
+        });
+        await this.audit(
+          tx,
+          i.organizationId,
+          i.actorUserId,
+          'contact_group.updated',
+          'contact_group',
+          i.groupId,
+          { fields: ['name'] },
+        );
+        return { ...row, memberCount: row._count.contacts };
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') throw new ContactGroupConflictError();
+      throw error;
+    }
+  }
+
+  async deleteGroup(i: { organizationId: string; actorUserId: string; groupId: string }) {
+    return this.prisma.$transaction(async (tx) => {
+      await authorizeTenantWrite(tx, i.organizationId, i.actorUserId, 'contact:update');
+      const deleted = await tx.contactGroup.deleteMany({
+        where: { organizationId: i.organizationId, id: i.groupId },
+      });
+      if (!deleted.count) return false;
+      await this.audit(
+        tx,
+        i.organizationId,
+        i.actorUserId,
+        'contact_group.deleted',
+        'contact_group',
+        i.groupId,
+      );
+      return true;
+    });
+  }
+
+  async setGroupMembership(i: {
+    organizationId: string;
+    actorUserId: string;
+    groupId: string;
+    contactId: string;
+    member: boolean;
+  }) {
+    return this.prisma.$transaction(async (tx) => {
+      await authorizeTenantWrite(tx, i.organizationId, i.actorUserId, 'contact:update');
+      const groups = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM contact_groups WHERE organization_id=${i.organizationId}::uuid AND id=${i.groupId}::uuid FOR UPDATE`;
+      if (!groups.length) return undefined;
+      const contacts = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM contacts WHERE organization_id=${i.organizationId}::uuid AND id=${i.contactId}::uuid FOR KEY SHARE`;
+      if (!contacts.length) return undefined;
+      const where = {
+        organizationId: i.organizationId,
+        groupId: i.groupId,
+        contactId: i.contactId,
+      };
+      const changed = i.member
+        ? (await tx.contactGroupMember.createMany({ data: [where], skipDuplicates: true })).count >
+          0
+        : (await tx.contactGroupMember.deleteMany({ where })).count > 0;
+      if (changed)
+        await this.audit(
+          tx,
+          i.organizationId,
+          i.actorUserId,
+          i.member ? 'contact_group.member_added' : 'contact_group.member_removed',
+          'contact_group',
+          i.groupId,
+          { contactId: i.contactId },
+        );
+      return { member: i.member, changed };
     });
   }
 

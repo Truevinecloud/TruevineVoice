@@ -5,6 +5,7 @@ export class ContactAlreadyConsentedError extends Error {}
 export class ContactPhoneRestrictedError extends Error {}
 export class ContactPhoneConflictError extends Error {}
 export class ContactUpdateConflictError extends Error {}
+export class ContactGroupConflictError extends Error {}
 
 export interface ContactGroupRecord {
   readonly organizationId: string;
@@ -12,6 +13,7 @@ export interface ContactGroupRecord {
   readonly name: string;
   readonly normalizedName: string;
   readonly createdAt: Date;
+  readonly memberCount?: number;
 }
 
 export interface ContactRecord {
@@ -81,6 +83,10 @@ export interface ContactMutationAudit {
     | 'contact.deleted'
     | 'contact.suppressed'
     | 'contact_group.created'
+    | 'contact_group.updated'
+    | 'contact_group.deleted'
+    | 'contact_group.member_added'
+    | 'contact_group.member_removed'
     | 'contact_import.started'
     | 'contact_import.batch_processed'
     | 'contact_import.completed';
@@ -112,6 +118,26 @@ export interface ProcessImportBatchInput {
 
 /** Every method carrying tenant data requires its organization scope. */
 export interface ContactStore {
+  findGroup(organizationId: string, groupId: string): Promise<ContactGroupRecord | undefined>;
+  updateGroup(input: {
+    readonly organizationId: string;
+    readonly actorUserId: string;
+    readonly groupId: string;
+    readonly name: string;
+    readonly normalizedName: string;
+  }): Promise<ContactGroupRecord | undefined>;
+  deleteGroup(input: {
+    readonly organizationId: string;
+    readonly actorUserId: string;
+    readonly groupId: string;
+  }): Promise<boolean>;
+  setGroupMembership(input: {
+    readonly organizationId: string;
+    readonly actorUserId: string;
+    readonly groupId: string;
+    readonly contactId: string;
+    readonly member: boolean;
+  }): Promise<{ readonly member: boolean; readonly changed: boolean } | undefined>;
   createGroup(input: {
     readonly organizationId: string;
     readonly actorUserId: string;
