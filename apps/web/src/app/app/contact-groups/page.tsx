@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { currentSession, hasPermission } from '../../../lib/session';
 import { GroupsView } from './GroupsView';
+import { PageHeader } from '../AppUI';
 
 export default async function ContactGroupsPage({
   searchParams,
@@ -21,7 +22,7 @@ export default async function ContactGroupsPage({
   if (!membership || !hasPermission(membership, 'contact:read'))
     return (
       <>
-        <h1 className="page-title">Contact groups</h1>
+        <PageHeader title="Contact groups" />
         <p role="alert">You do not have access to contact groups in the selected organization.</p>
       </>
     );

@@ -9,6 +9,7 @@ import {
   type ContactGroup,
 } from '../../../lib/contact-groups';
 import { searchContacts, type Contact, type ContactPage } from '../../../lib/contacts';
+import { EmptyState, PageHeader, SectionCard } from '../AppUI';
 
 const emptyPage: ContactPage = { items: [], nextCursor: null };
 
@@ -173,34 +174,42 @@ export function GroupsView({
 
   return (
     <>
-      <div className="contacts-toolbar">
-        <div>
-          <h1 className="page-title">Contact groups</h1>
-          <p>{organizationName}</p>
-        </div>
-        <a href={`/app/contacts?organization=${encodeURIComponent(organizationId)}`}>Contacts</a>
-        {canCreate && (
-          <button
-            className="button-secondary"
-            disabled={busy}
-            onClick={() => {
-              clear();
-              setMode('create');
-            }}
-          >
-            Create group
-          </button>
-        )}
-        <button
-          className="button-secondary"
-          disabled={busy}
-          onClick={() => {
-            void run(() => refresh(selected?.id));
-          }}
-        >
-          Refresh groups
-        </button>
-      </div>
+      <PageHeader
+        title="Contact groups"
+        eyebrow={organizationName}
+        description="Build and maintain reusable audiences from your contacts."
+        actions={
+          <>
+            <a
+              className="button-secondary"
+              href={`/app/contacts?organization=${encodeURIComponent(organizationId)}`}
+            >
+              View contacts
+            </a>
+            <button
+              className="button-secondary"
+              disabled={busy}
+              onClick={() => {
+                void run(() => refresh(selected?.id));
+              }}
+            >
+              Refresh groups
+            </button>
+            {canCreate && (
+              <button
+                className="button-primary"
+                disabled={busy}
+                onClick={() => {
+                  clear();
+                  setMode('create');
+                }}
+              >
+                Create group
+              </button>
+            )}
+          </>
+        }
+      />
       {error && (
         <div className="notice notice-error" role="alert">
           {error}{' '}
@@ -213,8 +222,18 @@ export function GroupsView({
           {success}
         </p>
       )}
-      {busy && <p role="status">Loading or saving groups…</p>}
-      {!busy && !error && groups.length === 0 && <p>No groups yet.</p>}
+      {busy && (
+        <p className="loading-message" role="status">
+          Loading or saving groups…
+        </p>
+      )}
+      {!busy && !error && groups.length === 0 && (
+        <SectionCard>
+          <EmptyState title="No groups yet.">
+            Create a group to organize contacts for campaign audiences.
+          </EmptyState>
+        </SectionCard>
+      )}
       <div className="contacts-list" aria-busy={busy}>
         {groups.map((group) => (
           <article className="card-section contact-row" key={group.id}>

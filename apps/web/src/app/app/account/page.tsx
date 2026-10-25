@@ -4,6 +4,7 @@ import { currentSession } from '../../../lib/session';
 
 import { AccountDetails } from './AccountDetails';
 import { PasswordResetPrompt } from './PasswordResetPrompt';
+import { EmptyState, PageHeader, SectionCard, StatusBadge } from '../AppUI';
 
 /** `/app/account` - profile and security settings. */
 export default async function AccountPage(): Promise<React.JSX.Element> {
@@ -15,17 +16,23 @@ export default async function AccountPage(): Promise<React.JSX.Element> {
 
   return (
     <>
-      <h1 className="page-title">Account and security</h1>
+      <PageHeader
+        title="My Profile"
+        description="Your sign-in identity and organization memberships."
+      />
 
-      <div className="card-section">
-        <h2>Profile</h2>
+      <SectionCard title="Profile">
         <AccountDetails email={session.me.email} userId={session.me.userId} />
-      </div>
+      </SectionCard>
 
-      <div className="card-section">
-        <h2>Organizations</h2>
+      <SectionCard
+        title="Organizations"
+        description="Organizations and roles currently attached to your account."
+      >
         {organizations.length === 0 ? (
-          <p>You do not belong to any organization.</p>
+          <EmptyState title="No organization memberships">
+            Accept an invitation or ask an organization owner to invite you.
+          </EmptyState>
         ) : (
           <table className="table">
             <thead>
@@ -39,28 +46,29 @@ export default async function AccountPage(): Promise<React.JSX.Element> {
                 <tr key={membership.organizationId}>
                   <td>{membership.organizationName}</td>
                   <td>
-                    <span className="tag">{membership.role.replace(/_/g, ' ')}</span>
+                    <StatusBadge>{membership.role.replace(/_/g, ' ')}</StatusBadge>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-      </div>
+      </SectionCard>
 
-      <div className="card-section">
-        <h2>Password</h2>
+      <SectionCard
+        title="Password"
+        description="Password changes use the existing secure reset flow."
+      >
         <PasswordResetPrompt />
-      </div>
+      </SectionCard>
 
-      <div className="card-section">
-        <h2>Platform access</h2>
+      <SectionCard title="Platform access">
         <p>
           You are {session.me.platformRole === null ? 'not' : ''} a Truevine platform operator.
           Customer organization roles and platform roles are separate authorities and one is never
           granted by the other.
         </p>
-      </div>
+      </SectionCard>
     </>
   );
 }

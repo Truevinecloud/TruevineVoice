@@ -38,14 +38,9 @@ export function SignOutButton(): React.JSX.Element {
   }
 
   return (
-    <button
-      type="button"
-      className="button-secondary"
-      onClick={signOut}
-      disabled={busy}
-      style={{ padding: '0.35rem 0.7rem', fontSize: '0.85rem' }}
-    >
-      {busy ? 'Signing out...' : 'Sign out'}
+    <button type="button" className="button-secondary" onClick={signOut} disabled={busy}>
+      <span aria-hidden="true">↪</span>
+      <span className="sidebar-nav-label">{busy ? 'Signing out…' : 'Sign out'}</span>
     </button>
   );
 }

@@ -4,6 +4,7 @@ import { fetchOrganization } from '../../../lib/org-api';
 import { currentSession, hasPermission } from '../../../lib/session';
 
 import { OrganizationSettingsForm } from './OrganizationSettingsForm';
+import { PageHeader, SectionCard } from '../AppUI';
 
 /** `/app/settings` - organization profile. */
 export default async function SettingsPage({
@@ -31,7 +32,7 @@ export default async function SettingsPage({
   if (!organization) {
     return (
       <>
-        <h1 className="page-title">Organization</h1>
+        <PageHeader title="Organization settings" />
         <p className="notice notice-error">
           You do not have permission to view this organization, or it no longer exists.
         </p>
@@ -43,10 +44,16 @@ export default async function SettingsPage({
 
   return (
     <>
-      <h1 className="page-title">Organization settings</h1>
+      <PageHeader
+        title="Organization settings"
+        eyebrow={membership.organizationName}
+        description="Manage the profile for this organization."
+      />
 
-      <div className="card-section">
-        <h2>Profile</h2>
+      <SectionCard
+        title="Organization profile"
+        description="The identifier is permanent and is shown for reference."
+      >
         {canUpdate ? (
           <OrganizationSettingsForm
             organizationId={organization.id}
@@ -64,16 +71,18 @@ export default async function SettingsPage({
             </p>
           </>
         )}
-      </div>
+      </SectionCard>
 
-      <div className="card-section">
-        <h2>Operational settings</h2>
+      <SectionCard
+        title="Operational settings"
+        description="Features that are not yet configurable."
+      >
         <p>
           Not available. There is nothing to configure yet: sending limits, caller identity and
           time-of-day rules all belong to modules that do not exist. The permissions that will
           govern them are already defined.
         </p>
-      </div>
+      </SectionCard>
     </>
   );
 }

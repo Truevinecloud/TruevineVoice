@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation';
 
 import { currentSession } from '../../lib/session';
 
-import { SignOutButton } from './SignOutButton';
 import { AppNavigation } from './AppNavigation';
 import { Suspense } from 'react';
 
@@ -41,23 +40,19 @@ export default async function AppLayout({
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <a className="app-brand" href="/app">
-          Truevine Voice
-        </a>
-        <div className="app-user">
-          <span>{session.me.email}</span>
-          <SignOutButton />
-        </div>
-      </header>
-
       <Suspense
-        fallback={<div className="app-navigation-loading" aria-label="Loading navigation" />}
+        fallback={
+          <div className="app-navigation-loading" role="status">
+            Loading your workspace navigation…
+          </div>
+        }
       >
-        <AppNavigation memberships={session.me.memberships} />
+        <AppNavigation memberships={session.me.memberships} email={session.me.email} />
       </Suspense>
 
-      <main className="app-main">{children}</main>
+      <main className="app-main" id="main-content" tabIndex={-1}>
+        <div className="page-content">{children}</div>
+      </main>
     </div>
   );
 }

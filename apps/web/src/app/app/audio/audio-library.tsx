@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { messageFor, request, upload } from '../../../lib/api';
+import { EmptyState, SectionCard } from '../AppUI';
 
 interface Asset {
   id: string;
@@ -19,9 +20,7 @@ interface Voice {
   language: string;
 }
 
-async function fetchLibrary(
-  organizationId: string,
-): Promise<{
+async function fetchLibrary(organizationId: string): Promise<{
   assets: Asset[];
   voiceInfo: { available: boolean; storageAvailable: boolean; voices: Voice[] };
 }> {
@@ -166,112 +165,146 @@ export function AudioLibrary({
   }
 
   return (
-    <section className="stack">
-      {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
+    <div className="audio-library">
+      {error && (
+        <p className="notice notice-error" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="notice notice-success" role="status">
+          {notice}
+        </p>
+      )}
       {canCreate && (
         <>
           {!storageAvailable && (
-            <p role="status">
+            <p className="notice notice-info" role="status">
               Audio storage is not configured for this environment; recording and uploads are
               unavailable.
             </p>
           )}
-          <h2>Record or upload audio</h2>
-          <label>
-            Asset name
-            <input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} />
-          </label>
-          <div className="button-row">
-            {!recording ? (
-              <button
-                type="button"
-                disabled={busy || !storageAvailable || typeof MediaRecorder === 'undefined'}
-                onClick={() => void startRecording()}
-              >
-                Start recording
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  recorder.current?.stop();
-                  setRecording(false);
-                }}
-              >
-                Stop and save recording
-              </button>
-            )}
-            <label>
-              Or choose audio file
-              <input
-                type="file"
-                accept="audio/*"
-                disabled={busy || !storageAvailable}
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void saveRecording(file, file.name);
-                }}
-              />
-            </label>
-          </div>
-          {recording && <p role="status">Recording. Stop to upload and save.</p>}
-          <h2>Generate speech</h2>
-          {!ttsAvailable && (
-            <p className="field-hint">Text to speech is not configured for this environment.</p>
-          )}
-          <label>
-            Text
-            <textarea
-              value={text}
-              maxLength={3000}
-              onChange={(event) => setText(event.target.value)}
-            />
-          </label>
-          <label>
-            Voice
-            <select value={voice} onChange={(event) => setVoice(event.target.value)}>
-              {voices.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label} · {item.language}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            disabled={
-              busy || !storageAvailable || !ttsAvailable || !text.trim() || !name.trim() || !voice
-            }
-            onClick={() => void synthesize()}
+          <SectionCard
+            title="Record or upload"
+            description="Create an organization audio asset. Secure storage must be configured before recording is enabled."
           >
-            Generate and save
-          </button>
+            <div className="field">
+              <label htmlFor="audio-asset-name">Asset name</label>
+              <input
+                id="audio-asset-name"
+                value={name}
+                maxLength={120}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </div>
+            <div className="button-row">
+              {!recording ? (
+                <button
+                  type="button"
+                  disabled={busy || !storageAvailable || typeof MediaRecorder === 'undefined'}
+                  onClick={() => void startRecording()}
+                >
+                  Start recording
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    recorder.current?.stop();
+                    setRecording(false);
+                  }}
+                >
+                  Stop and save recording
+                </button>
+              )}
+              <label className="file-picker">
+                <span>Or choose an audio file</span>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  disabled={busy || !storageAvailable}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void saveRecording(file, file.name);
+                  }}
+                />
+              </label>
+            </div>
+            {recording && <p role="status">Recording. Stop to upload and save.</p>}
+          </SectionCard>
+          <SectionCard
+            title="Generate speech"
+            description="Use the configured text-to-speech provider to create a reusable audio asset."
+          >
+            {!ttsAvailable && (
+              <p className="notice notice-info">
+                Text to speech is not configured for this environment.
+              </p>
+            )}
+            <div className="field">
+              <label htmlFor="audio-tts-text">Text</label>
+              <textarea
+                id="audio-tts-text"
+                value={text}
+                maxLength={3000}
+                onChange={(event) => setText(event.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="audio-tts-voice">Voice</label>
+              <select
+                id="audio-tts-voice"
+                value={voice}
+                onChange={(event) => setVoice(event.target.value)}
+              >
+                {voices.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label} · {item.language}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              disabled={
+                busy || !storageAvailable || !ttsAvailable || !text.trim() || !name.trim() || !voice
+              }
+              onClick={() => void synthesize()}
+            >
+              Generate and save
+            </button>
+          </SectionCard>
         </>
       )}
-      <h2>Audio assets</h2>
-      {assets.length === 0 ? (
-        <p>No audio assets are available.</p>
-      ) : (
-        <ul>
-          {assets.map((asset) => (
-            <li key={asset.id}>
-              <strong>{asset.name}</strong> — {asset.source};{' '}
-              {asset.durationMs === null
-                ? 'duration unavailable'
-                : `${Math.round(asset.durationMs / 1000)} sec`}
-              ; {asset.campaignCount} campaigns{' '}
-              <button type="button" onClick={() => void play(asset)}>
-                Play
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="field-hint">
-        Audio is available only within this organization. Campaign selection stores a reference;
-        call execution is not connected.
-      </p>
-    </section>
+      <SectionCard
+        title="Audio assets"
+        description="Assets are private to this organization and can be selected in a campaign draft."
+      >
+        {assets.length === 0 ? (
+          <EmptyState title="No audio assets available">
+            When secure storage is configured, recordings and generated audio will appear here.
+          </EmptyState>
+        ) : (
+          <ul>
+            {assets.map((asset) => (
+              <li key={asset.id}>
+                <strong>{asset.name}</strong> — {asset.source};{' '}
+                {asset.durationMs === null
+                  ? 'duration unavailable'
+                  : `${Math.round(asset.durationMs / 1000)} sec`}
+                ; {asset.campaignCount} campaigns{' '}
+                <button type="button" onClick={() => void play(asset)}>
+                  Play
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="field-hint">
+          Audio is available only within this organization. Campaign selection stores a reference;
+          call execution is not connected.
+        </p>
+      </SectionCard>
+    </div>
   );
 }

@@ -1,5 +1,6 @@
 import { formatUgx, type Billing, type Transactions, type Wallet } from '../../../lib/billing';
 import { BillingProfileForm, TopUpForm } from './BillingForms';
+import { EmptyState, SectionCard, StatusBadge } from '../AppUI';
 
 export function BillingView({
   organizationId,
@@ -16,34 +17,40 @@ export function BillingView({
 }) {
   return (
     <>
-      <section className="card-section">
-        <h2>Wallet balance</h2>
-        <p>{formatUgx(wallet.amountMinor)}</p>
+      <SectionCard title="Wallet balance" description="Calculated from confirmed ledger entries.">
+        <p className="billing-balance">{formatUgx(wallet.amountMinor)}</p>
         <p>Only confirmed ledger entries affect this balance.</p>
-      </section>
-      <section className="card-section">
-        <h2>Top-ups</h2>
+      </SectionCard>
+      <SectionCard
+        title="Top-ups"
+        description="Requests remain pending until payment collection is integrated."
+      >
         {canUpdate && <TopUpForm organizationId={organizationId} />}
-        <h3>Recent requests</h3>
+        <h3 className="subsection-title">Recent requests</h3>
         {billing.topUps.length === 0 ? (
-          <p>No top-up requests.</p>
+          <EmptyState title="No top-up requests">Submitted requests will appear here.</EmptyState>
         ) : (
           <ul>
             {billing.topUps.map((entry) => (
               <li key={entry.id}>
-                {formatUgx(entry.amountMinor)} — Pending — {entry.createdAt}
+                {formatUgx(entry.amountMinor)} — <StatusBadge tone="warning">Pending</StatusBadge> —{' '}
+                {entry.createdAt}
               </li>
             ))}
           </ul>
         )}
-      </section>
-      <section className="card-section">
-        <h2>Transaction history</h2>
+      </SectionCard>
+      <SectionCard
+        title="Transaction history"
+        description="Confirmed wallet entries for this organization."
+      >
         {transactions.entries.length === 0 ? (
-          <p>No confirmed wallet transactions on this page.</p>
+          <EmptyState title="No transactions yet">
+            Confirmed wallet activity will appear here.
+          </EmptyState>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table>
+            <table className="table">
               <caption>Confirmed wallet entries</caption>
               <thead>
                 <tr>
@@ -71,16 +78,18 @@ export function BillingView({
             Older transactions
           </a>
         )}
-      </section>
-      <section className="card-section">
-        <h2>Billing details</h2>
+      </SectionCard>
+      <SectionCard
+        title="Billing details"
+        description="Contact details associated with billing requests."
+      >
         {canUpdate ? (
           <BillingProfileForm organizationId={organizationId} profile={billing.profile} />
         ) : (
           <p>{billing.profile?.name ?? 'No billing details saved.'}</p>
         )}
         <p>Invoices, payment collection and usage charges are not available yet.</p>
-      </section>
+      </SectionCard>
     </>
   );
 }

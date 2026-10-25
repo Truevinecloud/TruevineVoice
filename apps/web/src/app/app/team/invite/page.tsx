@@ -4,6 +4,7 @@ import { delegableRoles } from '@truevine/auth';
 import { currentSession, hasPermission } from '../../../../lib/session';
 
 import { InviteForm } from './InviteForm';
+import { PageHeader, SectionCard } from '../../AppUI';
 
 /** `/app/team/invite` */
 export default async function InvitePage({
@@ -29,7 +30,7 @@ export default async function InvitePage({
   if (!hasPermission(membership, 'member:invite')) {
     return (
       <>
-        <h1 className="page-title">Invite someone</h1>
+        <PageHeader title="Invite a team member" eyebrow={membership.organizationName} />
         <p className="notice notice-error">
           Your role in this organization cannot invite new members.
         </p>
@@ -39,18 +40,22 @@ export default async function InvitePage({
 
   return (
     <>
-      <h1 className="page-title">Invite someone</h1>
-      <p style={{ color: '#5b6472', marginTop: '-0.5rem' }}>
-        They will receive a single-use link to join {membership.organizationName}.
-      </p>
+      <PageHeader
+        title="Invite a team member"
+        eyebrow={membership.organizationName}
+        description="They will receive a single-use invitation link to join this organization."
+      />
 
-      <div className="card-section">
+      <SectionCard
+        title="Invitation details"
+        description="Assign a role no more powerful than the one you hold."
+      >
         <InviteForm
           organizationId={membership.organizationId}
           organizationName={membership.organizationName}
           roles={delegableRoles(membership.role)}
         />
-      </div>
+      </SectionCard>
     </>
   );
 }

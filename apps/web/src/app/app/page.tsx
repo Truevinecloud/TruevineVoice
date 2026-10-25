@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 
 import { fetchInvitations, fetchMembers, fetchOrganization } from '../../lib/org-api';
 import { currentSession, hasPermission } from '../../lib/session';
+import { EmptyState, PageHeader, SectionCard } from './AppUI';
 
 /**
  * Organization dashboard. Shows actual organization data and points authorized
@@ -34,8 +35,10 @@ export default async function DashboardPage({
   if (requested !== undefined && !membership) {
     return (
       <>
-        <h1 className="page-title">Dashboard</h1>
-        <p role="alert">You do not have access to the selected organization.</p>
+        <PageHeader title="Dashboard" description="Your organization workspace." />
+        <p className="notice notice-error" role="alert">
+          You do not have access to the selected organization.
+        </p>
       </>
     );
   }
@@ -43,14 +46,12 @@ export default async function DashboardPage({
   if (!membership) {
     return (
       <>
-        <h1 className="page-title">Welcome</h1>
-        <div className="card-section">
-          <h2>No organization yet</h2>
-          <p>
-            Your account is not a member of any organization. Accept an invitation, or ask an
-            organization owner to invite you.
-          </p>
-        </div>
+        <PageHeader title="Welcome" description="Your Truevine Voice account is ready." />
+        <SectionCard>
+          <EmptyState title="No organization yet">
+            Accept an invitation, or ask an organization owner to invite you.
+          </EmptyState>
+        </SectionCard>
       </>
     );
   }
@@ -69,26 +70,29 @@ export default async function DashboardPage({
 
   return (
     <>
-      <h1 className="page-title">{organization?.name ?? membership.organizationName}</h1>
-      <p style={{ color: '#5b6472', marginTop: '-0.5rem' }}>
-        You are signed in as {membership.role.replace(/_/g, ' ').toLowerCase()} in this
-        organization.
-      </p>
+      <PageHeader
+        eyebrow="Organization workspace"
+        title={organization?.name ?? membership.organizationName}
+        description={`Signed in as ${membership.role.replace(/_/g, ' ').toLowerCase()} in this organization.`}
+      />
 
-      <div className="card-section">
-        <h2>Team</h2>
+      <SectionCard title="Team" description="People who have access to this organization.">
         {members === null ? (
           <p>You do not have permission to view members of this organization.</p>
         ) : (
           <p>
             {members.length} {members.length === 1 ? 'member' : 'members'}.{' '}
-            <a href="/app/team">View the team</a>
+            <a href={`/app/team?organization=${encodeURIComponent(membership.organizationId)}`}>
+              View the team
+            </a>
           </p>
         )}
-      </div>
+      </SectionCard>
 
-      <div className="card-section">
-        <h2>Pending invitations</h2>
+      <SectionCard
+        title="Pending invitations"
+        description="Outstanding invitations for this organization."
+      >
         {outstanding === null ? (
           <p>You do not have permission to view invitations for this organization.</p>
         ) : outstanding.length === 0 ? (
@@ -96,21 +100,26 @@ export default async function DashboardPage({
         ) : (
           <p>
             {outstanding.length} {outstanding.length === 1 ? 'invitation is' : 'invitations are'}{' '}
-            waiting for a response. <a href="/app/invitations">Review them</a>
+            waiting for a response.{' '}
+            <a
+              href={`/app/invitations?organization=${encodeURIComponent(membership.organizationId)}`}
+            >
+              Review them
+            </a>
           </p>
         )}
-      </div>
+      </SectionCard>
 
-      <div className="card-section">
-        <h2>Not built yet</h2>
+      <SectionCard
+        title="Product status"
+        description="Availability based on the current implementation."
+      >
         <p>
-          Call history is not available. Contacts are accessible to authorized users through
-          the Contacts link. Billing and wallet are accessible to
-          authorized billing users through the Billing link. This dashboard deliberately shows
-          nothing for them rather than placeholder figures. The permissions that will govern them
-          already exist in the registry.
+          Contacts, campaigns, and billing appear in navigation only when your session grants the
+          required organization permissions. Call history and campaign outcomes are not available
+          yet; no activity metrics are fabricated.
         </p>
-      </div>
+      </SectionCard>
     </>
   );
 }
