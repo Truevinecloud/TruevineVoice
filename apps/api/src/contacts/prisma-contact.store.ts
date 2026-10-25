@@ -886,4 +886,17 @@ export class PrismaContactStore implements ContactStore {
     });
     return rows.map((row) => ({ id: row.id, phoneE164: row.phoneE164 ?? row.destination }));
   }
+
+  countEligibleForGroups(i: { organizationId: string; groupIds: readonly string[] }): Promise<number> {
+    return this.prisma.contact.count({
+      where: {
+        organizationId: i.organizationId,
+        voiceConsentAt: { not: null },
+        suppressedAt: null,
+        groupLinks: {
+          some: { organizationId: i.organizationId, groupId: { in: [...i.groupIds] } },
+        },
+      },
+    });
+  }
 }

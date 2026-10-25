@@ -1,32 +1,81 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { PrismaClient } from '@truevine/database';
-import { authorizeTenantWrite, type TenantWriteSql } from '../auth/tenant-write.js';
+import type { Prisma, PrismaClient } from '@truevine/database';
 import { invalidCampaign } from '@truevine/auth';
+
+import { authorizeTenantWrite, type TenantWriteSql } from '../auth/tenant-write.js';
 import {
   campaignAuditState,
-  writeMutationAudit,
   mutationRefused,
+  writeMutationAudit,
 } from '../auth/sensitive-audit.js';
 import { DATABASE_CLIENT } from '../tokens.js';
-import type {
-  CampaignChanges,
-  CampaignRecord,
-  CampaignStore,
-  NewCampaign,
+import {
+  CampaignNotEditableError,
+  type CampaignChanges,
+  type CampaignRecord,
+  type CampaignStore,
+  type NewCampaign,
 } from './campaign.store.js';
+
+const audienceInclude = {
+  audienceGroups: { select: { groupId: true } },
+} satisfies Prisma.CampaignInclude;
+type CampaignRow = Prisma.CampaignGetPayload<{ include: typeof audienceInclude }>;
 
 type CampaignClient = Pick<
   PrismaClient,
-  'campaign' | 'audioAssetUsage' | 'audioAsset' | 'securityAuditEvent'
+  | 'campaign'
+  | 'campaignAudienceGroup'
+  | 'contactGroup'
+  | 'audioAssetUsage'
+  | 'audioAsset'
+  | 'securityAuditEvent'
 > &
   TenantWriteSql;
 type CampaignDatabase = CampaignClient & {
   $transaction<T>(work: (tx: CampaignClient) => Promise<T>): Promise<T>;
 };
-/** Scoped mutation, fresh authority and required audit share one transaction. */
+
+function toRecord(row: CampaignRow): CampaignRecord {
+  return {
+    organizationId: row.organizationId,
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    audioAssetId: row.audioAssetId,
+    scheduledAt: row.scheduledAt,
+    retryMaxAttempts: row.retryMaxAttempts,
+    retryDelayMinutes: row.retryDelayMinutes,
+    audienceGroupIds: row.audienceGroups.map(({ groupId }) => groupId),
+    emergencyStoppedAt: row.emergencyStoppedAt,
+    createdById: row.createdById,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+async function assertTenantGroups(
+  tx: CampaignClient,
+  organizationId: string,
+  groupIds: readonly string[],
+): Promise<void> {
+  if (groupIds.length === 0) return;
+  const groups = await tx.contactGroup.findMany({
+    where: { organizationId, id: { in: [...groupIds] } },
+    select: { id: true },
+  });
+  if (groups.length !== groupIds.length) {
+    throw invalidCampaign(
+      'One or more selected contact groups were not found in this organization.',
+    );
+  }
+}
+
+/** Scoped mutations, fresh authority, persistence, and audit share a transaction. */
 @Injectable()
 export class PrismaCampaignStore implements CampaignStore {
   constructor(@Inject(DATABASE_CLIENT) private readonly prisma: CampaignDatabase) {}
+
   async createCampaign(campaign: NewCampaign): Promise<CampaignRecord> {
     return this.prisma
       .$transaction(async (tx) => {
@@ -36,12 +85,44 @@ export class PrismaCampaignStore implements CampaignStore {
           campaign.createdById,
           'campaign:create',
         );
-        const created = await tx.campaign.create({
+        await assertTenantGroups(tx, campaign.organizationId, campaign.audienceGroupIds ?? []);
+        if (campaign.audioAssetId) {
+          const asset = await tx.audioAsset.findUnique({
+            where: {
+              organizationId_id: {
+                organizationId: campaign.organizationId,
+                id: campaign.audioAssetId,
+              },
+            },
+            select: { id: true },
+          });
+          if (!asset)
+            throw invalidCampaign('Selected audio asset was not found in this organization.');
+        }
+        await tx.campaign.create({
           data: {
-            ...campaign,
+            organizationId: campaign.organizationId,
+            id: campaign.id,
+            name: campaign.name,
+            status: 'DRAFT',
             audioOrganizationId: campaign.audioAssetId ? campaign.organizationId : null,
+            audioAssetId: campaign.audioAssetId ?? null,
+            scheduledAt: campaign.scheduledAt ?? null,
+            retryMaxAttempts: campaign.retryMaxAttempts ?? 1,
+            retryDelayMinutes: campaign.retryDelayMinutes ?? 60,
+            createdById: campaign.createdById,
           },
         });
+        const groupIds = campaign.audienceGroupIds ?? [];
+        if (groupIds.length > 0) {
+          await tx.campaignAudienceGroup.createMany({
+            data: groupIds.map((groupId) => ({
+              organizationId: campaign.organizationId,
+              campaignId: campaign.id,
+              groupId,
+            })),
+          });
+        }
         if (campaign.audioAssetId) {
           const asset = await tx.audioAsset.findUnique({
             where: {
@@ -59,7 +140,7 @@ export class PrismaCampaignStore implements CampaignStore {
               assetId: asset.id,
               actorUserId: campaign.createdById,
               action: 'CAMPAIGN_SELECTED',
-              campaignId: created.id,
+              campaignId: campaign.id,
               byteSize: asset.byteSize,
               durationMs: asset.durationMs,
               ttsCharacterCount: asset.ttsCharacterCount,
@@ -70,26 +151,33 @@ export class PrismaCampaignStore implements CampaignStore {
             actorUserId: campaign.createdById,
             action: 'campaign.audio_selected',
             targetType: 'campaign',
-            targetId: created.id,
+            targetId: campaign.id,
             before: null,
             change: { audioSelected: true },
             after: { audioSelected: true },
             reasonCode: 'campaign_audio_selected',
           });
         }
+        const row = await tx.campaign.findUniqueOrThrow({
+          where: {
+            organizationId_id: { organizationId: campaign.organizationId, id: campaign.id },
+          },
+          include: audienceInclude,
+        });
+        const view = toRecord(row);
         await writeMutationAudit(tx, {
           organizationId: campaign.organizationId,
           actorUserId: campaign.createdById,
           action: 'campaign.created',
           targetType: 'campaign',
-          targetId: created.id,
+          targetId: campaign.id,
           before: null,
-          change: campaignAuditState(created),
-          after: campaignAuditState(created),
+          change: campaignAuditState(view),
+          after: campaignAuditState(view),
           reasonCode: 'campaign_creation',
-          legacy: { organizationId: campaign.organizationId, campaignId: created.id },
+          legacy: { organizationId: campaign.organizationId, campaignId: campaign.id },
         });
-        return created;
+        return view;
       })
       .catch((error) =>
         mutationRefused(
@@ -105,22 +193,27 @@ export class PrismaCampaignStore implements CampaignStore {
         ),
       );
   }
-  listCampaigns(organizationId: string): Promise<readonly CampaignRecord[]> {
-    return this.prisma.campaign.findMany({
+
+  async listCampaigns(organizationId: string): Promise<readonly CampaignRecord[]> {
+    const rows = await this.prisma.campaign.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
+      include: audienceInclude,
     });
+    return rows.map(toRecord);
   }
+
   async findCampaign(
     organizationId: string,
     campaignId: string,
   ): Promise<CampaignRecord | undefined> {
-    return (
-      (await this.prisma.campaign.findUnique({
-        where: { organizationId_id: { organizationId, id: campaignId } },
-      })) ?? undefined
-    );
+    const row = await this.prisma.campaign.findUnique({
+      where: { organizationId_id: { organizationId, id: campaignId } },
+      include: audienceInclude,
+    });
+    return row ? toRecord(row) : undefined;
   }
+
   async updateCampaign(
     organizationId: string,
     campaignId: string,
@@ -130,28 +223,56 @@ export class PrismaCampaignStore implements CampaignStore {
     return this.prisma
       .$transaction(async (tx) => {
         await authorizeTenantWrite(tx, organizationId, actorUserId, 'campaign:update');
-        const before = await tx.campaign.findUnique({
+        const beforeRow = await tx.campaign.findUnique({
           where: { organizationId_id: { organizationId, id: campaignId } },
+          include: audienceInclude,
         });
-        if (!before) return undefined;
+        if (!beforeRow) return undefined;
+        if (beforeRow.status !== 'DRAFT' || beforeRow.emergencyStoppedAt) {
+          throw new CampaignNotEditableError();
+        }
+        const before = toRecord(beforeRow);
         const beforeState = campaignAuditState(before);
-        // Project mutable fields explicitly; organization/creator identity cannot move.
         const data = {
+          updatedAt: new Date(),
           ...(changes.name === undefined ? {} : { name: changes.name }),
-          ...(changes.status === undefined ? {} : { status: changes.status }),
+          ...(changes.scheduledAt === undefined ? {} : { scheduledAt: changes.scheduledAt }),
+          ...(changes.retryMaxAttempts === undefined
+            ? {}
+            : { retryMaxAttempts: changes.retryMaxAttempts }),
+          ...(changes.retryDelayMinutes === undefined
+            ? {}
+            : { retryDelayMinutes: changes.retryDelayMinutes }),
           ...(Object.hasOwn(changes, 'audioAssetId')
-            ? { audioOrganizationId: changes.audioAssetId ? organizationId : null }
+            ? {
+                audioOrganizationId: changes.audioAssetId ? organizationId : null,
+                audioAssetId: changes.audioAssetId ?? null,
+              }
             : {}),
         };
+        if (Object.hasOwn(changes, 'audienceGroupIds')) {
+          const groupIds = changes.audienceGroupIds ?? [];
+          await assertTenantGroups(tx, organizationId, groupIds);
+          await tx.campaignAudienceGroup.deleteMany({ where: { organizationId, campaignId } });
+          if (groupIds.length > 0) {
+            await tx.campaignAudienceGroup.createMany({
+              data: groupIds.map((groupId) => ({ organizationId, campaignId, groupId })),
+            });
+          }
+        }
+        if (changes.audioAssetId) {
+          const asset = await tx.audioAsset.findUnique({
+            where: { organizationId_id: { organizationId, id: changes.audioAssetId } },
+            select: { id: true },
+          });
+          if (!asset)
+            throw invalidCampaign('Selected audio asset was not found in this organization.');
+        }
         const result = await tx.campaign.updateMany({
-          where: {
-            organizationId,
-            id: campaignId,
-            ...(changes.status === 'ACTIVE' ? { emergencyStoppedAt: null } : {}),
-          },
+          where: { organizationId, id: campaignId, status: 'DRAFT', emergencyStoppedAt: null },
           data,
         });
-        if (result.count !== 1) return undefined;
+        if (result.count !== 1) throw new CampaignNotEditableError();
         if (Object.hasOwn(changes, 'audioAssetId')) {
           if (changes.audioAssetId) {
             const asset = await tx.audioAsset.findUnique({
@@ -184,9 +305,11 @@ export class PrismaCampaignStore implements CampaignStore {
             reasonCode: 'campaign_audio_selected',
           });
         }
-        const after = await tx.campaign.findUniqueOrThrow({
+        const afterRow = await tx.campaign.findUniqueOrThrow({
           where: { organizationId_id: { organizationId, id: campaignId } },
+          include: audienceInclude,
         });
+        const after = toRecord(afterRow);
         await writeMutationAudit(tx, {
           organizationId,
           actorUserId,
@@ -194,7 +317,12 @@ export class PrismaCampaignStore implements CampaignStore {
           targetType: 'campaign',
           targetId: campaignId,
           before: beforeState,
-          change: { fields: Object.keys(data) },
+          change: {
+            fields: [
+              ...Object.keys(data),
+              ...(Object.hasOwn(changes, 'audienceGroupIds') ? ['audienceGroupIds'] : []),
+            ],
+          },
           after: campaignAuditState(after),
           reasonCode: 'campaign_update',
           legacy: { organizationId, campaignId },
@@ -205,8 +333,8 @@ export class PrismaCampaignStore implements CampaignStore {
         mutationRefused(
           this.prisma,
           {
-            organizationId: organizationId,
-            actorUserId: actorUserId,
+            organizationId,
+            actorUserId,
             action: 'campaign.updated',
             targetType: 'campaign',
             targetId: campaignId,
@@ -215,6 +343,7 @@ export class PrismaCampaignStore implements CampaignStore {
         ),
       );
   }
+
   async deleteCampaign(
     organizationId: string,
     campaignId: string,
@@ -223,22 +352,26 @@ export class PrismaCampaignStore implements CampaignStore {
     return this.prisma
       .$transaction(async (tx) => {
         await authorizeTenantWrite(tx, organizationId, actorUserId, 'campaign:delete');
-        const before = await tx.campaign.findUnique({
+        const beforeRow = await tx.campaign.findUnique({
           where: { organizationId_id: { organizationId, id: campaignId } },
+          include: audienceInclude,
         });
-        if (!before) return false;
-        const beforeState = campaignAuditState(before);
+        if (!beforeRow) return false;
+        if (beforeRow.status !== 'DRAFT' || beforeRow.emergencyStoppedAt) {
+          throw new CampaignNotEditableError();
+        }
+        const before = toRecord(beforeRow);
         const result = await tx.campaign.deleteMany({
-          where: { organizationId, id: campaignId, emergencyStoppedAt: null },
+          where: { organizationId, id: campaignId, status: 'DRAFT', emergencyStoppedAt: null },
         });
-        if (result.count !== 1) return false;
+        if (result.count !== 1) throw new CampaignNotEditableError();
         await writeMutationAudit(tx, {
           organizationId,
           actorUserId,
           action: 'campaign.deleted',
           targetType: 'campaign',
           targetId: campaignId,
-          before: beforeState,
+          before: campaignAuditState(before),
           change: { deleted: true },
           after: null,
           reasonCode: 'campaign_deletion',
@@ -250,8 +383,8 @@ export class PrismaCampaignStore implements CampaignStore {
         mutationRefused(
           this.prisma,
           {
-            organizationId: organizationId,
-            actorUserId: actorUserId,
+            organizationId,
+            actorUserId,
             action: 'campaign.deleted',
             targetType: 'campaign',
             targetId: campaignId,

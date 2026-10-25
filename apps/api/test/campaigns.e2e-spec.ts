@@ -89,6 +89,9 @@ async function removeFixtures(client: PrismaClient): Promise<void> {
   const users = [USER_OWNER, USER_ADMIN, USER_CM, USER_BILLING, USER_VIEWER, USER_FOREIGN];
 
   await client.campaign.deleteMany({ where: { organizationId: { in: [ORG, ORG_B] } } });
+  await client.contactGroup.deleteMany({ where: { organizationId: { in: [ORG, ORG_B] } } });
+  await client.contact.deleteMany({ where: { organizationId: { in: [ORG, ORG_B] } } });
+  await client.audioAsset.deleteMany({ where: { organizationId: { in: [ORG, ORG_B] } } });
   await client.session.deleteMany({ where: { userId: { in: users } } });
   await client.termsAcceptance.deleteMany({ where: { userId: { in: users } } });
 }
@@ -258,9 +261,9 @@ describe('campaign routes: the roles that may manage campaigns', () => {
 
       const updated = await caller
         .patch(`${campaignsPath}/${created.body.id}`)
-        .send({ name: `By ${label} renamed`, status: 'ACTIVE' });
+        .send({ name: `By ${label} renamed` });
       expect(updated.status).toBe(200);
-      expect(updated.body).toMatchObject({ name: `By ${label} renamed`, status: 'ACTIVE' });
+      expect(updated.body).toMatchObject({ name: `By ${label} renamed`, status: 'DRAFT' });
 
       const removed = await caller.delete(`${campaignsPath}/${created.body.id}`);
       expect(removed.status).toBe(204);
@@ -308,6 +311,9 @@ describe('campaign routes: the roles that must not mutate them', () => {
 
     const patch = await caller.patch(`${campaignsPath}/${campaignId}`).send({ name: 'x' });
     expect(patch.status).toBe(403);
+
+    const preflight = await caller.post(`${campaignsPath}/${campaignId}/preflight`).send({});
+    expect(preflight.status).toBe(403);
 
     const remove = await caller.delete(`${campaignsPath}/${campaignId}`);
     expect(remove.status).toBe(403);
@@ -456,6 +462,155 @@ describe('campaign routes: tenant isolation', () => {
 });
 
 describe('campaign routes: validation over HTTP', () => {
+  it('persists a tenant-owned audience draft and runs read-only preflight', async () => {
+    const caller = await asUser(EMAIL_OWNER);
+    const group = await caller
+      .post(`/organizations/${ORG}/contact-groups`)
+      .send({ name: `Audience ${RUN}` });
+    expect(group.status, JSON.stringify(group.body)).toBe(201);
+    const scheduledAt = new Date(Date.now() + 10 * 60_000).toISOString();
+    const created = await caller.post(campaignsPath).send({
+      name: 'Prepared draft',
+      audienceGroupIds: [group.body.id],
+      scheduledAt,
+      retryMaxAttempts: 3,
+      retryDelayMinutes: 30,
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body).toMatchObject({
+      status: 'DRAFT',
+      audienceGroupIds: [group.body.id],
+      retryMaxAttempts: 3,
+      retryDelayMinutes: 30,
+    });
+    const preflight = await caller.post(`${campaignsPath}/${created.body.id}/preflight`).send({});
+    expect(preflight.status).toBe(200);
+    expect(preflight.body).toMatchObject({ valid: false, eligibleContactCount: 0 });
+    expect(
+      preflight.body.issues.some((issue: { code: string }) => issue.code === 'audio_required'),
+    ).toBe(true);
+    expect(
+      await database.campaignExecution.count({
+        where: { organizationId: ORG, campaignId: created.body.id },
+      }),
+    ).toBe(0);
+    expect(
+      await database.campaignRecipient.count({
+        where: { organizationId: ORG, campaignId: created.body.id },
+      }),
+    ).toBe(0);
+  });
+
+  it('rejects an audience group owned by another organization', async () => {
+    const foreign = await asUser(EMAIL_FOREIGN);
+    const group = await foreign
+      .post(`/organizations/${ORG_B}/contact-groups`)
+      .send({ name: `Foreign ${RUN}` });
+    expect(group.status).toBe(201);
+    const caller = await asUser(EMAIL_OWNER);
+    const response = await caller
+      .post(campaignsPath)
+      .send({ name: 'Cross tenant', audienceGroupIds: [group.body.id] });
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('invalid_campaign');
+  });
+
+  it('passes preflight for a scheduled draft with audio and currently eligible consented contacts', async () => {
+    const caller = await asUser(EMAIL_OWNER);
+    const group = await caller
+      .post(`/organizations/${ORG}/contact-groups`)
+      .send({ name: `Ready ${RUN}` });
+    expect(group.status).toBe(201);
+    const contact = await caller
+      .post(`/organizations/${ORG}/contacts`)
+      .send({ phone: '+14155550123' });
+    expect(contact.status).toBe(201);
+    const consent = await caller
+      .post(`/organizations/${ORG}/contacts/${contact.body.id}/voice-consent`)
+      .send({
+        consentedAt: new Date(Date.now() - 60_000).toISOString(),
+        source: 'e2e:verified',
+        purpose: 'voice_calling',
+        evidenceReference: `synthetic:${RUN}`,
+        sourceVerified: true,
+      });
+    expect(consent.status).toBe(201);
+    const member = await caller
+      .post(`/organizations/${ORG}/contact-groups/${group.body.id}/contacts/${contact.body.id}`)
+      .send({});
+    expect(member.status).toBe(201);
+
+    const audioAssetId = randomUUID();
+    await database.audioAsset.create({
+      data: {
+        organizationId: ORG,
+        id: audioAssetId,
+        createdById: USER_OWNER,
+        name: 'Synthetic preflight audio',
+        source: 'RECORDING',
+        mimeType: 'audio/wav',
+        storageKey: `${ORG}/audio/e2e/${RUN}/synthetic.wav`,
+        checksumSha256: 'a'.repeat(64),
+        byteSize: 64n,
+        durationMs: 1000,
+      },
+    });
+    const campaign = await database.campaign.create({
+      data: {
+        organizationId: ORG,
+        id: randomUUID(),
+        name: 'Ready preflight draft',
+        status: 'DRAFT',
+        createdById: USER_OWNER,
+        audioOrganizationId: ORG,
+        audioAssetId,
+        scheduledAt: new Date(Date.now() + 10 * 60_000),
+        retryMaxAttempts: 2,
+        retryDelayMinutes: 20,
+      },
+    });
+    await database.campaignAudienceGroup.create({
+      data: {
+        organizationId: ORG,
+        campaignId: campaign.id,
+        groupId: group.body.id,
+      },
+    });
+
+    const response = await caller.post(`${campaignsPath}/${campaign.id}/preflight`).send({});
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body).toMatchObject({
+      valid: true,
+      selectedGroupCount: 1,
+      eligibleContactCount: 1,
+      issues: [],
+    });
+    expect(
+      await database.campaignExecution.count({
+        where: { organizationId: ORG, campaignId: campaign.id },
+      }),
+    ).toBe(0);
+    expect(
+      await database.campaignRecipient.count({
+        where: { organizationId: ORG, campaignId: campaign.id },
+      }),
+    ).toBe(0);
+  });
+
+  it('enforces retry bounds in PostgreSQL as well as at the API boundary', async () => {
+    const campaignId = await createCampaign(EMAIL_OWNER, 'Retry constraints');
+    await expect(
+      database.campaign.update({
+        where: { organizationId_id: { organizationId: ORG, id: campaignId } },
+        data: { retryMaxAttempts: 6 },
+      }),
+    ).rejects.toThrow();
+    const unchanged = await database.campaign.findUnique({
+      where: { organizationId_id: { organizationId: ORG, id: campaignId } },
+    });
+    expect(unchanged?.retryMaxAttempts).toBe(1);
+  });
+
   it('refuses an empty name with 400 invalid_campaign', async () => {
     const caller = await asUser(EMAIL_CM);
 
@@ -511,7 +666,7 @@ describe('campaign routes: audit over HTTP', () => {
     const campaignId = await createCampaign(EMAIL_CM, 'Update audited');
     const caller = await asUser(EMAIL_CM);
 
-    await caller.patch(`${campaignsPath}/${campaignId}`).send({ status: 'ACTIVE' });
+    await caller.patch(`${campaignsPath}/${campaignId}`).send({ name: 'Update audited renamed' });
 
     const rows = await database.securityAuditEvent.findMany({
       where: { organizationId: ORG, action: 'campaign.updated', actorUserId: USER_CM },

@@ -39,7 +39,9 @@ describe('proxy allowlist', () => {
       'POST /organizations/abc/audio-assets/asset-id/playback-link',
       'GET /organizations/abc/campaigns',
       'POST /organizations/abc/campaigns',
+      'GET /organizations/abc/campaigns/campaign-id',
       'PATCH /organizations/abc/campaigns/campaign-id',
+      'POST /organizations/abc/campaigns/campaign-id/preflight',
       'POST /organizations/abc/contacts',
       'PATCH /organizations/abc/contacts/def',
       'DELETE /organizations/abc/contacts/def',
@@ -154,14 +156,12 @@ describe('proxy allowlist', () => {
     const bytes = Uint8Array.from([0x00, 0xff, 0x61, 0x1a, 0x45, 0xdf, 0xa3]);
     const boundary = 'audio-upload-boundary';
     const contentType = `multipart/form-data; boundary=${boundary}`;
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(
-        new Response('{"id":"asset"}', {
-          status: 201,
-          headers: { 'content-type': 'application/json' },
-        }),
-      );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{"id":"asset"}', {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
     try {
       const request = new NextRequest(
         'http://web.test/api/organizations/tenant-a/audio-assets/recordings',
