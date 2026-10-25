@@ -32,4 +32,3 @@ ALTER TABLE "campaign_audience_groups" ADD CONSTRAINT "campaign_audience_groups_
 ALTER TABLE "campaign_audience_groups" ADD CONSTRAINT "campaign_audience_groups_organization_id_group_id_fkey" FOREIGN KEY ("organization_id", "group_id") REFERENCES "contact_groups"("organization_id", "id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 COMMIT;
-
