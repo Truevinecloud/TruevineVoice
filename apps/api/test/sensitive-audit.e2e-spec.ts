@@ -796,7 +796,7 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
           where: { organizationId_id: { organizationId: f.org, id: f.campaign } },
         })
       )?.status,
-    ).toBe('ACTIVE');
+    ).toBe(action === 'campaign_update' || action === 'campaign_delete' ? 'DRAFT' : 'ACTIVE');
     expect(await db.billingProfile.count({ where: { organizationId: f.org } })).toBe(0);
     expect(await db.topUpRequest.count({ where: { organizationId: f.org } })).toBe(0);
     expect((await db.user.findUnique({ where: { id: f.owner } }))?.status).toBe('ACTIVE');

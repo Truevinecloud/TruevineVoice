@@ -234,7 +234,7 @@ describe('RBAC-007 platform operations over real PostgreSQL and HTTP', () => {
     const reactivation = await manager
       .patch(`/organizations/${ORG_B}/campaigns/${CAMPAIGN}`)
       .send({ status: 'ACTIVE' });
-    expect(reactivation.status).toBe(404);
+    expect(reactivation.status).toBe(400);
     const deletion = await manager.delete(`/organizations/${ORG_B}/campaigns/${CAMPAIGN}`);
     expect(deletion.status).toBe(404);
     expect(

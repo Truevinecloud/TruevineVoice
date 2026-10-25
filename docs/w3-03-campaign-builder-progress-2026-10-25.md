@@ -44,7 +44,12 @@ expected HTTP 200 from the existing consent-creation endpoint, which returns
 201. Shared sensitive-audit cases also edited ACTIVE fixture campaigns; the
 builder now correctly rejects edits outside DRAFT. Corrected the endpoint
 expectation and adjusted those E2E cases to preserve and assert the draft-only
-rule and truthful audit behavior. The PR checks are being rerun; hosted
+rule and truthful audit behavior. A second hosted E2E run then exposed existing
+expectations in campaign emergency-stop/audit cases that assumed status edits
+or ACTIVE fixture state. Updated assertions to expect validation rejection of
+attempted customer reactivation and to verify rollback leaves the deliberately
+DRAFT audit fixtures unchanged. These are test corrections only; the draft-only
+builder rule is unchanged. The corrected PR checks are being rerun; hosted
 PostgreSQL E2E, review, merge and exact-main CI remain pending.
 
 ## Deferred and separate acceptance tracking
