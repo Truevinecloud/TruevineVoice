@@ -40,8 +40,7 @@ could not connect to the configured local database; it failed during fixture
 cleanup before assertions ran. No local E2E assertion is claimed. Hosted
 The first hosted PR run passed lint/typecheck/Prisma, production build and unit
 tests, but failed two PostgreSQL-backed E2E jobs. One new preflight fixture
-expected HTTP 200 from the existing consent-creation endpoint, which returns
-201. Shared sensitive-audit cases also edited ACTIVE fixture campaigns; the
+expected HTTP 200 from the existing consent-creation endpoint, which returns 201. Shared sensitive-audit cases also edited ACTIVE fixture campaigns; the
 builder now correctly rejects edits outside DRAFT. Corrected the endpoint
 expectation and adjusted those E2E cases to preserve and assert the draft-only
 rule and truthful audit behavior. A second hosted E2E run then exposed existing
@@ -49,8 +48,11 @@ expectations in campaign emergency-stop/audit cases that assumed status edits
 or ACTIVE fixture state. Updated assertions to expect validation rejection of
 attempted customer reactivation and to verify rollback leaves the deliberately
 DRAFT audit fixtures unchanged. These are test corrections only; the draft-only
-builder rule is unchanged. The corrected PR checks are being rerun; hosted
-PostgreSQL E2E, review, merge and exact-main CI remain pending.
+builder rule is unchanged. The next full E2E pass surfaced the security-test
+runner's explicit migration review guard, which required adding the W3-03
+migration to its ordered disposable-database rehearsal list. That reviewed list
+is now updated, and hosted CI is being rerun. PostgreSQL E2E, review, merge and
+exact-main CI remain pending.
 
 ## Deferred and separate acceptance tracking
 
