@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { currentSession, hasPermission } from '../../../lib/session';
 import { fetchBilling } from '../../../lib/billing-api';
 import { BillingView } from './BillingView';
+import { PageHeader } from '../AppUI';
 
 export default async function BillingPage({
   searchParams,
@@ -26,7 +27,7 @@ export default async function BillingPage({
   )
     return (
       <>
-        <h1>Billing</h1>
+        <PageHeader title="Billing" />
         <p role="alert">You do not have billing access in this organization.</p>
       </>
     );
@@ -37,7 +38,7 @@ export default async function BillingPage({
   } catch {
     return (
       <>
-        <h1>Billing</h1>
+        <PageHeader title="Billing" eyebrow={membership.organizationName} />
         <p role="alert">
           Billing information could not be loaded. Your session or permissions may have changed.
           Reload or sign in again.
@@ -47,7 +48,11 @@ export default async function BillingPage({
   }
   return (
     <>
-      <h1 className="page-title">Billing — {membership.organizationName}</h1>
+      <PageHeader
+        title="Billing"
+        eyebrow={membership.organizationName}
+        description="Review ledger balance, transaction history, and billing details."
+      />
       <nav aria-label="Billing organization">
         {session.me.memberships
           .filter((entry) => hasPermission(entry, 'billing:read'))

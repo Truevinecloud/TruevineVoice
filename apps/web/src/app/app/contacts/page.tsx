@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { currentSession, hasPermission } from '../../../lib/session';
 import { ContactsView } from './ContactsView';
+import { PageHeader } from '../AppUI';
 
 export default async function ContactsPage({
   searchParams,
@@ -21,7 +22,7 @@ export default async function ContactsPage({
   if (!membership || !hasPermission(membership, 'contact:read')) {
     return (
       <>
-        <h1 className="page-title">Contacts</h1>
+        <PageHeader title="Contacts" />
         <p role="alert">You do not have access to contacts in the selected organization.</p>
       </>
     );

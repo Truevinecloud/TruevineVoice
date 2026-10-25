@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 
 import { fetchCampaignStatusReport } from '../../../lib/org-api';
 import { currentSession, hasPermission } from '../../../lib/session';
+import { PageHeader, SectionCard } from '../AppUI';
 
 /** A read-only status report built from the campaign records currently available. */
 export default async function ReportsPage({
@@ -23,20 +24,32 @@ export default async function ReportsPage({
       : session.me.memberships.find((entry) => entry.organizationId === requested);
 
   if (!membership || !hasPermission(membership, 'reporting:read')) {
-    return <p role="alert">You do not have reporting access in this organization.</p>;
+    return (
+      <>
+        <PageHeader title="Reports" />
+        <p className="notice notice-error" role="alert">
+          You do not have reporting access in this organization.
+        </p>
+      </>
+    );
   }
 
   const report = await fetchCampaignStatusReport(membership.organizationId);
 
   return (
     <>
-      <h1 className="page-title">Reports — {membership.organizationName}</h1>
-      <p>Campaign inventory summary. This report includes campaign record status only.</p>
+      <PageHeader
+        title="Reports"
+        eyebrow={membership.organizationName}
+        description="Campaign inventory summary. This report includes campaign record status only."
+      />
       {report === null ? (
         <p role="alert">The report could not be loaded.</p>
       ) : (
-        <section className="card-section" aria-label="Campaign status summary">
-          <h2>Campaigns by status</h2>
+        <SectionCard
+          title="Campaigns by status"
+          description="This report includes campaign record status only."
+        >
           <dl>
             <div>
               <dt>Total campaigns</dt>
@@ -55,7 +68,7 @@ export default async function ReportsPage({
               <dd>{report.completed}</dd>
             </div>
           </dl>
-        </section>
+        </SectionCard>
       )}
       <p className="field-hint">
         Call attempts, delivery outcomes, and performance metrics are not available yet.

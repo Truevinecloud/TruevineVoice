@@ -9,6 +9,7 @@ import {
   type Contact,
   type ContactPage,
 } from '../../../lib/contacts';
+import { EmptyState, PageHeader, SectionCard } from '../AppUI';
 
 export function ContactsView({
   organizationId,
@@ -166,54 +167,60 @@ export function ContactsView({
 
   return (
     <>
-      <div className="contacts-toolbar">
-        <div>
-          <h1 className="page-title">Contacts</h1>
-          <p>{organizationName}</p>
-        </div>
-        {canCreate && (
-          <button
-            className="button-secondary"
-            disabled={busy || loading}
-            onClick={() => open('add')}
-          >
-            Add Contact
-          </button>
-        )}
-      </div>
-      <form
-        className="contacts-toolbar"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void load(query);
-        }}
+      <PageHeader
+        title="Contacts"
+        eyebrow={organizationName}
+        description="Manage the people and organizations in your calling audience."
+        actions={
+          canCreate && (
+            <button
+              className="button-primary"
+              disabled={busy || loading}
+              onClick={() => open('add')}
+            >
+              Add Contact
+            </button>
+          )
+        }
+      />
+      <SectionCard
+        title="Contact directory"
+        description="Search by name, phone number, or email address."
       >
-        <div className="field contacts-search">
-          <label htmlFor="contact-search">Search contacts</label>
-          <input
-            id="contact-search"
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Name, phone or email"
-            disabled={busy || loading}
-          />
-        </div>
-        <button className="button-secondary" disabled={loading || busy}>
-          Search
-        </button>
-        <button
-          type="button"
-          className="button-secondary"
-          disabled={loading || busy}
-          onClick={() => {
-            setQuery('');
-            void load('');
+        <form
+          className="contacts-toolbar"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void load(query);
           }}
         >
-          Refresh / clear
-        </button>
-      </form>
+          <div className="field contacts-search">
+            <label htmlFor="contact-search">Search contacts</label>
+            <input
+              id="contact-search"
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Name, phone or email"
+              disabled={busy || loading}
+            />
+          </div>
+          <button className="button-secondary" disabled={loading || busy}>
+            Search
+          </button>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={loading || busy}
+            onClick={() => {
+              setQuery('');
+              void load('');
+            }}
+          >
+            Refresh / clear
+          </button>
+        </form>
+      </SectionCard>
       {error && (
         <div className="notice notice-error" role="alert">
           {error}{' '}
@@ -228,11 +235,13 @@ export function ContactsView({
       )}
       {loading && <p role="status">Loading contacts…</p>}
       {!loading && !error && page.items.length === 0 && (
-        <p>
-          {search.trim()
-            ? 'No contacts match your search.'
-            : 'No contacts yet. Add your first contact to get started.'}
-        </p>
+        <SectionCard>
+          <EmptyState title={search.trim() ? 'No contacts match your search' : 'No contacts yet'}>
+            {search.trim()
+              ? 'Try a different name, phone number, or email.'
+              : 'Add a contact to start organizing your calling audience.'}
+          </EmptyState>
+        </SectionCard>
       )}
       <div className="contacts-list" aria-busy={loading}>
         {page.items.map((contact) => (
