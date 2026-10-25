@@ -236,7 +236,7 @@ describe('RBAC-007 platform operations over real PostgreSQL and HTTP', () => {
       .send({ status: 'ACTIVE' });
     expect(reactivation.status).toBe(400);
     const deletion = await manager.delete(`/organizations/${ORG_B}/campaigns/${CAMPAIGN}`);
-    expect(deletion.status).toBe(404);
+    expect(deletion.status).toBe(409);
     expect(
       await database.campaign.findUnique({
         where: { organizationId_id: { organizationId: ORG_B, id: CAMPAIGN } },
