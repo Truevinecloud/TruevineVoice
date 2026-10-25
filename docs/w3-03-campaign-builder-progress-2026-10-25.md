@@ -1,6 +1,6 @@
 # W3-03 Campaign Builder — progress
 
-**Status: merged and exact-main CI verified.** PR #70 merged as
+**Status: merged, exact-main CI verified, and deployed; authenticated live QA is pending.** PR #70 merged as
 `717642b7972194d85a2cd5f8bfaa04fda8b67978`. Feature branch:
 `feat/w3-03-campaign-builder`, based on main
 `faf32347997c5eb3925362823b399c4e657b85a5`.
@@ -62,13 +62,42 @@ requires each new migration in its ordered review list. Final verification:
   40167934757](https://github.com/Truevinecloud/TruevineVoice/actions/runs/40167934757)
   passed on that same SHA.
 
+## Production deployment and live QA
+
+The software owner authorized deployment of `985f03277e51a07282e00914ebfe7e3c750ca54d`.
+The protected [deployment workflow run
+40170413249](https://github.com/Truevinecloud/TruevineVoice/actions/runs/40170413249)
+completed successfully. Its verified release directory was
+`/var/www/TruevineVoice/releases/985f03277e51a07282e00914ebfe7e3c750ca54d-1792911182895`.
+The deployment script applies reviewed Prisma migrations before activation,
+checks API health and managed processes, then writes `READY` as the `REVISION`
+value and switches the current release. The workflow's successful verification
+and SHA-prefixed release path confirm those steps completed; no direct server
+filesystem inspection was performed.
+
+Live checks after deployment:
+
+- `GET /health` returned HTTP 200 with version
+  `985f03277e51a07282e00914ebfe7e3c750ca54d`; PostgreSQL and Redis reported up.
+- `/app/campaigns` returned 307 to `/sign-in`; unauthenticated campaign-list
+  and preflight API requests returned 401. These verify route protection only.
+- Authenticated draft creation/editing, audio and group selection, schedule and
+  retry settings, and successful preflight remain **pending**. The computer-use
+  surface reported no available browser or apps, so no authenticated QA could
+  be performed. No production records were created or modified and no calls
+  were initiated.
+- W3-01 audio storage/TTS configuration remains pending the software owner's
+  provider and budget decision. Successful preflight requires an available
+  audio asset and a synthetic contact eligible under existing consent and
+  suppression rules; verify these in the QA organization before testing.
+
 ## Deferred and separate acceptance tracking
 
 - No outbound calls, recipient snapshots, scheduler, queue jobs, paid services,
   provider credentials or audio activation are included.
 - Workplan v4 was not found in the repository or connected Drive/Excel session;
   workbook update remains pending.
-- W2-02 outstanding live acceptance and W3-01/provider/audio acceptance remain
-  in their existing records and are not changed or marked passed here.
-- No production deployment was authorized or attempted. Deployment still
-  requires explicit authorization through the protected CI/CD workflow.
+- W2-02 outstanding live acceptance and W3-01 provider/audio acceptance remain
+  tracked in their existing records and are not marked passed here.
+- The Excel workplan remains unavailable and pending; no P0 workplan item was
+  inferred.
