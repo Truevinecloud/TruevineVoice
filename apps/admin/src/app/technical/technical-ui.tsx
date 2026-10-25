@@ -84,13 +84,12 @@ export function TechnicalHeader({ title }: { title: string }) {
 export function TechnicalNav({
   current,
 }: {
-  current: 'overview' | 'providers' | 'queues' | 'logs' | 'audit';
+  current: 'overview' | 'providers' | 'queues' | 'audit';
 }) {
   const sections: Array<{ key: typeof current; href: string; label: string }> = [
     { key: 'overview', href: '/technical', label: 'Overview' },
     { key: 'providers', href: '/technical/providers', label: 'Providers' },
     { key: 'queues', href: '/technical/queues', label: 'Queues' },
-    { key: 'logs', href: '/technical/logs', label: 'Logs' },
     { key: 'audit', href: '/technical/audit', label: 'Audit' },
   ];
 

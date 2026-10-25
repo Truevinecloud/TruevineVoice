@@ -1,0 +1,116 @@
+.platform-app-shell {
+  min-height: 100vh;
+}
+
+.platform-shell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem clamp(1rem, 3vw, 2rem);
+  border-bottom: 1px solid var(--card-border);
+  background: #101216;
+}
+
+.platform-shell-brand {
+  color: var(--page-fg);
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.platform-shell-brand span {
+  margin-left: 0.4rem;
+  color: var(--accent);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.platform-shell-context {
+  color: var(--muted-fg);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.platform-shell-nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.55rem clamp(1rem, 3vw, 2rem);
+  border-bottom: 1px solid var(--card-border);
+  background: var(--card-bg);
+}
+
+.platform-shell-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.platform-shell-links a {
+  border: 1px solid transparent;
+  border-radius: 0.4rem;
+  color: var(--page-fg);
+  padding: 0.35rem 0.7rem;
+  text-decoration: none;
+}
+
+.platform-shell-links a:hover,
+.platform-shell-links a[aria-current='page'] {
+  border-color: var(--card-border);
+  color: var(--accent);
+}
+
+.platform-shell-toggle,
+.platform-shell-signout {
+  border: 1px solid var(--card-border);
+  background: transparent;
+  color: var(--page-fg);
+}
+
+.platform-shell-toggle {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  main {
+    max-width: 100%;
+    padding: 1.5rem 1rem;
+  }
+
+  .platform-shell-nav {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .platform-shell-toggle {
+    display: inline-flex;
+  }
+
+  .platform-shell-links {
+    display: none;
+  }
+
+  .platform-shell-links[data-open='true'] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .platform-shell-links a {
+    overflow-wrap: anywhere;
+  }
+
+  .support-nav,
+  .technical-nav,
+  .auditor-nav {
+    flex-wrap: wrap;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}
