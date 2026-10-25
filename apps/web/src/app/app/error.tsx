@@ -1,0 +1,20 @@
+'use client';
+
+export default function AppError({
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
+  return (
+    <main className="app-main">
+      <section className="card-section" role="alert">
+        <h1>Workspace unavailable</h1>
+        <p>We could not load this page. Your account and saved data are unchanged.</p>
+        <button type="button" onClick={reset}>
+          Try again
+        </button>
+      </section>
+    </main>
+  );
+}

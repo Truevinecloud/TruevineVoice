@@ -98,6 +98,12 @@ export default function OperationsDashboard() {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
+  useEffect(() => {
+    const refreshSession = () => void refresh();
+    window.addEventListener('truevine:session-changed', refreshSession);
+    return () => window.removeEventListener('truevine:session-changed', refreshSession);
+  }, [refresh]);
+
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -105,18 +111,13 @@ export default function OperationsDashboard() {
     try {
       await api('/auth/sign-in', { method: 'POST', body: JSON.stringify({ email, password }) });
       setPassword('');
+      window.dispatchEvent(new Event('truevine:session-changed'));
       await refresh();
     } catch {
       setMessage('Sign-in failed. Check the credentials and try again.');
     } finally {
       setBusy(false);
     }
-  }
-
-  async function signOut() {
-    await api('/auth/sign-out', { method: 'POST' }).catch(() => undefined);
-    setOperator(null);
-    setMessage('Signed out.');
   }
 
   async function stopCampaign(campaign: Campaign) {
@@ -149,11 +150,6 @@ export default function OperationsDashboard() {
           <span className="eyebrow">TRUEVINE VOICE · PLATFORM</span>
           <h1>Operations</h1>
         </div>
-        {operator && (
-          <button className="quiet-button" onClick={() => void signOut()}>
-            Sign out
-          </button>
-        )}
       </header>
       {message && (
         <p className="notice" role="status">

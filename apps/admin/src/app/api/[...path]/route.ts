@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 type RouteContext = { params: Promise<{ path: string[] }> };
 const ALLOWED = [
   /^auth\/(sign-in|sign-out)$/,
+  /^me$/,
   /^platform\/operations\/(me|organizations|campaigns|health)$/,
   /^platform\/operations\/organizations\/[0-9a-f-]+\/campaigns\/[0-9a-f-]+\/emergency-stop$/i,
   /^platform\/support\/(me|organizations|users)$/,

@@ -330,6 +330,74 @@ a:focus-visible {
   font-weight: 600;
 }
 
+.app-navigation {
+  border-bottom: 1px solid #dfe4ec;
+  background: #fff;
+  padding: 0.55rem 1.5rem;
+}
+.app-navigation__context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.5rem;
+}
+.app-navigation__organization label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #536071;
+  font-size: 0.82rem;
+}
+.app-navigation__organization select {
+  max-width: 18rem;
+  min-height: 2.25rem;
+}
+.app-navigation__organization-name {
+  color: #536071;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+.app-navigation__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+.app-navigation__link {
+  border-radius: 0.45rem;
+  color: #35404f;
+  padding: 0.45rem 0.7rem;
+  text-decoration: none;
+  font-size: 0.91rem;
+}
+.app-navigation__link:hover,
+.app-navigation__link[aria-current='page'] {
+  background: #eef2fb;
+  color: #1e3a8a;
+}
+.app-navigation__link[aria-current='page'] {
+  font-weight: 650;
+}
+.app-navigation__toggle {
+  display: none;
+  border: 1px solid #dfe4ec;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #263243;
+  padding: 0.45rem 0.7rem;
+  font: inherit;
+}
+.app-navigation__empty {
+  margin: 0;
+  color: #536071;
+}
+.app-navigation-loading {
+  min-height: 3.2rem;
+  border-bottom: 1px solid #dfe4ec;
+  background: #fff;
+}
+
 .app-main {
   flex: 1;
   padding: 1.75rem 1.5rem;
@@ -814,6 +882,48 @@ a:focus-visible {
     padding-right: 1rem;
   }
 
+  .app-main {
+    padding: 1.25rem 1rem;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-header {
+    padding: 0.8rem 1rem;
+  }
+  .app-user {
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .app-user > span {
+    overflow-wrap: anywhere;
+  }
+  .app-navigation {
+    padding: 0.55rem 1rem;
+  }
+  .app-navigation__toggle {
+    display: inline-flex;
+  }
+  .app-navigation__links {
+    display: none;
+  }
+  .app-navigation__links[data-open='true'] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .app-navigation__link {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .app-navigation__organization label {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .app-navigation__organization select {
+    max-width: min(62vw, 18rem);
+  }
   .app-main {
     padding: 1.25rem 1rem;
   }
