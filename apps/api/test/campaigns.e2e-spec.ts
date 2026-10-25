@@ -534,7 +534,7 @@ describe('campaign routes: validation over HTTP', () => {
         evidenceReference: `synthetic:${RUN}`,
         sourceVerified: true,
       });
-    expect(consent.status).toBe(200);
+    expect(consent.status).toBe(201);
     const member = await caller
       .post(`/organizations/${ORG}/contact-groups/${group.body.id}/contacts/${contact.body.id}`)
       .send({});

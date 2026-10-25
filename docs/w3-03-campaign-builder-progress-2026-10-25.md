@@ -38,7 +38,14 @@ Focused campaign service/store tests passed (32); full API unit suite passed
 manifest parity plus `git diff --check` passed. PostgreSQL E2E was attempted but
 could not connect to the configured local database; it failed during fixture
 cleanup before assertions ran. No local E2E assertion is claimed. Hosted
-PostgreSQL E2E, required PR checks, review, merge and exact-main CI remain pending.
+The first hosted PR run passed lint/typecheck/Prisma, production build and unit
+tests, but failed two PostgreSQL-backed E2E jobs. One new preflight fixture
+expected HTTP 200 from the existing consent-creation endpoint, which returns
+201. Shared sensitive-audit cases also edited ACTIVE fixture campaigns; the
+builder now correctly rejects edits outside DRAFT. Corrected the endpoint
+expectation and adjusted those E2E cases to preserve and assert the draft-only
+rule and truthful audit behavior. The PR checks are being rerun; hosted
+PostgreSQL E2E, review, merge and exact-main CI remain pending.
 
 ## Deferred and separate acceptance tracking
 
