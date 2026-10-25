@@ -1,7 +1,9 @@
 # W3-03 Campaign Builder — progress
 
-**Status: implemented locally; PR/hosted CI pending.** Branch:
-`feat/w3-03-campaign-builder`, based on current main `faf32347997c5eb3925362823b399c4e657b85a5`.
+**Status: merged and exact-main CI verified.** PR #70 merged as
+`717642b7972194d85a2cd5f8bfaa04fda8b67978`. Feature branch:
+`feat/w3-03-campaign-builder`, based on main
+`faf32347997c5eb3925362823b399c4e657b85a5`.
 
 ## Existing functionality audit
 
@@ -31,28 +33,34 @@ Passed locally: Prisma validation/generation, workspace package build, full
 workspace typecheck, repository lint, production build, and `npm test` (including
 deployment/migration safety tests). The full unit command reported 302 deployment
 tests passing with 3 Linux-only backup runtime checks skipped by its Windows
-guard; CI requires those runtime checks on Linux.
+guard; CI required and ran those runtime checks on Linux.
 
 Focused campaign service/store tests passed (32); full API unit suite passed
 (683), full web suite passed (222, including Campaign Builder UI), and migration
-manifest parity plus `git diff --check` passed. PostgreSQL E2E was attempted but
-could not connect to the configured local database; it failed during fixture
-cleanup before assertions ran. No local E2E assertion is claimed. Hosted
-The first hosted PR run passed lint/typecheck/Prisma, production build and unit
-tests, but failed two PostgreSQL-backed E2E jobs. One new preflight fixture
-expected HTTP 200 from the existing consent-creation endpoint, which returns 201. Shared sensitive-audit cases also edited ACTIVE fixture campaigns; the
-builder now correctly rejects edits outside DRAFT. Corrected the endpoint
-expectation and adjusted those E2E cases to preserve and assert the draft-only
-rule and truthful audit behavior. A second hosted E2E run then exposed existing
-expectations in campaign emergency-stop/audit cases that assumed status edits
-or ACTIVE fixture state. Updated assertions to expect validation rejection of
-attempted customer reactivation and to verify rollback leaves the deliberately
-DRAFT audit fixtures unchanged. These are test corrections only; the draft-only
-builder rule is unchanged. The next full E2E pass surfaced the security-test
-runner's explicit migration review guard, which required adding the W3-03
-migration to its ordered disposable-database rehearsal list. That reviewed list
-is now updated, and hosted CI is being rerun. PostgreSQL E2E, review, merge and
-exact-main CI remain pending.
+manifest parity plus `git diff --check` passed. PostgreSQL E2E could not run
+against the configured local database, so no local E2E assertion is claimed.
+
+Hosted CI found and corrected test/rehearsal issues: the existing consent endpoint
+returns 201, builder edits are draft-only, and the security migration guard
+requires each new migration in its ordered review list. Final verification:
+
+- PR checks on feature head `0a9d3c5cf9a06a8c14613a62231b48938fda3cf9`:
+  [CI run 40167179444](https://github.com/Truevinecloud/TruevineVoice/actions/runs/40167179444)
+  passed lint/typecheck/Prisma validation, unit tests, production build, and full
+  PostgreSQL E2E. [Campaign and billing database E2E run
+  40167179448](https://github.com/Truevinecloud/TruevineVoice/actions/runs/40167179448)
+  and [migration rehearsal run
+  40167179489](https://github.com/Truevinecloud/TruevineVoice/actions/runs/40167179489)
+  also passed.
+- [PR #70](https://github.com/Truevinecloud/TruevineVoice/pull/70) merged as
+  `717642b7972194d85a2cd5f8bfaa04fda8b67978`.
+- Exact-main CI for the merge SHA passed all four jobs in
+  [run 40167931816](https://github.com/Truevinecloud/TruevineVoice/actions/runs/40167931816).
+  Main-branch [database E2E run
+  40167934635](https://github.com/Truevinecloud/TruevineVoice/actions/runs/40167934635)
+  and [migration rehearsal run
+  40167934757](https://github.com/Truevinecloud/TruevineVoice/actions/runs/40167934757)
+  passed on that same SHA.
 
 ## Deferred and separate acceptance tracking
 
@@ -62,4 +70,5 @@ exact-main CI remain pending.
   workbook update remains pending.
 - W2-02 outstanding live acceptance and W3-01/provider/audio acceptance remain
   in their existing records and are not changed or marked passed here.
-- No production deployment has been authorized or attempted.
+- No production deployment was authorized or attempted. Deployment still
+  requires explicit authorization through the protected CI/CD workflow.
