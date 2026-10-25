@@ -58,6 +58,25 @@ describe('CampaignBuilder', () => {
     await act(async () => {
       root?.render(<CampaignBuilder organizationId="org-id" initialCampaigns={[]} canUpdate />);
     });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    for (const section of [
+      'Campaign Details',
+      'Message Audio',
+      'Target Audience',
+      'Schedule & Retry Settings',
+      'Review & Preflight',
+    ]) {
+      expect(host.textContent).toContain(section);
+    }
+    expect(host.textContent).toContain('No audio assets yet');
+    expect(host.textContent).toContain('No contact groups available');
+    expect(host.querySelector('button[type="submit"]')?.textContent).toBe('Save Draft');
+    expect(
+      [...host.querySelectorAll('button')].some((button) => button.textContent === 'Run Preflight'),
+    ).toBe(true);
 
     const name = host.querySelector('input[maxlength="200"]') as HTMLInputElement;
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
@@ -75,11 +94,11 @@ describe('CampaignBuilder', () => {
       requests.some(({ url, method }) => url.endsWith('/campaigns') && method === 'POST'),
     ).toBe(true);
     expect(host.textContent).toContain('Draft saved. Run preflight to review readiness.');
-    expect(host.textContent).toContain('Run preflight');
+    expect(host.textContent).toContain('Run Preflight');
     expect(host.textContent?.toLowerCase()).not.toContain('launch campaign');
 
     const preflight = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === 'Run preflight',
+      (button) => button.textContent === 'Run Preflight',
     )!;
     await act(async () => {
       preflight.click();
