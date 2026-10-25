@@ -42,6 +42,7 @@ import { SessionGuard } from '../auth/session.guard.js';
 
 import {
   CampaignsService,
+  type CampaignPreflightView,
   type CampaignStatusReport,
   type CampaignView,
 } from './campaigns.service.js';
@@ -90,13 +91,27 @@ export class CampaignsController {
   async create(
     @CurrentOrganization() context: { organizationId: string },
     @CurrentPrincipal() principal: { userId: string },
-    @Body() body: { readonly name?: unknown; readonly audioAssetId?: unknown },
+    @Body()
+    body: {
+      readonly name?: unknown;
+      readonly audioAssetId?: unknown;
+      readonly scheduledAt?: unknown;
+      readonly retryMaxAttempts?: unknown;
+      readonly retryDelayMinutes?: unknown;
+      readonly audienceGroupIds?: unknown;
+    },
   ): Promise<CampaignView> {
     return this.campaigns.create(
       context.organizationId,
       principal.userId,
       body.name,
       body.audioAssetId,
+      {
+        scheduledAt: body.scheduledAt,
+        retryMaxAttempts: body.retryMaxAttempts,
+        retryDelayMinutes: body.retryDelayMinutes,
+        audienceGroupIds: body.audienceGroupIds,
+      },
     );
   }
 
@@ -122,13 +137,38 @@ export class CampaignsController {
     @CurrentPrincipal() principal: { userId: string },
     @Param('campaignId') campaignId: string,
     @Body()
-    body: { readonly name?: unknown; readonly status?: unknown; readonly audioAssetId?: unknown },
+    body: {
+      readonly name?: unknown;
+      readonly status?: unknown;
+      readonly audioAssetId?: unknown;
+      readonly scheduledAt?: unknown;
+      readonly retryMaxAttempts?: unknown;
+      readonly retryDelayMinutes?: unknown;
+      readonly audienceGroupIds?: unknown;
+    },
   ): Promise<CampaignView> {
     return this.campaigns.update(context.organizationId, principal.userId, campaignId, {
       name: body.name,
       status: body.status,
       audioAssetId: body.audioAssetId,
+      scheduledAt: body.scheduledAt,
+      retryMaxAttempts: body.retryMaxAttempts,
+      retryDelayMinutes: body.retryDelayMinutes,
+      audienceGroupIds: body.audienceGroupIds,
     });
+  }
+
+  /** `POST /organizations/:organizationId/campaigns/:campaignId/preflight` */
+  @Post('organizations/:organizationId/campaigns/:campaignId/preflight')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('campaign:update')
+  preflight(
+    @CurrentOrganization() context: { organizationId: string },
+    @Param('campaignId') campaignId: string,
+  ): Promise<CampaignPreflightView> {
+    return this.campaigns.preflight(context.organizationId, campaignId);
   }
 
   /** `DELETE /organizations/:organizationId/campaigns/:campaignId` */

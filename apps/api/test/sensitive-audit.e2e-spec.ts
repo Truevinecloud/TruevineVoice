@@ -490,7 +490,7 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
       )?.role,
     ).toBe(second.after.role);
   });
-  it('records campaign lifecycle atomically with sanitized editable state', async () => {
+  it('records campaign draft edits atomically with sanitized state', async () => {
     const f = await fixture(),
       campaigns = new PrismaCampaignStore(db);
     const created = await campaigns.createCampaign({
@@ -500,7 +500,12 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
       name: 'Private synthetic campaign',
       status: 'DRAFT',
     });
-    await campaigns.updateCampaign(f.org, created.id, { status: 'ACTIVE' }, f.owner);
+    await campaigns.updateCampaign(
+      f.org,
+      created.id,
+      { name: 'Renamed synthetic campaign' },
+      f.owner,
+    );
     expect(await campaigns.deleteCampaign(f.org, created.id, f.owner)).toBe(true);
     for (const action of ['campaign.created', 'campaign.updated', 'campaign.deleted']) {
       const event = await tenantEvent(f.org, action);
@@ -721,7 +726,7 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
           return new PrismaCampaignStore(broken).updateCampaign(
             f.org,
             f.campaign,
-            { status: 'COMPLETED' },
+            { name: 'Injected failure update' },
             f.owner,
           );
         case 'campaign_delete':

@@ -12,11 +12,22 @@ export function campaignAuditState(row: {
   name: string;
   status: string;
   emergencyStoppedAt?: Date | null;
+  scheduledAt?: Date | null;
+  retryMaxAttempts?: number;
+  retryDelayMinutes?: number;
+  audienceGroupIds?: readonly string[];
+  audioAssetId?: string | null;
 }) {
   return {
     nameDigest: auditDigest(row.name),
     status: row.status,
     emergencyStoppedAt: row.emergencyStoppedAt?.toISOString() ?? null,
+    audioSelected: Boolean(row.audioAssetId),
+    scheduledAt: row.scheduledAt?.toISOString() ?? null,
+    retryMaxAttempts: row.retryMaxAttempts ?? 1,
+    retryDelayMinutes: row.retryDelayMinutes ?? 60,
+    audienceGroupCount: row.audienceGroupIds?.length ?? 0,
+    audienceGroupsDigest: auditDigest([...(row.audienceGroupIds ?? [])].sort()),
   };
 }
 export function billingAuditState(row: unknown) {

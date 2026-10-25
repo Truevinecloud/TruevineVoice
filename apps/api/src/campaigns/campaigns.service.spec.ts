@@ -114,7 +114,8 @@ function buildService(): {
 } {
   const audit = new FakeAuditStore();
   const store = new FakeCampaignStore(audit);
-  return { service: new CampaignsService(store), store, audit };
+  const contacts = { countEligibleForCampaign: async () => 3 };
+  return { service: new CampaignsService(store, contacts as never), store, audit };
 }
 
 async function expectAuthError(
@@ -220,6 +221,94 @@ describe('CampaignsService', () => {
 
       expect(store.scopedCalls).toEqual([ORG]);
       expect(store.campaigns[0]?.organizationId).toBe(ORG);
+    });
+
+    it('saves bounded audience, schedule and retry configuration on a DRAFT', async () => {
+      const { service } = buildService();
+      const scheduledAt = new Date(Date.now() + 10 * 60_000).toISOString();
+      const campaign = await service.create(ORG, ACTOR, 'Prepared', undefined, {
+        scheduledAt,
+        retryMaxAttempts: 3,
+        retryDelayMinutes: 30,
+        audienceGroupIds: ['10000000-0000-4000-8000-000000000001'],
+      });
+      expect(campaign).toMatchObject({
+        status: 'DRAFT',
+        scheduledAt,
+        retryMaxAttempts: 3,
+        retryDelayMinutes: 30,
+        audienceGroupIds: ['10000000-0000-4000-8000-000000000001'],
+      });
+    });
+
+    it('rejects schedule timestamps without timezone and retry values outside bounds', async () => {
+      const { service } = buildService();
+      await expectAuthError(
+        service.create(ORG, ACTOR, 'bad', undefined, { scheduledAt: '2026-12-01T10:00' }),
+        'invalid_campaign',
+        400,
+      );
+      await expectAuthError(
+        service.create(ORG, ACTOR, 'bad', undefined, { retryMaxAttempts: 6 }),
+        'invalid_campaign',
+        400,
+      );
+      await expectAuthError(
+        service.create(ORG, ACTOR, 'bad', undefined, { retryDelayMinutes: 4 }),
+        'invalid_campaign',
+        400,
+      );
+    });
+  });
+
+  describe('preflight', () => {
+    it('passes only when draft has audio, selected groups with eligible contacts and valid schedule', async () => {
+      const { service, store } = buildService();
+      const scheduledAt = new Date(Date.now() + 10 * 60_000);
+      store.campaigns.push({
+        organizationId: ORG,
+        id: 'ready',
+        name: 'Ready',
+        status: 'DRAFT',
+        audioAssetId: '10000000-0000-4000-8000-000000000002',
+        scheduledAt,
+        retryMaxAttempts: 2,
+        retryDelayMinutes: 20,
+        audienceGroupIds: ['10000000-0000-4000-8000-000000000001'],
+        createdById: ACTOR,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await expect(service.preflight(ORG, 'ready')).resolves.toMatchObject({
+        valid: true,
+        selectedGroupCount: 1,
+        eligibleContactCount: 3,
+        issues: [],
+      });
+      expect(store.scopedCalls.at(-1)).toBe(ORG);
+    });
+
+    it('reports missing preparation fields and never manufactures an audience', async () => {
+      const { service, store } = buildService();
+      store.campaigns.push({
+        organizationId: ORG,
+        id: 'incomplete',
+        name: 'Incomplete',
+        status: 'DRAFT',
+        createdById: ACTOR,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await expect(service.preflight(ORG, 'incomplete')).resolves.toMatchObject({
+        valid: false,
+        eligibleContactCount: 0,
+        issues: expect.arrayContaining([
+          expect.objectContaining({ code: 'audio_required' }),
+          expect.objectContaining({ code: 'audience_required' }),
+          expect.objectContaining({ code: 'schedule_required' }),
+        ]),
+      });
+      await expectAuthError(service.preflight(ORG, 'foreign-id'), 'campaign_not_found', 404);
     });
   });
 
@@ -348,40 +437,13 @@ describe('CampaignsService', () => {
       });
     });
 
-    it('moves a campaign between valid statuses', async () => {
-      const { service, store } = buildService();
-      store.campaigns.push({
-        organizationId: ORG,
-        id: 'c1',
-        name: 'One',
-        status: 'DRAFT',
-        createdById: ACTOR,
-        createdAt: new Date('2026-10-01T00:00:00Z'),
-        updatedAt: new Date('2026-10-01T00:00:00Z'),
-      });
-
-      const activated = await service.update(ORG, ACTOR, 'c1', { status: 'ACTIVE' });
-      expect(activated.status).toBe('ACTIVE');
-
-      const completed = await service.update(ORG, ACTOR, 'c1', { status: 'COMPLETED' });
-      expect(completed.status).toBe('COMPLETED');
-    });
-
-    it('changes name and status in one patch', async () => {
-      const { service, store } = buildService();
-      store.campaigns.push({
-        organizationId: ORG,
-        id: 'c1',
-        name: 'Old',
-        status: 'DRAFT',
-        createdById: ACTOR,
-        createdAt: new Date('2026-10-01T00:00:00Z'),
-        updatedAt: new Date('2026-10-01T00:00:00Z'),
-      });
-
-      const view = await service.update(ORG, ACTOR, 'c1', { name: 'New', status: 'ACTIVE' });
-
-      expect(view).toMatchObject({ name: 'New', status: 'ACTIVE' });
+    it('refuses lifecycle changes during draft preparation', async () => {
+      const { service } = buildService();
+      await expectAuthError(
+        service.update(ORG, ACTOR, 'c1', { status: 'ACTIVE' }),
+        'invalid_campaign',
+        400,
+      );
     });
 
     it('refuses an empty patch with a 400 rather than pretending to succeed', async () => {

@@ -35,6 +35,7 @@
     "20261022110000_rbac_014_support_access_sessions",
     "20261022120000_contacts_groups_import_w2_02",
     "20261024180000_audio_assets_w3_02",
-    "20261025100000_audio_usage_trigger_error_mapping"
+    "20261025100000_audio_usage_trigger_error_mapping",
+    "20261025110000_campaign_builder_w3_03"
   ]
 }

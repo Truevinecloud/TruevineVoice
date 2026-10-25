@@ -28,6 +28,10 @@ export interface CampaignRecord {
   readonly name: string;
   readonly status: CampaignStatus;
   readonly audioAssetId?: string | null;
+  readonly scheduledAt?: Date | null;
+  readonly retryMaxAttempts?: number;
+  readonly retryDelayMinutes?: number;
+  readonly audienceGroupIds?: readonly string[];
   readonly emergencyStoppedAt?: Date | null;
   readonly createdById: string;
   readonly createdAt: Date;
@@ -42,13 +46,27 @@ export interface NewCampaign {
   readonly status: CampaignStatus;
   readonly createdById: string;
   readonly audioAssetId?: string | null;
+  readonly scheduledAt?: Date | null;
+  readonly retryMaxAttempts?: number;
+  readonly retryDelayMinutes?: number;
+  readonly audienceGroupIds?: readonly string[];
 }
 
-/** Fields a campaign update may change. Both optional, not both required. */
+/** Draft configuration fields. Campaign state changes are not campaign preparation. */
 export interface CampaignChanges {
   readonly name?: string;
-  readonly status?: CampaignStatus;
   readonly audioAssetId?: string | null;
+  readonly scheduledAt?: Date | null;
+  readonly retryMaxAttempts?: number;
+  readonly retryDelayMinutes?: number;
+  readonly audienceGroupIds?: readonly string[];
+}
+
+export class CampaignNotEditableError extends Error {
+  constructor() {
+    super('Only draft campaigns can be edited.');
+    this.name = 'CampaignNotEditableError';
+  }
 }
 
 /** Persistence for tenant-owned campaign rows. */
