@@ -78,7 +78,9 @@ describe('AppNavigation', () => {
     expect(container.querySelector('.app-navigation__links')?.getAttribute('data-open')).toBe(
       'false',
     );
-    expect(container.querySelector('a[href="/app"]')?.getAttribute('aria-current')).toBe('page');
+    expect(
+      container.querySelector('a[href^="/app?organization="]')?.getAttribute('aria-current'),
+    ).toBe('page');
   });
 
   it('switches only to another organization returned by the authenticated session', () => {
