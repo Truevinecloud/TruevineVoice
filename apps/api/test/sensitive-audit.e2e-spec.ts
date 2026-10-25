@@ -490,7 +490,7 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
       )?.role,
     ).toBe(second.after.role);
   });
-  it('records campaign lifecycle atomically with sanitized editable state', async () => {
+  it('records campaign draft edits atomically with sanitized state', async () => {
     const f = await fixture(),
       campaigns = new PrismaCampaignStore(db);
     const created = await campaigns.createCampaign({
@@ -500,7 +500,12 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
       name: 'Private synthetic campaign',
       status: 'DRAFT',
     });
-    await campaigns.updateCampaign(f.org, created.id, { status: 'ACTIVE' }, f.owner);
+    await campaigns.updateCampaign(
+      f.org,
+      created.id,
+      { name: 'Renamed synthetic campaign' },
+      f.owner,
+    );
     expect(await campaigns.deleteCampaign(f.org, created.id, f.owner)).toBe(true);
     for (const action of ['campaign.created', 'campaign.updated', 'campaign.deleted']) {
       const event = await tenantEvent(f.org, action);
@@ -510,7 +515,7 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
     }
     expect(metadata(await tenantEvent(f.org, 'campaign.updated'))).toMatchObject({
       before: { status: 'DRAFT' },
-      after: { status: 'ACTIVE' },
+      after: { status: 'DRAFT' },
     });
   });
   it('records billing details and only one pending top-up audit for concurrent identical retries', async () => {
@@ -647,10 +652,10 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
     });
     await expect(operations.emergencyStop(input)).rejects.toMatchObject({ status: 403 });
   });
-  it('keeps concurrent campaign edits and platform stops in a truthful state chain', async () => {
+  it('rejects edits to active campaigns while recording the platform stop truthfully', async () => {
     const f = await fixture();
     await db.platformRoleAssignment.create({ data: { userId: f.owner, role: 'PLATFORM_OWNER' } });
-    await Promise.all([
+    const [editResult, stopResult] = await Promise.allSettled([
       new PrismaCampaignStore(db).updateCampaign(
         f.org,
         f.campaign,
@@ -666,12 +671,13 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
         justification: 'Reviewed incident',
       }),
     ]);
-    const edit = metadata(await tenantEvent(f.org, 'campaign.updated')) as {
-      before: { status: string; emergencyStoppedAt: string | null };
-      after: { status: string; emergencyStoppedAt: string | null };
-    };
-    expect(edit.before.status).toBe(edit.after.status);
-    expect(edit.before.emergencyStoppedAt).toBe(edit.after.emergencyStoppedAt);
+    expect(editResult.status).toBe('rejected');
+    expect(stopResult.status).toBe('fulfilled');
+    expect(
+      await db.securityAuditEvent.count({
+        where: { organizationId: f.org, action: 'campaign.updated', outcome: 'SUCCESS' },
+      }),
+    ).toBe(0);
     expect(metadata(await tenantEvent(f.org, 'platform.campaign.emergency_stopped'))).toMatchObject(
       { justification: 'Reviewed incident', reasonSource: 'caller' },
     );
@@ -692,6 +698,12 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
     const f = await fixture(),
       broken = failingDatabase(),
       service = services(broken);
+    if (action === 'campaign_update' || action === 'campaign_delete') {
+      await db.campaign.update({
+        where: { organizationId_id: { organizationId: f.org, id: f.campaign } },
+        data: { status: 'DRAFT' },
+      });
+    }
     await db.platformRoleAssignment.create({ data: { userId: f.owner, role: 'PLATFORM_OWNER' } });
     const before = JSON.stringify(await db.organization.findUnique({ where: { id: f.org } }));
     const provisionUser = randomUUID(),
@@ -721,7 +733,7 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
           return new PrismaCampaignStore(broken).updateCampaign(
             f.org,
             f.campaign,
-            { status: 'COMPLETED' },
+            { name: 'Injected failure update' },
             f.owner,
           );
         case 'campaign_delete':
@@ -784,7 +796,7 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
           where: { organizationId_id: { organizationId: f.org, id: f.campaign } },
         })
       )?.status,
-    ).toBe('ACTIVE');
+    ).toBe(action === 'campaign_update' || action === 'campaign_delete' ? 'DRAFT' : 'ACTIVE');
     expect(await db.billingProfile.count({ where: { organizationId: f.org } })).toBe(0);
     expect(await db.topUpRequest.count({ where: { organizationId: f.org } })).toBe(0);
     expect((await db.user.findUnique({ where: { id: f.owner } }))?.status).toBe('ACTIVE');

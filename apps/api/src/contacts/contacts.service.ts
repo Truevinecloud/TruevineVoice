@@ -475,6 +475,12 @@ export class ContactsService {
     });
   }
 
+  /** Read-only, non-cached audience estimate for campaign preflight. */
+  countEligibleForCampaign(organizationId: string, groupIds: readonly string[]): Promise<number> {
+    if (groupIds.length === 0) return Promise.resolve(0);
+    return this.store.countEligibleForGroups({ organizationId, groupIds });
+  }
+
   private validateMapping(value: unknown): ColumnMapping {
     if (value === undefined) return {};
     if (!value || typeof value !== 'object' || Array.isArray(value))

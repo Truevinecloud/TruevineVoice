@@ -50,6 +50,10 @@ export interface Campaign {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly audioAssetId?: string | null;
+  readonly scheduledAt?: string | null;
+  readonly retryMaxAttempts?: number;
+  readonly retryDelayMinutes?: number;
+  readonly audienceGroupIds?: readonly string[];
 }
 
 export interface CampaignStatusReport {

@@ -15,6 +15,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module.js';
 import { InfrastructureModule } from '../infrastructure/infrastructure.module.js';
+import { ContactsModule } from '../contacts/contacts.module.js';
 
 import { CampaignsController } from './campaigns.controller.js';
 import { CampaignsService } from './campaigns.service.js';
@@ -26,7 +27,7 @@ import { CAMPAIGN_STORE } from './tokens.js';
   // global provider being registered before this module is initialised is an
   // ordering assumption, and it fails in a testing module that overrides the
   // client. Declaring the import states the dependency instead of implying it.
-  imports: [AuthModule, InfrastructureModule],
+  imports: [AuthModule, InfrastructureModule, ContactsModule],
   controllers: [CampaignsController],
   providers: [CampaignsService, { provide: CAMPAIGN_STORE, useClass: PrismaCampaignStore }],
   exports: [CampaignsService],

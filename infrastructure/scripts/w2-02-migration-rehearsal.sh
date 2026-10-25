@@ -20,16 +20,23 @@ trap cleanup EXIT
 cleanup
 psql_ci -d postgres -c "CREATE DATABASE ${database};" >/dev/null
 mapfile -t migrations < <(find packages/database/prisma/migrations -mindepth 2 -maxdepth 2 -name migration.sql -print | sort)
-if [[ "${migrations[-1]:-}" != "$w2_migration" ]]; then
-  echo "Review this rehearsal when the migration history changes after W2-02." >&2
+w2_index=-1
+for index in "${!migrations[@]}"; do
+  if [[ "${migrations[$index]}" == "$w2_migration" ]]; then
+    w2_index="$index"
+    break
+  fi
+done
+if [[ "$w2_index" -lt 0 ]]; then
+  echo "The W2-02 migration is missing from the migration history." >&2
   exit 1
 fi
-for base_migration in "${migrations[@]:0:${#migrations[@]}-1}"; do
+for base_migration in "${migrations[@]:0:w2_index}"; do
   psql_ci -d "$database" -f - < "$base_migration" >/dev/null
 done
 
-# Recreate representative pre-W2 production records after replaying the exact
-# existing migration history, including the campaign contact and recipient FK.
+# Recreate representative pre-W2 production records after replaying migrations
+# through the version immediately before W2-02, including the recipient FK.
 psql_ci -d "$database" <<'SQL'
 BEGIN;
 INSERT INTO organizations(id,slug,name,updated_at) VALUES

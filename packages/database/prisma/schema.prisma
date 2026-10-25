@@ -505,6 +505,10 @@ model Campaign {
   /// 1-200 characters, validated in the service before the row is written.
   name           String         @db.VarChar(200)
   status         CampaignStatus @default(DRAFT)
+  /// Preparation only. A saved schedule never creates an execution or dispatches work.
+  scheduledAt DateTime? @map("scheduled_at") @db.Timestamptz(3)
+  retryMaxAttempts Int @default(1) @map("retry_max_attempts")
+  retryDelayMinutes Int @default(60) @map("retry_delay_minutes")
   /// Optional tenant-owned audio used by this campaign.
   audioOrganizationId String? @map("audio_organization_id") @db.Uuid
   audioAssetId String? @map("audio_asset_id") @db.Uuid
@@ -520,6 +524,7 @@ model Campaign {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   recipients CampaignRecipient[]
   executions CampaignExecution[]
+  audienceGroups CampaignAudienceGroup[]
   audioAsset AudioAsset? @relation(fields: [audioOrganizationId, audioAssetId], references: [organizationId, id], onDelete: Restrict)
   audioUsageEvents AudioAssetUsage[]
   createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
@@ -729,6 +734,7 @@ model ContactGroup {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy Membership @relation("ContactGroupCreator", fields: [organizationId, createdById], references: [organizationId, userId], onDelete: Restrict)
   contacts ContactGroupMember[]
+  campaignLinks CampaignAudienceGroup[]
   @@id([organizationId, id])
   @@unique([organizationId, normalizedName])
   @@index([organizationId, name])
@@ -745,6 +751,20 @@ model ContactGroupMember {
   @@id([organizationId, groupId, contactId])
   @@index([organizationId, contactId])
   @@map("contact_group_members")
+}
+
+/// Draft audience selection. This stores group references only; recipients are
+/// resolved afresh at execution time after consent and suppression checks.
+model CampaignAudienceGroup {
+  organizationId String @map("organization_id") @db.Uuid
+  campaignId String @map("campaign_id") @db.Uuid
+  groupId String @map("group_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  campaign Campaign @relation(fields: [organizationId, campaignId], references: [organizationId, id], onDelete: Cascade)
+  group ContactGroup @relation(fields: [organizationId, groupId], references: [organizationId, id], onDelete: Cascade)
+  @@id([organizationId, campaignId, groupId])
+  @@index([organizationId, groupId, campaignId])
+  @@map("campaign_audience_groups")
 }
 
 model ContactImport {

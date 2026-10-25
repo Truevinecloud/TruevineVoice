@@ -8,9 +8,7 @@ import type { TextToSpeechProvider } from '../../audio.port.js';
 
 const VOICES = [
   { id: 'Joanna', label: 'Joanna (US English)', language: 'en-US' },
-  { id: 'Matthew', label: 'Matthew (US English)', language: 'en-US' },
   { id: 'Amy', label: 'Amy (British English)', language: 'en-GB' },
-  { id: 'Ayanda', label: 'Ayanda (South African English)', language: 'en-ZA' },
 ] as const;
 
 /** Amazon Polly adapter. Provider limits are validated before requests are made. */
@@ -32,6 +30,7 @@ export class PollyTextToSpeechProvider implements TextToSpeechProvider {
 
     const response = await this.client.send(
       new SynthesizeSpeechCommand({
+        Engine: 'standard',
         Text: input.text,
         TextType: 'text',
         VoiceId: voice.id,

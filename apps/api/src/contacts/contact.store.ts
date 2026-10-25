@@ -218,4 +218,8 @@ export interface ContactStore {
     readonly groupIds: readonly string[];
     readonly limit: number;
   }): Promise<readonly { readonly id: string; readonly phoneE164: string }[]>;
+  countEligibleForGroups(input: {
+    readonly organizationId: string;
+    readonly groupIds: readonly string[];
+  }): Promise<number>;
 }

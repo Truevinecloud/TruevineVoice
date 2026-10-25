@@ -1,5 +1,17 @@
 # Truevine Voice
 
+## W3-03 Campaign Builder
+
+`/app/campaigns` provides a minimal draft builder for campaign name, an existing
+organization audio asset, existing contact groups, future schedule and bounded
+retry settings. Draft edits are organization-scoped and preflight estimates
+currently consented, unsuppressed contacts without creating recipient snapshots
+or starting execution. Campaign schedules are saved preparation data only; no
+outbound calls or provider services are activated. Preflight requires an audio
+asset, at least one eligible audience contact and a schedule 5 minutes to 365
+days ahead. Retry attempts are 1–5 including the initial attempt; delay is 5–1440
+minutes. See [ADR 0023](docs/adr/0023-campaign-draft-preparation.md).
+
 ## W2-02 Increment 2 — Contact groups
 
 `/app/contact-groups?organization=<membership-organization-id>` supports group

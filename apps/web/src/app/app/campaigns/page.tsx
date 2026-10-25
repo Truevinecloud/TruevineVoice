@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 
 import { fetchCampaigns } from '../../../lib/org-api';
 import { CampaignAudio } from './campaign-audio';
+import { CampaignBuilder } from './campaign-builder';
 import { currentSession, hasPermission } from '../../../lib/session';
 
 /** Read-only campaign inventory for organization members with campaign:read. */
@@ -34,6 +35,13 @@ export default async function CampaignsPage({
     <>
       <h1 className="page-title">Campaigns — {membership.organizationName}</h1>
       <p>Campaign status and dates for this organization.</p>
+      {campaigns !== null && (
+        <CampaignBuilder
+          organizationId={membership.organizationId}
+          initialCampaigns={campaigns}
+          canUpdate={canUpdate}
+        />
+      )}
       {campaigns === null ? (
         <p role="alert">Campaigns could not be loaded.</p>
       ) : campaigns.length === 0 ? (

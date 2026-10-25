@@ -20,6 +20,7 @@ import { PrismaClient } from './generated/prisma/client.js';
 
 export { PrismaPg };
 export type { PrismaClient };
+export type { Prisma } from './generated/prisma/client.js';
 
 /**
  * The database's enum vocabularies, as types only.
