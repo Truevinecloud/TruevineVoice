@@ -38,6 +38,12 @@ describe('Contacts HTTP authorization contract', () => {
     createContact: vi.fn().mockResolvedValue({ id: 'synthetic-contact' }),
     updateContact: vi.fn().mockResolvedValue({ id: 'synthetic-contact' }),
     deleteContact: vi.fn().mockResolvedValue({ deleted: true }),
+    startImport: vi.fn().mockResolvedValue({ id: 'synthetic-import' }),
+    processImportBatch: vi.fn().mockResolvedValue({ nextBatchNumber: 1 }),
+    completeImport: vi.fn().mockResolvedValue({ status: 'COMPLETED' }),
+    importSummary: vi.fn().mockResolvedValue({ id: 'synthetic-import' }),
+    recordVoiceConsent: vi.fn().mockResolvedValue({ id: 'synthetic-contact' }),
+    suppressContact: vi.fn().mockResolvedValue({ id: 'synthetic-contact' }),
   };
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -86,6 +92,66 @@ describe('Contacts HTTP authorization contract', () => {
       .set('cookie', `tv_session=contacts-session; tv_csrf=${csrf}`)
       .set('x-truevine-csrf', csrf);
   }
+  const importRoutes = [
+    ['post', '/contact-imports', 'startImport'],
+    ['post', '/contact-imports/synthetic-import/batches', 'processImportBatch'],
+    ['post', '/contact-imports/synthetic-import/complete', 'completeImport'],
+    ['get', '/contact-imports/synthetic-import', 'importSummary'],
+    ['post', '/contacts/synthetic-contact/voice-consent', 'recordVoiceConsent'],
+    ['post', '/contacts/synthetic-contact/suppress', 'suppressContact'],
+  ] as const;
+  function extra(method: 'get' | 'post', path: string, organization = 'org-1') {
+    return request(app.getHttpServer())
+      [method]('/organizations/' + organization + path)
+      .set('cookie', `tv_session=contacts-session; tv_csrf=${csrf}`)
+      .set('x-truevine-csrf', csrf);
+  }
+  it.each(importRoutes)(
+    'allows Campaign Manager %s %s with path-derived scope',
+    async (method, path, operation) => {
+      organizations.memberships[0]!.role = 'CAMPAIGN_MANAGER';
+      const body = {
+        organizationId: 'foreign',
+        actorUserId: 'foreign-user',
+        csv: 'phone,name\n0772000001,Synthetic',
+      };
+      const response = await extra(method, path).send(body);
+      expect(response.status).toBe(method === 'get' ? 200 : 201);
+      const args = service[operation].mock.calls[0]!;
+      expect(args[0]).toBe('org-1');
+      if (method !== 'get') expect(args[1]).toBe('user-1');
+    },
+  );
+  it.each(importRoutes)(
+    'refuses Campaign Manager foreign-tenant %s %s before service access',
+    async (method, path) => {
+      organizations.memberships[0]!.role = 'CAMPAIGN_MANAGER';
+      const response = await extra(method, path, 'foreign').send({ organizationId: 'org-1' });
+      expect(response.status).toBe(403);
+      expect(response.body.error.code).toBe('permission_denied');
+      for (const operation of Object.values(service)) expect(operation).not.toHaveBeenCalled();
+    },
+  );
+  it.each(['BILLING', 'VIEWER'] as const)(
+    'denies imports and consent operations for %s',
+    async (role) => {
+      organizations.memberships[0]!.role = role;
+      for (const [method, path] of importRoutes) {
+        const response = await extra(method, path).send({});
+        expect(response.status).toBe(403);
+        expect(response.body.error.code).toBe('permission_denied');
+      }
+      for (const operation of Object.values(service)) expect(operation).not.toHaveBeenCalled();
+    },
+  );
+  it('refuses imports immediately after Campaign Manager membership removal', async () => {
+    organizations.memberships[0]!.role = 'CAMPAIGN_MANAGER';
+    organizations.memberships.length = 0;
+    const response = await extra('post', '/contact-imports').send({});
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe('permission_denied');
+    for (const operation of Object.values(service)) expect(operation).not.toHaveBeenCalled();
+  });
   it.each(ORGANIZATION_ROLES)(
     'enforces list, create, edit and delete policy for %s',
     async (role) => {

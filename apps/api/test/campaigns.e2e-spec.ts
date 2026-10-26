@@ -27,6 +27,10 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../src/app.module.js';
+import {
+  assertDisposableDatabase,
+  assertConnectedToDisposableDatabase,
+} from './disposable-database.js';
 import { APP_CONFIG } from '../src/config/app-config.module.js';
 import type { ApiConfig } from '../src/config/api.config.js';
 import { DATABASE_CLIENT, REDIS_CLIENT } from '../src/tokens.js';
@@ -100,7 +104,14 @@ beforeAll(async () => {
   loadEnvFiles();
 
   const databaseUrl = requireEnv('DATABASE_URL');
+  const expected = assertDisposableDatabase(databaseUrl, process.env['NODE_ENV']);
   database = createDatabaseClient(databaseUrl);
+  await assertConnectedToDisposableDatabase(async () => {
+    const rows = await database.$queryRaw<
+      Array<{ name: string }>
+    >`SELECT current_database() AS name`;
+    return rows[0]?.name;
+  }, expected);
 
   // Clean the fixtures BEFORE creating them, not only afterwards. A suite that
   // fails partway through skips its own teardown, and the next run then collides

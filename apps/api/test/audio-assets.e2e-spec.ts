@@ -4,6 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { createDatabaseClient, type PrismaClient } from '@truevine/database';
 import { loadEnvFiles, requireEnv } from '@truevine/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  assertDisposableDatabase,
+  assertConnectedToDisposableDatabase,
+} from './disposable-database.js';
 
 let database: PrismaClient;
 const organizationA = randomUUID();
@@ -14,7 +18,15 @@ const run = randomUUID().replace(/-/g, '').slice(0, 10);
 
 beforeAll(async () => {
   loadEnvFiles();
-  database = createDatabaseClient(requireEnv('DATABASE_URL'));
+  const url = requireEnv('DATABASE_URL');
+  const expected = assertDisposableDatabase(url, process.env['NODE_ENV']);
+  database = createDatabaseClient(url);
+  await assertConnectedToDisposableDatabase(async () => {
+    const rows = await database.$queryRaw<
+      Array<{ name: string }>
+    >`SELECT current_database() AS name`;
+    return rows[0]?.name;
+  }, expected);
   await database.user.create({
     data: {
       id: userId,
