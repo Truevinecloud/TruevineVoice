@@ -1,5 +1,20 @@
 # Truevine Voice
 
+## RBAC-003 backend authorization verification
+
+`npm run test:rbac-003` runs the focused Campaign Manager HTTP and guard
+contracts with synthetic sessions and in-memory persistence, storage and TTS
+fakes. It covers allowed contacts/audio/campaign permissions and prohibited
+organization, membership, invitation, ownership, billing, wallet and implemented
+platform operations. It never calls real storage, TTS or outbound providers.
+
+Campaign and audio PostgreSQL E2E suites validate `NODE_ENV=test`, the existing
+disposable loopback URL allowlist and the connected database name before any
+cleanup or fixture writes. Run them only on an exclusively disposable test
+instance through the existing `test:e2e` command; missing infrastructure fails
+loudly. Audio E2E checks database constraints only. Campaign activation and
+outbound execution remain unavailable under the existing draft safety policy.
+
 ## W3-03 Campaign Builder
 
 `/app/campaigns` provides a minimal draft builder for campaign name, an existing

@@ -123,10 +123,41 @@ describe('RBAC-004 authenticated billing HTTP journey', () => {
     'denies billing resources for %s',
     async (role) => {
       organizations.memberships[0]!.role = role;
+      const save = vi.spyOn(store, 'saveProfile');
+      const topUp = vi.spyOn(store, 'requestTopUp');
+      const before = structuredClone({
+        profiles: store.profiles,
+        entries: store.entries,
+        requests: store.requests,
+      });
+      const responses = [];
       for (const path of ['wallet', 'wallet/transactions', 'billing'])
-        expect((await call('get', `/organizations/org-1/${path}`)).status).toBe(403);
-      expect((await call('post', '/organizations/org-1/wallet/top-ups').send({})).status).toBe(403);
-      expect((await call('patch', '/organizations/org-1/billing').send({})).status).toBe(403);
+        responses.push(await call('get', `/organizations/org-1/${path}`));
+      responses.push(
+        await call('post', '/organizations/org-1/wallet/top-ups').send({
+          amountMinor: '1000',
+          currency: 'UGX',
+          idempotencyKey: randomUUID(),
+        }),
+      );
+      responses.push(
+        await call('patch', '/organizations/org-1/billing').send({
+          name: 'Synthetic billing',
+          email: 'billing@example.test',
+          address: 'Synthetic address',
+        }),
+      );
+      for (const response of responses) {
+        expect(response.status).toBe(403);
+        expect(response.body.error.code).toBe('permission_denied');
+      }
+      expect(save).not.toHaveBeenCalled();
+      expect(topUp).not.toHaveBeenCalled();
+      expect({
+        profiles: store.profiles,
+        entries: store.entries,
+        requests: store.requests,
+      }).toEqual(before);
     },
   );
   it('permits owner billing and revokes billing access immediately after a role change', async () => {

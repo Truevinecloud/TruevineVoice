@@ -24,6 +24,8 @@ import { describe, expect, it } from 'vitest';
 
 import { CampaignsController } from '../src/campaigns/campaigns.controller.js';
 import { BillingController } from '../src/billing/billing.controller.js';
+import { ContactsController } from '../src/contacts/contacts.controller.js';
+import { AudioController } from '../src/audio/audio.controller.js';
 import { OrganizationGuard } from '../src/auth/organization.guard.js';
 import { AuditController } from '../src/audit/audit.controller.js';
 import { CsrfGuard } from '../src/auth/csrf.guard.js';
@@ -121,6 +123,8 @@ function handlersOf(
 }
 
 const ROUTES = [
+  ...handlersOf(ContactsController),
+  ...handlersOf(AudioController),
   ...handlersOf(CampaignsController),
   ...handlersOf(BillingController),
   ...handlersOf(AuthController),
@@ -659,7 +663,13 @@ describe('every platform route is guarded and none is a mutation reachable by an
 
 describe('RBAC-012 tenant route contract', () => {
   it('requires session, organization permission, terms and CSRF on all tenant controllers', () => {
-    for (const controller of [OrganizationsController, CampaignsController, BillingController]) {
+    for (const controller of [
+      OrganizationsController,
+      CampaignsController,
+      BillingController,
+      ContactsController,
+      AudioController,
+    ]) {
       for (const name of Object.getOwnPropertyNames(controller.prototype)) {
         const handler = (controller.prototype as unknown as Record<string, object>)[name];
         if (
@@ -678,4 +688,55 @@ describe('RBAC-012 tenant route contract', () => {
       }
     }
   });
+});
+
+describe('RBAC-003 contacts and audio permission declarations', () => {
+  const contracts = [
+    [
+      ContactsController,
+      {
+        list: 'contact:read',
+        create: 'contact:create',
+        update: 'contact:update',
+        deleteContact: 'contact:update',
+        recordVoiceConsent: 'contact:update',
+        suppress: 'contact:update',
+        groups: 'contact:read',
+        createGroup: 'contact:create',
+        getGroup: 'contact:read',
+        updateGroup: 'contact:update',
+        deleteGroup: 'contact:update',
+        groupContacts: 'contact:read',
+        addGroupContact: 'contact:update',
+        removeGroupContact: 'contact:update',
+        startImport: 'contact:import',
+        batch: 'contact:import',
+        complete: 'contact:import',
+        summary: 'contact:read',
+      },
+    ],
+    [
+      AudioController,
+      {
+        list: 'audio:read',
+        voices: 'audio:read',
+        recording: 'audio:create',
+        synthesize: 'audio:create',
+        playback: 'audio:read',
+      },
+    ],
+  ] as const;
+  for (const [controller, expected] of contracts) {
+    it(`declares the explicit permission on every ${controller.name} route`, () => {
+      const routes = handlersOf(controller);
+      const actual = Object.fromEntries(
+        routes.map((route) => {
+          const name = route.name.split('.')[1]!;
+          const handler = (controller.prototype as unknown as Record<string, object>)[name]!;
+          return [name, Reflect.getMetadata(ORGANIZATION_PERMISSION, handler)];
+        }),
+      );
+      expect(actual).toEqual(expected);
+    });
+  }
 });
