@@ -429,6 +429,32 @@ describe('organization admin escalation refusals over HTTP', () => {
     ).toBe(true);
   });
 
+  it('refuses an admin promoting themselves to owner', async () => {
+    const admin = await sessionFor(USER_ADMIN);
+    const response = await request(server)
+      .patch(memberPath(ORG_ADMIN, USER_ADMIN))
+      .set(mutationHeaders(admin))
+      .send({ role: 'OWNER' });
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe('cannot_delegate_beyond_own_authority');
+    expect(await roleOf(ORG_ADMIN, USER_ADMIN)).toBe('ADMIN');
+    expect(await roleOf(ORG_ADMIN, USER_OWNER)).toBe('OWNER');
+  });
+
+  it('refuses an admin inviting a peer admin', async () => {
+    const admin = await sessionFor(USER_ADMIN);
+    const email = `${randomUUID()}@example.invalid`;
+    const response = await request(server)
+      .post(`/organizations/${ORG_ADMIN}/invitations`)
+      .set(mutationHeaders(admin))
+      .send({ email, role: 'ADMIN' });
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe('cannot_delegate_beyond_own_authority');
+    expect(await database.invitation.count({ where: { organizationId: ORG_ADMIN, email } })).toBe(
+      0,
+    );
+  });
+
   it('refuses an admin promoting a member to owner', async () => {
     const admin = await sessionFor(USER_ADMIN);
 
