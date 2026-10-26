@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { canDelegate, ORGANIZATION_ROLES } from '@truevine/auth';
 
 import { fetchMembers } from '../../../lib/org-api';
 import { currentSession, hasPermission } from '../../../lib/session';
@@ -89,6 +90,14 @@ export default async function TeamPage({
           <tbody>
             {members.map((member) => {
               const isSelf = member.userId === session.me.userId;
+              const targetRole = ORGANIZATION_ROLES.find((role) => role === member.role);
+              // Mirror the service's target-role restriction; the API remains
+              // authoritative and rechecks membership inside the transaction.
+              const canRemoveTarget =
+                canRemove &&
+                !isSelf &&
+                targetRole !== undefined &&
+                (membership.role === 'OWNER' || canDelegate(membership.role, targetRole));
 
               return (
                 <tr key={member.userId}>
@@ -110,7 +119,7 @@ export default async function TeamPage({
                         email={member.email}
                       />
                     )}
-                    {canRemove && !isSelf && (
+                    {canRemoveTarget && (
                       <RemoveMemberButton
                         organizationId={membership.organizationId}
                         userId={member.userId}

@@ -530,6 +530,14 @@ describe('OrganizationsService delegation', () => {
     ).rejects.toMatchObject({ code: 'cannot_delegate_beyond_own_authority' });
   });
 
+  it('refuses an admin promoting themselves to owner without changing membership', async () => {
+    seedOwner(auth, organizations, { role: 'ADMIN' });
+    await expect(
+      service.changeMemberRole('org-1', actor('ADMIN'), 'user-1', 'OWNER'),
+    ).rejects.toMatchObject({ code: 'cannot_delegate_beyond_own_authority', status: 403 });
+    expect(organizations.memberships.find((m) => m.userId === 'user-1')?.role).toBe('ADMIN');
+  });
+
   it('refuses an admin granting billing authority', async () => {
     seedOwner(auth, organizations, { role: 'ADMIN' });
     organizations.memberships.push(aMembership({ userId: 'user-2', role: 'VIEWER' }));
@@ -802,6 +810,13 @@ describe('OrganizationsService invitations', () => {
     // before any token is generated, so no invitation row exists to race on.
     await expect(
       service.invite('org-1', actor, 'x@example.invalid', 'OWNER'),
+    ).rejects.toMatchObject({ code: 'cannot_delegate_beyond_own_authority', status: 403 });
+    expect(organizations.invitations).toHaveLength(0);
+  });
+
+  it('refuses an admin inviting a peer admin', async () => {
+    await expect(
+      service.invite('org-1', actor, 'peer@example.invalid', 'ADMIN'),
     ).rejects.toMatchObject({ code: 'cannot_delegate_beyond_own_authority', status: 403 });
     expect(organizations.invitations).toHaveLength(0);
   });
