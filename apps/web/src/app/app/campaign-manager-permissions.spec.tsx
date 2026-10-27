@@ -72,7 +72,7 @@ function campaignManagerSession() {
           organizationId: 'org-a',
           organizationSlug: 'alpha',
           organizationName: 'Alpha',
-          role: 'CAMPAIGN_MANAGER',
+          role: 'CAMPAIGN_MANAGER' as const,
           permissions: [...ORGANIZATION_ROLE_PERMISSIONS.CAMPAIGN_MANAGER],
         },
       ],
@@ -80,7 +80,10 @@ function campaignManagerSession() {
   };
 }
 
-function sessionWith(permissions: string[], role = 'VIEWER') {
+function _sessionWith(
+  permissions: string[],
+  role: 'OWNER' | 'ADMIN' | 'CAMPAIGN_MANAGER' | 'BILLING' | 'VIEWER' = 'VIEWER',
+) {
   return {
     ok: true,
     me: {
