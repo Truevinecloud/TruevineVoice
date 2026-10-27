@@ -777,6 +777,10 @@ They never reset Git or run development Compose. See [ADR 0011](./docs/adr/0011-
 
 Run `npm run test:rbac-ci:checks` for workflow safety checks. See [isolated RBAC database CI](docs/rbac-database-ci-preparation.md) for disposable hosted billing/reporting E2E and the remaining release prerequisites. This does not approve migrations or deploy.
 
+The isolated campaign job uses a fresh runner-local `truevine_voice` database on
+loopback port `55432` to satisfy the existing disposable-database safety guard.
+Its workflow checks validate that compatibility without connecting to PostgreSQL.
+
 For non-production Operations Admin UAT, use the audited
 `npm run provision:operations-admin-uat` command documented in [the UAT
 account provisioning runbook](docs/runbooks/uat-account-provisioning.md). It
