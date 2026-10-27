@@ -42,7 +42,7 @@ vi.mock('../../lib/session', () => ({
         }
       | undefined,
     permission: string,
-  ) => membership?.permissions.includes(permission) ?? false,
+  ) => (membership?.permissions?.includes(permission) ?? false),
 }));
 
 vi.mock('../../lib/org-api', () => ({
@@ -110,32 +110,23 @@ describe('RBAC-003 Campaign Manager page guards - allowed', () => {
     mocks.organization.mockResolvedValue({ id: 'org-a', name: 'Alpha' });
     mocks.members.mockResolvedValue([]);
     mocks.invitations.mockResolvedValue([]);
-    const html = renderToStaticMarkup(
-      await (DashboardPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-a' }),
-      }),
-    );
+    const element = await (DashboardPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
+    const html = renderToStaticMarkup(element as any);
     expect(html).toContain('Alpha');
   });
 
   it('allows contacts', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    const html = renderToStaticMarkup(
-      await (ContactsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-a' }),
-      }),
-    );
+    const element = await (ContactsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
+    const html = renderToStaticMarkup(element as any);
     expect(html).not.toContain('do not have access');
     expect(html).toContain('Contacts');
   });
 
   it('allows contact groups', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    const html = renderToStaticMarkup(
-      await (ContactGroupsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-a' }),
-      }),
-    );
+    const element = await (ContactGroupsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
+    const html = renderToStaticMarkup(element as any);
     expect(html).not.toContain('do not have access');
     expect(html).toContain('Contact groups');
   });
@@ -143,11 +134,8 @@ describe('RBAC-003 Campaign Manager page guards - allowed', () => {
   it('allows campaigns', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.campaigns.mockResolvedValue([]);
-    const html = renderToStaticMarkup(
-      await (CampaignsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-a' }),
-      }),
-    );
+    const element = await (CampaignsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
+    const html = renderToStaticMarkup(element as any);
     expect(html).not.toContain('do not have access');
     expect(html).toContain('Campaigns');
   });
@@ -155,11 +143,8 @@ describe('RBAC-003 Campaign Manager page guards - allowed', () => {
   it('allows reports', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.report.mockResolvedValue({ totalCalls: 0, totalDurationSeconds: 0, statusBreakdown: [] });
-    const html = renderToStaticMarkup(
-      await (ReportsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-a' }),
-      }),
-    );
+    const element = await (ReportsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
+    const html = renderToStaticMarkup(element as any);
     expect(html).not.toContain('do not have access');
     expect(html).toContain('Reports');
   });
@@ -167,11 +152,8 @@ describe('RBAC-003 Campaign Manager page guards - allowed', () => {
   it('allows organization settings read-only surface', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.organization.mockResolvedValue({ id: 'org-a', name: 'Alpha', slug: 'alpha' });
-    const html = renderToStaticMarkup(
-      await (SettingsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-a' }),
-      }),
-    );
+    const element = await (SettingsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
+    const html = renderToStaticMarkup(element as any);
     expect(html).not.toContain('do not have access');
   });
 });
@@ -179,51 +161,36 @@ describe('RBAC-003 Campaign Manager page guards - allowed', () => {
 describe('RBAC-003 Campaign Manager page guards - denied', () => {
   it('denies team members', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    const html = renderToStaticMarkup(
-      await (TeamPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-a' }),
-      }),
-    );
+    const element = await (TeamPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
+    const html = renderToStaticMarkup(element as any);
     expect(html).toContain('do not have access');
   });
 
   it('denies invitations', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    const html = renderToStaticMarkup(
-      await (InvitationsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-a' }),
-      }),
-    );
+    const element = await (InvitationsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
+    const html = renderToStaticMarkup(element as any);
     expect(html).toContain('do not have access');
   });
 
   it('denies billing', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    const html = renderToStaticMarkup(
-      await (BillingPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-a' }),
-      }),
-    );
+    const element = await (BillingPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
+    const html = renderToStaticMarkup(element as any);
     expect(html).toContain('do not have access');
   });
 
   it('denies audio library', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    const html = renderToStaticMarkup(
-      await (AudioPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-a' }),
-      }),
-    );
+    const element = await (AudioPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
+    const html = renderToStaticMarkup(element as any);
     expect(html).toContain('do not have access');
   });
 
   it('denies ownership transfer actions context', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    const html = renderToStaticMarkup(
-      await (SettingsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-a' }),
-      }),
-    );
+    const element = await (SettingsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
+    const html = renderToStaticMarkup(element as any);
     expect(html).not.toContain('Transfer ownership');
   });
 });
@@ -232,9 +199,7 @@ describe('RBAC-003 Campaign Manager cross-tenant guard', () => {
   it('redirects or denies cross-tenant access', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     try {
-      await (CampaignsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-b' }),
-      });
+      await (CampaignsPage as any)({ searchParams: Promise.resolve({ organization: 'org-b' }) });
       expect.fail('expected redirect or access denial');
     } catch (error) {
       expect((error as Error).message).toMatch(/redirect:|do not have access/);
@@ -246,11 +211,8 @@ describe('RBAC-003 Campaign Manager campaign UI', () => {
   it('renders campaign surface without policy violations', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.campaigns.mockResolvedValue([]);
-    const html = renderToStaticMarkup(
-      await (CampaignsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
-        searchParams: Promise.resolve({ organization: 'org-a' }),
-      }),
-    );
+    const element = await (CampaignsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
+    const html = renderToStaticMarkup(element as any);
     expect(html).toContain('Campaign');
   });
 });
