@@ -122,3 +122,19 @@ export const SAFE_REFERENCE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/;
 export function isSafeReference(value: string): boolean {
   return SAFE_REFERENCE_PATTERN.test(value.trim());
 }
+
+/**
+ * The API's consent-source format: 3-80 characters beginning with an
+ * alphanumeric, then alphanumerics or `._:-`.
+ *
+ * A source is a stable identifier (`signed_form`, `call_recording`), not a
+ * description. Free text is rejected on purpose, because a source that reads
+ * like a sentence tends to carry personal data and cannot be matched reliably.
+ * Mirrored here so the form can explain the rule before a round trip; the
+ * server still validates every request.
+ */
+export const SAFE_SOURCE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,79}$/;
+
+export function isSafeConsentSource(value: string): boolean {
+  return SAFE_SOURCE_PATTERN.test(value.trim());
+}

@@ -6,10 +6,12 @@ import { messageFor, request } from '../../../lib/api';
 import {
   MAX_IMPORT_BATCH_BYTES,
   MAX_IMPORT_BATCH_ROWS,
+  formatRejectedRows,
   splitCsvBatches,
   summariseImport,
   type ContactImportBatchResult,
   type ContactImportSummary,
+  type RejectedImportRow,
 } from '../../../lib/contact-import';
 
 type Step = 'choose' | 'review' | 'running' | 'done';
@@ -42,6 +44,12 @@ export function ContactImportPanel({
    */
   const [startedImportId, setStartedImportId] = useState<string | null>(null);
   const [summary, setSummary] = useState<ContactImportSummary | null>(null);
+  /**
+   * Row numbers the API rejected, accumulated across batches. Only the row
+   * number and the rejection code are kept; the API returns no contact data for
+   * a rejected row and none is displayed.
+   */
+  const [rejectedRows, setRejectedRows] = useState<readonly RejectedImportRow[]>([]);
   const [error, setError] = useState('');
   const input = useRef<HTMLInputElement>(null);
 
@@ -54,6 +62,7 @@ export function ContactImportPanel({
     setProcessedBatches(0);
     setStartedImportId(null);
     setSummary(null);
+    setRejectedRows([]);
     setError('');
     if (input.current) input.current.value = '';
   }
@@ -74,6 +83,7 @@ export function ContactImportPanel({
       setBatchCount(batches.batches.length);
       setProcessedBatches(0);
       setStartedImportId(null);
+      setRejectedRows([]);
       setStep('review');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : messageFor(cause));
@@ -103,10 +113,19 @@ export function ContactImportPanel({
 
       for (let index = processedBatches; index < batches.batches.length; index += 1) {
         const csv = batches.batches[index] as string;
-        await request<ContactImportBatchResult>(
+        const batch = await request<ContactImportBatchResult>(
           `${base}/${encodeURIComponent(importId)}/batches`,
           { method: 'POST', body: { batchNumber: index, csv } },
         );
+        const rejected = batch.rows
+          .filter((row) => row.outcome === 'REJECTED')
+          .map((row) => ({
+            rowNumber: batches.fileRowsPerBatch[index]![row.rowNumber - 2]!,
+            ...(row.code === undefined ? {} : { code: row.code }),
+          }));
+        if (rejected.length > 0) {
+          setRejectedRows((previous) => [...previous, ...rejected]);
+        }
         setProcessedBatches(index + 1);
       }
 
@@ -181,8 +200,8 @@ export function ContactImportPanel({
             </div>
           </dl>
           <p className="field-hint">
-            Rows that already exist are updated. Rejected rows are reported after the import and do
-            not stop the remaining rows.
+            Rows that already exist are updated. A rejected row does not stop the rest of the file;
+            its row number is listed here when the import finishes.
           </p>
           <div className="button-row">
             <button className="button-primary" type="button" onClick={() => void run()}>
@@ -205,6 +224,14 @@ export function ContactImportPanel({
         <div className="contact-import__result" role="status">
           <h3>Import complete</h3>
           <p>{summariseImport(summary)}</p>
+          {summary.rejected > 0 && (
+            <p>
+              Rejected rows were not imported:{' '}
+              {rejectedRows.length > 0
+                ? `${formatRejectedRows(rejectedRows)}.`
+                : `${summary.rejected} rows.`}
+            </p>
+          )}
           {summary.warnings > 0 && (
             <p>
               Review warnings before using these contacts. Warnings include CSV consent values,
