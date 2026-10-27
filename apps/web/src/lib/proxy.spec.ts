@@ -41,6 +41,7 @@ describe('proxy allowlist', () => {
       'POST /organizations/abc/campaigns',
       'GET /organizations/abc/campaigns/campaign-id',
       'PATCH /organizations/abc/campaigns/campaign-id',
+      'DELETE /organizations/abc/campaigns/campaign-id',
       'POST /organizations/abc/campaigns/campaign-id/preflight',
       'POST /organizations/abc/contacts',
       'PATCH /organizations/abc/contacts/def',
@@ -86,6 +87,11 @@ describe('proxy allowlist', () => {
       'PUT /organizations/abc/audio-assets/asset-id/playback-link',
       'POST /organizations/abc/audio-assets/asset-id/extra',
       'GET /organizations/abc/members/def/permissions',
+      // Campaign routing stays exact and method-qualified.
+      'DELETE /organizations/abc/campaigns',
+      'PUT /organizations/abc/campaigns/campaign-id',
+      'DELETE /organizations/abc/campaigns/campaign-id/preflight',
+      'DELETE /organizations/abc/campaigns/campaign-id/extra',
       // Contact routing stays exact and method-qualified.
       'DELETE /organizations/abc/contacts/def/voice-consent',
       'DELETE /organizations/abc/contacts/def/extra',
@@ -203,6 +209,7 @@ describe('proxy allowlist', () => {
       'POST /auth/terms/accept',
       'DELETE /organizations/:organizationId/members/:userId',
       'DELETE /organizations/:organizationId/invitations/:invitationId',
+      'DELETE /organizations/:organizationId/campaigns/:campaignId',
     ];
 
     for (const entry of BODILESS) {

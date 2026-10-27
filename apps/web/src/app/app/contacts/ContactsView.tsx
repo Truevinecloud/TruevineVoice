@@ -9,18 +9,23 @@ import {
   type Contact,
   type ContactPage,
 } from '../../../lib/contacts';
+import { formatDateTime } from '../../../lib/datetime';
 import { EmptyState, PageHeader, SectionCard } from '../AppUI';
+import { ContactGovernance } from './contact-governance';
+import { ContactImportPanel } from './contact-import-panel';
 
 export function ContactsView({
   organizationId,
   organizationName,
   canCreate,
   canUpdate,
+  canImport,
 }: {
   readonly organizationId: string;
   readonly organizationName: string;
   readonly canCreate: boolean;
   readonly canUpdate: boolean;
+  readonly canImport: boolean;
 }) {
   const [page, setPage] = useState<ContactPage>({ items: [], nextCursor: null });
   const [loading, setLoading] = useState(true);
@@ -274,6 +279,14 @@ export function ContactsView({
           Load more contacts
         </button>
       )}
+      {canImport && (
+        <ContactImportPanel
+          organizationId={organizationId}
+          onImported={() => {
+            void load('');
+          }}
+        />
+      )}
       {mode && (
         <section
           className="card-section contact-editor"
@@ -302,18 +315,40 @@ export function ContactsView({
                 <dt>Voice consent</dt>
                 <dd>
                   {selected.voiceConsent === 'RECORDED'
-                    ? `Recorded: ${selected.voiceConsentAt}`
+                    ? `Recorded: ${formatDateTime(selected.voiceConsentAt)}`
                     : 'Not recorded'}
                 </dd>
                 <dt>Suppression</dt>
                 <dd>
-                  {selected.suppressed ? `Suppressed: ${selected.suppressedAt}` : 'Not suppressed'}
+                  {selected.suppressed
+                    ? `Suppressed: ${formatDateTime(selected.suppressedAt)}`
+                    : 'Not suppressed'}
                 </dd>
+                {selected.groups && selected.groups.length > 0 && (
+                  <>
+                    <dt>Groups</dt>
+                    <dd>{selected.groups.map((group) => group.name).join(', ')}</dd>
+                  </>
+                )}
                 <dt>Created</dt>
-                <dd>{selected.createdAt}</dd>
+                <dd>{formatDateTime(selected.createdAt)}</dd>
                 <dt>Updated</dt>
-                <dd>{selected.updatedAt}</dd>
+                <dd>{formatDateTime(selected.updatedAt)}</dd>
               </dl>
+              <ContactGovernance
+                organizationId={organizationId}
+                contact={selected}
+                canUpdate={canUpdate}
+                onUpdated={(contact) => {
+                  setSelected(contact);
+                  setPage((previous) => ({
+                    ...previous,
+                    items: previous.items.map((item) => (item.id === contact.id ? contact : item)),
+                  }));
+                  setSuccess('');
+                  setError('');
+                }}
+              />
               {canUpdate && (
                 <div className="row">
                   <button className="button-secondary" onClick={() => open('edit', selected)}>

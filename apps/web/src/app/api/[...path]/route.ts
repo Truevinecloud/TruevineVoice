@@ -79,6 +79,7 @@ const ALLOWED_ROUTES: ReadonlyArray<{ readonly method: string; readonly pattern:
   { method: 'POST', pattern: /^\/organizations\/[^/]+\/campaigns$/ },
   { method: 'GET', pattern: /^\/organizations\/[^/]+\/campaigns\/[^/]+$/ },
   { method: 'PATCH', pattern: /^\/organizations\/[^/]+\/campaigns\/[^/]+$/ },
+  { method: 'DELETE', pattern: /^\/organizations\/[^/]+\/campaigns\/[^/]+$/ },
   { method: 'POST', pattern: /^\/organizations\/[^/]+\/campaigns\/[^/]+\/preflight$/ },
   { method: 'POST', pattern: /^\/organizations\/[^/]+\/contacts$/ },
   { method: 'PATCH', pattern: /^\/organizations\/[^/]+\/contacts\/[^/]+$/ },

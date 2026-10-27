@@ -42,11 +42,16 @@ export interface Invitation {
   readonly outstanding: boolean;
 }
 
-/** Read-only campaign fields available to organization campaign readers. */
+/**
+ * Read-only campaign fields available to organization campaign readers.
+ *
+ * `PAUSED` is a record the API reports for an emergency-stopped campaign. It is
+ * a status of the record, not evidence that any call was placed.
+ */
 export interface Campaign {
   readonly id: string;
   readonly name: string;
-  readonly status: 'DRAFT' | 'ACTIVE' | 'COMPLETED';
+  readonly status: 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'PAUSED';
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly audioAssetId?: string | null;

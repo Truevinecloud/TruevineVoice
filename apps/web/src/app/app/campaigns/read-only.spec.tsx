@@ -24,9 +24,6 @@ vi.mock('../../../lib/org-api', () => ({
   fetchMembers: mocks.members,
   fetchInvitations: mocks.invitations,
 }));
-vi.mock('./campaign-audio', () => ({
-  CampaignAudio: () => <span>Campaign audio</span>,
-}));
 vi.mock('next/navigation', () => ({
   redirect: (url: string) => {
     throw new Error(`redirect:${url}`);
@@ -55,6 +52,7 @@ describe('read-only Viewer campaign and report pages', () => {
     mocks.organization.mockResolvedValue({ id: 'org-a', name: 'Tenant A' });
     mocks.members.mockResolvedValue([{ userId: 'u1' }, { userId: 'u2' }]);
     mocks.invitations.mockResolvedValue(null);
+    mocks.campaigns.mockResolvedValue([]);
 
     const dashboard = renderToStaticMarkup(
       await DashboardPage({
@@ -95,7 +93,8 @@ describe('read-only Viewer campaign and report pages', () => {
     );
 
     expect(markup).toContain('Autumn calls');
-    expect(markup).toContain('COMPLETED');
+    // A stored record state, worded so it cannot read as a placed call.
+    expect(markup).toContain('Completed record');
     expect(markup).toContain('Campaign execution and call outcome data are not available yet');
     expect(markup).not.toMatch(/<form|<button|Launch|Edit|Delete/);
     expect(mocks.campaigns).toHaveBeenCalledWith('org-a');

@@ -1,146 +1,90 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import { messageFor, request } from '../../../lib/api';
+import {
+  isoFromLocalDateTime,
+  localDateTimeValue,
+  maximumScheduleValue,
+  minimumScheduleValue,
+} from '../../../lib/datetime';
 import type { Campaign } from '../../../lib/org-api';
 
-interface Group {
+export interface CampaignGroup {
   readonly id: string;
   readonly name: string;
 }
-interface AudioAsset {
+export interface CampaignAudioAsset {
   readonly id: string;
   readonly name: string;
-}
-interface Preflight {
-  readonly valid: boolean;
-  readonly eligibleContactCount: number;
-  readonly issues: readonly { readonly code: string; readonly message: string }[];
 }
 
-/** Minimal draft editor. It prepares records only; it cannot launch or schedule execution. */
+/**
+ * Draft editor.
+ *
+ * It prepares a record only. It cannot launch, schedule execution or place a
+ * call, and it never asks a provider to do anything. The audience and audio
+ * lists are supplied by the workspace so a draft can be prepared without a
+ * request per row.
+ *
+ * Times are converted in exactly one place (`lib/datetime`). Submitting the raw
+ * `datetime-local` value would send an instant with no offset, and reading a
+ * stored instant with `toISOString()` would show UTC in a control the operator
+ * reads as local time.
+ */
 export function CampaignBuilder({
   organizationId,
-  initialCampaigns,
-  canUpdate,
+  campaign,
+  groups,
+  assets,
+  onSaved,
+  onCancel,
 }: {
   readonly organizationId: string;
-  readonly initialCampaigns: readonly Campaign[];
-  readonly canUpdate: boolean;
+  readonly campaign: Campaign | null;
+  readonly groups: readonly CampaignGroup[];
+  readonly assets: readonly CampaignAudioAsset[];
+  readonly onSaved: (campaign: Campaign) => void;
+  readonly onCancel: () => void;
 }): React.JSX.Element {
-  const [campaigns, setCampaigns] = useState(initialCampaigns);
-  const [groups, setGroups] = useState<readonly Group[]>([]);
-  const [assets, setAssets] = useState<readonly AudioAsset[]>([]);
-  const [selected, setSelected] = useState('');
-  const [name, setName] = useState('');
-  const [audioAssetId, setAudioAssetId] = useState('');
-  const [audienceGroupIds, setAudienceGroupIds] = useState<string[]>([]);
-  const [scheduledAt, setScheduledAt] = useState('');
-  const [retryMaxAttempts, setRetryMaxAttempts] = useState(1);
-  const [retryDelayMinutes, setRetryDelayMinutes] = useState(60);
-  const [preflight, setPreflight] = useState<Preflight | null>(null);
+  const [name, setName] = useState(campaign?.name ?? '');
+  const [audioAssetId, setAudioAssetId] = useState(campaign?.audioAssetId ?? '');
+  const [audienceGroupIds, setAudienceGroupIds] = useState<string[]>([
+    ...(campaign?.audienceGroupIds ?? []),
+  ]);
+  const [scheduledAt, setScheduledAt] = useState(localDateTimeValue(campaign?.scheduledAt));
+  const [retryMaxAttempts, setRetryMaxAttempts] = useState(campaign?.retryMaxAttempts ?? 1);
+  const [retryDelayMinutes, setRetryDelayMinutes] = useState(campaign?.retryDelayMinutes ?? 60);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
-  const base = `/organizations/${organizationId}`;
-
-  useEffect(() => {
-    let active = true;
-    void Promise.all([
-      request<readonly Group[]>(`${base}/contact-groups`),
-      request<readonly AudioAsset[]>(`${base}/audio-assets`),
-    ])
-      .then(([groupRows, assetRows]) => {
-        if (active) {
-          setGroups(groupRows);
-          setAssets(assetRows);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (active) setError(messageFor(cause));
-      });
-    return () => {
-      active = false;
-    };
-  }, [base]);
-
-  function loadDraft(id: string): void {
-    setSelected(id);
-    const campaign = campaigns.find((item) => item.id === id);
-    setName(campaign?.name ?? '');
-    setAudioAssetId(campaign?.audioAssetId ?? '');
-    setAudienceGroupIds([...(campaign?.audienceGroupIds ?? [])]);
-    setScheduledAt(
-      campaign?.scheduledAt ? new Date(campaign.scheduledAt).toISOString().slice(0, 16) : '',
-    );
-    setRetryMaxAttempts(campaign?.retryMaxAttempts ?? 1);
-    setRetryDelayMinutes(campaign?.retryDelayMinutes ?? 60);
-    setPreflight(null);
-    setError('');
-    setNotice('');
-  }
+  const base = `/organizations/${encodeURIComponent(organizationId)}/campaigns`;
 
   async function save(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError('');
-    setNotice('');
-    setPreflight(null);
     try {
       const body = {
-        name,
+        name: name.trim(),
         audioAssetId: audioAssetId || null,
         audienceGroupIds,
-        scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
+        scheduledAt: isoFromLocalDateTime(scheduledAt),
         retryMaxAttempts,
         retryDelayMinutes,
       };
-      const campaign = await request<Campaign>(
-        selected ? `${base}/campaigns/${selected}` : `${base}/campaigns`,
-        {
-          method: selected ? 'PATCH' : 'POST',
-          body,
-        },
+      const saved = await request<Campaign>(
+        campaign ? `${base}/${encodeURIComponent(campaign.id)}` : base,
+        { method: campaign ? 'PATCH' : 'POST', body },
       );
-      setCampaigns((items) =>
-        selected
-          ? items.map((item) => (item.id === campaign.id ? campaign : item))
-          : [campaign, ...items],
-      );
-      setSelected(campaign.id);
-      setNotice('Draft saved. Run preflight to review readiness.');
+      onSaved(saved);
     } catch (cause) {
       setError(messageFor(cause));
     } finally {
       setBusy(false);
     }
   }
-
-  async function checkPreflight(): Promise<void> {
-    if (!selected) return;
-    setBusy(true);
-    setError('');
-    setNotice('');
-    try {
-      const result = await request<Preflight>(`${base}/campaigns/${selected}/preflight`, {
-        method: 'POST',
-        body: {},
-      });
-      setPreflight(result);
-      setNotice(
-        result.valid
-          ? `Preflight passed for ${result.eligibleContactCount} currently eligible contacts.`
-          : 'Preflight found items to resolve.',
-      );
-    } catch (cause) {
-      setError(messageFor(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!canUpdate) return <p>Campaigns are read-only for your role.</p>;
 
   const selectedAudio = assets.find((asset) => asset.id === audioAssetId);
   const selectedGroups = groups.filter((group) => audienceGroupIds.includes(group.id));
@@ -150,26 +94,17 @@ export function CampaignBuilder({
       <header className="campaign-builder__header">
         <div>
           <p className="campaign-builder__eyebrow">Campaign workspace</p>
-          <h2 id="campaign-builder-heading">Build a campaign draft</h2>
-          <p>Set up the message and audience, then review readiness before anything is prepared.</p>
+          <h2 id="campaign-builder-heading">
+            {campaign ? 'Edit campaign draft' : 'Build a campaign draft'}
+          </h2>
+          <p>
+            Set up the message and audience, then save the draft and review its readiness. This
+            workspace prepares a record; it does not place calls.
+          </p>
         </div>
-        <div className="campaign-builder__draft-picker">
-          <label htmlFor="campaign-existing-draft">Continue a draft</label>
-          <select
-            id="campaign-existing-draft"
-            value={selected}
-            onChange={(event) => loadDraft(event.target.value)}
-          >
-            <option value="">Start a new campaign</option>
-            {campaigns
-              .filter((item) => item.status === 'DRAFT')
-              .map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-          </select>
-        </div>
+        <button className="campaign-builder__cancel" type="button" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
       </header>
 
       {error && (
@@ -177,18 +112,13 @@ export function CampaignBuilder({
           {error}
         </p>
       )}
-      {notice && (
-        <p className="campaign-builder__alert campaign-builder__alert--success" role="status">
-          {notice}
-        </p>
-      )}
 
-      <form className="campaign-builder__form" onSubmit={save}>
+      <form className="campaign-builder__form" onSubmit={save} noValidate={false}>
         <section className="campaign-builder__section" aria-labelledby="campaign-details-heading">
           <div className="campaign-builder__section-heading">
             <span className="campaign-builder__step">01</span>
             <div>
-              <h3 id="campaign-details-heading">Campaign Details</h3>
+              <h3 id="campaign-details-heading">Campaign details</h3>
               <p>Give this draft a clear name so your team can find it later.</p>
             </div>
           </div>
@@ -203,6 +133,7 @@ export function CampaignBuilder({
                 onChange={(event) => setName(event.target.value)}
                 placeholder="For example, October member follow-up"
                 aria-describedby="campaign-name-hint"
+                disabled={busy}
               />
               <span className="campaign-builder__hint" id="campaign-name-hint">
                 Up to 200 characters.
@@ -215,8 +146,8 @@ export function CampaignBuilder({
           <div className="campaign-builder__section-heading">
             <span className="campaign-builder__step">02</span>
             <div>
-              <h3 id="campaign-audio-heading">Message Audio</h3>
-              <p>Choose the recorded or generated audio asset for this campaign.</p>
+              <h3 id="campaign-audio-heading">Message audio</h3>
+              <p>Choose a recorded or generated audio asset for this campaign.</p>
             </div>
           </div>
           <div className="campaign-builder__grid">
@@ -227,6 +158,7 @@ export function CampaignBuilder({
                 value={audioAssetId}
                 onChange={(event) => setAudioAssetId(event.target.value)}
                 aria-describedby="campaign-audio-hint"
+                disabled={busy}
               >
                 <option value="">Select an audio asset</option>
                 {assets.map((asset) => (
@@ -241,7 +173,10 @@ export function CampaignBuilder({
               {assets.length === 0 && (
                 <p className="campaign-builder__empty" role="status">
                   <strong>No audio assets yet</strong>
-                  <span>Add or record audio in the Audio library before selecting it here.</span>
+                  <span>
+                    Audio storage and text to speech are not configured in every environment. Add
+                    or record audio in the Audio library before selecting it here.
+                  </span>
                 </p>
               )}
             </div>
@@ -252,8 +187,11 @@ export function CampaignBuilder({
           <div className="campaign-builder__section-heading">
             <span className="campaign-builder__step">03</span>
             <div>
-              <h3 id="campaign-audience-heading">Target Audience</h3>
-              <p>Select one or more contact groups. Eligibility is checked during preflight.</p>
+              <h3 id="campaign-audience-heading">Target audience</h3>
+              <p>
+                Select one or more contact groups. Eligibility, consent and suppression are checked
+                during preflight, not assumed here.
+              </p>
             </div>
           </div>
           <fieldset className="campaign-builder__choice-group">
@@ -270,6 +208,7 @@ export function CampaignBuilder({
                     <input
                       type="checkbox"
                       checked={audienceGroupIds.includes(group.id)}
+                      disabled={busy}
                       onChange={(event) =>
                         setAudienceGroupIds((ids) =>
                           event.target.checked
@@ -290,7 +229,7 @@ export function CampaignBuilder({
           <div className="campaign-builder__section-heading">
             <span className="campaign-builder__step">04</span>
             <div>
-              <h3 id="campaign-schedule-heading">Schedule &amp; Retry Settings</h3>
+              <h3 id="campaign-schedule-heading">Schedule &amp; retry settings</h3>
               <p>These settings are saved to the draft. Scheduling does not start execution.</p>
             </div>
           </div>
@@ -301,11 +240,15 @@ export function CampaignBuilder({
                 id="campaign-scheduled-at"
                 type="datetime-local"
                 value={scheduledAt}
+                min={minimumScheduleValue()}
+                max={maximumScheduleValue()}
                 onChange={(event) => setScheduledAt(event.target.value)}
                 aria-describedby="campaign-scheduled-hint"
+                disabled={busy}
               />
               <span className="campaign-builder__hint" id="campaign-scheduled-hint">
-                Use your local time. Choose a time at least 5 minutes ahead and within one year.
+                Shown and saved in your local time. Choose a time at least 5 minutes ahead and within
+                one year.
               </span>
             </div>
             <div className="campaign-builder__field">
@@ -318,9 +261,10 @@ export function CampaignBuilder({
                 value={retryMaxAttempts}
                 onChange={(event) => setRetryMaxAttempts(Number(event.target.value))}
                 aria-describedby="campaign-retry-attempts-hint"
+                disabled={busy}
               />
               <span className="campaign-builder__hint" id="campaign-retry-attempts-hint">
-                Includes the first attempt. Allowed range: 1–5.
+                Includes the first attempt. Allowed range: 1 to 5.
               </span>
             </div>
             <div className="campaign-builder__field">
@@ -334,11 +278,12 @@ export function CampaignBuilder({
                   value={retryDelayMinutes}
                   onChange={(event) => setRetryDelayMinutes(Number(event.target.value))}
                   aria-describedby="campaign-retry-delay-hint"
+                  disabled={busy}
                 />
                 <span>minutes</span>
               </div>
               <span className="campaign-builder__hint" id="campaign-retry-delay-hint">
-                Allowed range: 5–1,440 minutes.
+                Allowed range: 5 to 1,440 minutes.
               </span>
             </div>
           </div>
@@ -348,11 +293,8 @@ export function CampaignBuilder({
           <div className="campaign-builder__section-heading">
             <span className="campaign-builder__step">05</span>
             <div>
-              <h3 id="campaign-review-heading">Review &amp; Preflight</h3>
-              <p>
-                Review your selections and check current readiness before saving or sharing the
-                draft.
-              </p>
+              <h3 id="campaign-review-heading">Review before saving</h3>
+              <p>Check the selections below. Saving stores a draft record only.</p>
             </div>
           </div>
           <dl className="campaign-builder__review">
@@ -374,7 +316,14 @@ export function CampaignBuilder({
             </div>
             <div>
               <dt>Schedule</dt>
-              <dd>{scheduledAt ? new Date(scheduledAt).toLocaleString() : 'Not scheduled'}</dd>
+              <dd>
+                {scheduledAt
+                  ? new Intl.DateTimeFormat(undefined, {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    }).format(new Date(scheduledAt))
+                  : 'Not scheduled'}
+              </dd>
             </div>
             <div>
               <dt>Retry policy</dt>
@@ -384,45 +333,22 @@ export function CampaignBuilder({
             </div>
           </dl>
 
-          {preflight && (
-            <div
-              className={`campaign-builder__preflight ${preflight.valid ? 'is-valid' : 'has-issues'}`}
-              aria-label="Preflight results"
-              role="status"
-            >
-              <strong>
-                {preflight.valid ? 'Ready for review' : 'Resolve these items before proceeding'}
-              </strong>
-              <p>{preflight.eligibleContactCount} currently eligible contacts</p>
-              {preflight.issues.length > 0 && (
-                <ul>
-                  {preflight.issues.map((issue) => (
-                    <li key={issue.code}>{issue.message}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
           <p className="campaign-builder__safety-note">
-            Preflight estimates current consented, unsuppressed contacts. It does not snapshot
-            recipients, place calls, schedule execution or enable providers.
+            Saving never places a call, snapshots recipients, or starts a provider. Preflight is a
+            current estimate of consented, unsuppressed contacts.
           </p>
           <div className="campaign-builder__actions">
             <button className="campaign-builder__save" type="submit" disabled={busy}>
-              {busy ? 'Saving…' : 'Save Draft'}
+              {busy ? 'Saving…' : campaign ? 'Save changes' : 'Save draft'}
             </button>
             <button
               className="campaign-builder__preflight-action"
               type="button"
-              disabled={busy || !selected}
-              onClick={() => void checkPreflight()}
+              onClick={onCancel}
+              disabled={busy}
             >
-              {busy ? 'Checking…' : 'Run Preflight'}
+              Cancel
             </button>
-            {!selected && (
-              <span className="campaign-builder__hint">Save the draft to run preflight.</span>
-            )}
           </div>
         </section>
       </form>
