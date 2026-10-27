@@ -53,11 +53,13 @@ jobs:
         env:
           POSTGRES_USER: rbac_test
           POSTGRES_PASSWORD: disposable_ci_only
-          POSTGRES_DB: rbac_e2e_test
+          POSTGRES_DB: truevine_voice
         ports:
-          - 5432/tcp
+          # Each matrix job has its own hosted runner. Match the existing
+          # disposable-database allowlist instead of relaxing its safety checks.
+          - 127.0.0.1:55432:5432
         options: >-
-          --health-cmd "pg_isready -h 127.0.0.1 -U rbac_test -d rbac_e2e_test"
+          --health-cmd "pg_isready -h 127.0.0.1 -U rbac_test -d truevine_voice"
           --health-interval 5s --health-timeout 5s --health-retries 12
       redis:
         image: redis:8-alpine
@@ -84,7 +86,7 @@ jobs:
           POSTGRES_TEST_PORT: ${{ job.services.postgres.ports[5432] }}
           REDIS_TEST_PORT: ${{ job.services.redis.ports[6379] }}
         run: |
-          printf 'DATABASE_URL=postgresql://rbac_test:disposable_ci_only@localhost:%s/rbac_e2e_test?schema=public\n' "$POSTGRES_TEST_PORT" >> "$GITHUB_ENV"
+          printf 'DATABASE_URL=postgresql://rbac_test:disposable_ci_only@localhost:%s/truevine_voice?schema=public\n' "$POSTGRES_TEST_PORT" >> "$GITHUB_ENV"
           printf 'REDIS_URL=redis://localhost:%s\n' "$REDIS_TEST_PORT" >> "$GITHUB_ENV"
       - name: Require the actual candidate suites
         run: |
