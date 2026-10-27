@@ -107,8 +107,8 @@ afterEach(() => vi.clearAllMocks());
 describe('RBAC-003 Campaign Manager navigation visibility', () => {
   it('shows only permitted items in nav', () => {
     const session = campaignManagerSession();
-    const membership = session.me.memberships[0]!;
-    const labels = organizationNavigationItems(membership).map((item) => item.label);
+    const membership = session.me.memberships[0] as any;
+    const labels = organizationNavigationItems(membership).map((item: any) => item.label);
     expect(labels).toContain('Dashboard');
     expect(labels).toContain('Contacts');
     expect(labels).toContain('Contact Groups');
@@ -126,11 +126,11 @@ describe('RBAC-003 Campaign Manager navigation visibility', () => {
 describe('RBAC-003 Campaign Manager page guards - allowed', () => {
   it('allows dashboard', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    mocks.organization.mockResolvedValue({ id: 'org-a', name: 'Alpha' });
-    mocks.members.mockResolvedValue([]);
-    mocks.invitations.mockResolvedValue([]);
+    (mocks as any).organization.mockResolvedValue({ id: 'org-a', name: 'Alpha' });
+    (mocks as any).members.mockResolvedValue([]);
+    (mocks as any).invitations.mockResolvedValue([]);
     const html = renderToStaticMarkup(
-      await DashboardPage({ searchParams: Promise.resolve({ organization: 'org-a' }) }),
+      await (DashboardPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) }),
     );
     expect(html).toContain('Alpha');
   });
