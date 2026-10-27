@@ -84,12 +84,18 @@ export function assertCiJobs(jobs) {
  *
  * @param runs Parsed `workflow_runs` array from the Actions runs API.
  * @param repository `owner/name` of the only repository whose runs count.
+ * @param sha Full lowercase commit SHA the deployment will use.
  * @returns The id of the matching run.
  */
-export function selectSuccessfulCiRun(runs, repository) {
+export function selectSuccessfulCiRun(runs, repository, sha) {
+  if (!/^[a-f0-9]{40}$/.test(sha ?? '')) {
+    throw new Error('Invalid release SHA for CI verification');
+  }
   const run = runs.find(
     (candidate) =>
       candidate.event === 'push' &&
+      candidate.head_branch === 'main' &&
+      candidate.head_sha === sha &&
       candidate.status === 'completed' &&
       candidate.conclusion === 'success' &&
       candidate.head_repository?.full_name === repository,
