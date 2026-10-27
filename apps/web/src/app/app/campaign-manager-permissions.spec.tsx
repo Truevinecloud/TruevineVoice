@@ -15,6 +15,7 @@ import InvitationsPage from './invitations/page';
 import BillingPage from './billing/page';
 import DashboardPage from './page';
 import { organizationNavigationItems } from './AppNavigation';
+import type { MembershipSummary } from '../../lib/session';
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -29,7 +30,7 @@ const mocks = vi.hoisted(() => ({
   audio: vi.fn(),
 }));
 
-vi.mock('../../../lib/session', () => ({
+vi.mock('../../lib/session', () => ({
   currentSession: mocks.session,
   hasPermission: (
     membership:
@@ -44,7 +45,7 @@ vi.mock('../../../lib/session', () => ({
   ) => membership?.permissions.includes(permission) ?? false,
 }));
 
-vi.mock('../../../lib/org-api', () => ({
+vi.mock('../../lib/org-api', () => ({
   fetchCampaigns: mocks.campaigns,
   fetchCampaignStatusReport: mocks.report,
   fetchOrganization: mocks.organization,
@@ -52,7 +53,7 @@ vi.mock('../../../lib/org-api', () => ({
   fetchInvitations: mocks.invitations,
 }));
 
-vi.mock('../../../lib/billing-api', () => ({
+vi.mock('../../lib/billing-api', () => ({
   fetchBilling: mocks.billing,
 }));
 
@@ -61,14 +62,6 @@ vi.mock('next/navigation', () => ({
     throw new Error('redirect:' + url);
   },
 }));
-
-type MembershipSummary = {
-  organizationId: string;
-  organizationSlug: string;
-  organizationName: string;
-  role: OrganizationRole;
-  permissions: readonly string[];
-};
 
 function campaignManagerSession() {
   return {
@@ -89,7 +82,9 @@ function campaignManagerSession() {
   };
 }
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('RBAC-003 Campaign Manager navigation visibility', () => {
   it('shows only permitted items in nav', () => {
@@ -116,7 +111,7 @@ describe('RBAC-003 Campaign Manager page guards - allowed', () => {
     mocks.members.mockResolvedValue([]);
     mocks.invitations.mockResolvedValue([]);
     const html = renderToStaticMarkup(
-      await (DashboardPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (DashboardPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-a' }),
       }),
     );
@@ -126,7 +121,7 @@ describe('RBAC-003 Campaign Manager page guards - allowed', () => {
   it('allows contacts', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     const html = renderToStaticMarkup(
-      await (ContactsPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (ContactsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-a' }),
       }),
     );
@@ -137,7 +132,7 @@ describe('RBAC-003 Campaign Manager page guards - allowed', () => {
   it('allows contact groups', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     const html = renderToStaticMarkup(
-      await (ContactGroupsPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (ContactGroupsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-a' }),
       }),
     );
@@ -149,7 +144,7 @@ describe('RBAC-003 Campaign Manager page guards - allowed', () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.campaigns.mockResolvedValue([]);
     const html = renderToStaticMarkup(
-      await (CampaignsPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (CampaignsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-a' }),
       }),
     );
@@ -161,7 +156,7 @@ describe('RBAC-003 Campaign Manager page guards - allowed', () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.report.mockResolvedValue({ totalCalls: 0, totalDurationSeconds: 0, statusBreakdown: [] });
     const html = renderToStaticMarkup(
-      await (ReportsPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (ReportsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-a' }),
       }),
     );
@@ -173,7 +168,7 @@ describe('RBAC-003 Campaign Manager page guards - allowed', () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.organization.mockResolvedValue({ id: 'org-a', name: 'Alpha', slug: 'alpha' });
     const html = renderToStaticMarkup(
-      await (SettingsPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (SettingsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-a' }),
       }),
     );
@@ -185,7 +180,7 @@ describe('RBAC-003 Campaign Manager page guards - denied', () => {
   it('denies team members', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     const html = renderToStaticMarkup(
-      await (TeamPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (TeamPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-a' }),
       }),
     );
@@ -195,7 +190,7 @@ describe('RBAC-003 Campaign Manager page guards - denied', () => {
   it('denies invitations', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     const html = renderToStaticMarkup(
-      await (InvitationsPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (InvitationsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-a' }),
       }),
     );
@@ -205,7 +200,7 @@ describe('RBAC-003 Campaign Manager page guards - denied', () => {
   it('denies billing', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     const html = renderToStaticMarkup(
-      await (BillingPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (BillingPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-a' }),
       }),
     );
@@ -215,7 +210,7 @@ describe('RBAC-003 Campaign Manager page guards - denied', () => {
   it('denies audio library', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     const html = renderToStaticMarkup(
-      await (AudioPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (AudioPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-a' }),
       }),
     );
@@ -225,7 +220,7 @@ describe('RBAC-003 Campaign Manager page guards - denied', () => {
   it('denies ownership transfer actions context', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     const html = renderToStaticMarkup(
-      await (SettingsPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (SettingsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-a' }),
       }),
     );
@@ -237,7 +232,7 @@ describe('RBAC-003 Campaign Manager cross-tenant guard', () => {
   it('redirects or denies cross-tenant access', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     try {
-      await (CampaignsPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (CampaignsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-b' }),
       });
       expect.fail('expected redirect or access denial');
@@ -252,7 +247,7 @@ describe('RBAC-003 Campaign Manager campaign UI', () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.campaigns.mockResolvedValue([]);
     const html = renderToStaticMarkup(
-      await (CampaignsPage as unknown as (props: { searchParams: Promise<{ organization: string }> }) => Promise<React.ReactElement>)({
+      await (CampaignsPage as (props: { searchParams: Promise<{ organization: string }> }) => Promise<unknown>)({
         searchParams: Promise.resolve({ organization: 'org-a' }),
       }),
     );
