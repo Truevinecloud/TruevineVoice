@@ -41,9 +41,7 @@ function button(label: string): HTMLButtonElement {
 }
 
 function maybeButton(label: string): HTMLButtonElement | undefined {
-  return [...host.querySelectorAll('button')].find(
-    (entry) => entry.textContent?.trim() === label,
-  );
+  return [...host.querySelectorAll('button')].find((entry) => entry.textContent?.trim() === label);
 }
 
 async function click(label: string): Promise<void> {
@@ -70,9 +68,7 @@ async function choose(id: string, value: string): Promise<void> {
 
 async function toggle(): Promise<void> {
   await act(async () => {
-    const checkbox = host.querySelector<HTMLInputElement>(
-      '.contact-governance__check input',
-    )!;
+    const checkbox = host.querySelector<HTMLInputElement>('.contact-governance__check input')!;
     checkbox.click();
   });
 }
@@ -85,10 +81,7 @@ async function submitForm(): Promise<void> {
   });
 }
 
-async function mount(
-  contact: Contact = baseContact,
-  canUpdate = true,
-): Promise<void> {
+async function mount(contact: Contact = baseContact, canUpdate = true): Promise<void> {
   await act(async () => {
     root.render(
       <ContactGovernance
@@ -103,7 +96,7 @@ async function mount(
 
 async function fillConsentEvidence(): Promise<void> {
   await fill('consent-at', '2026-10-20T09:00');
-  await fill('consent-source', '  Signed membership form  ');
+  await fill('consent-source', '  signed_form  ');
   await fill('consent-evidence', 'CRM-2026-00123');
   await toggle();
 }
@@ -159,12 +152,10 @@ describe('ContactGovernance', () => {
     expect(host.textContent).not.toContain('Record this consent evidence?');
 
     await fill('consent-at', '2026-10-20T09:00');
-    await fill('consent-source', 'Signed form');
+    await fill('consent-source', 'signed_form');
     await fill('consent-evidence', 'x');
     await submitForm();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
-      '3–128 characters',
-    );
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('3–128 characters');
 
     await fill('consent-evidence', 'CRM-2026-00123');
     await submitForm();
@@ -199,14 +190,12 @@ describe('ContactGovernance', () => {
     expect(request.url).toBe('/api/organizations/org-a/contacts/contact-1/voice-consent');
     expect(request.body).toEqual({
       consentedAt: new Date('2026-10-20T09:00').toISOString(),
-      source: 'Signed membership form',
+      source: 'signed_form',
       purpose: 'voice_calling',
       evidenceReference: 'CRM-2026-00123',
       sourceVerified: true,
     });
-    expect(onUpdated).toHaveBeenCalledWith(
-      expect.objectContaining({ voiceConsent: 'RECORDED' }),
-    );
+    expect(onUpdated).toHaveBeenCalledWith(expect.objectContaining({ voiceConsent: 'RECORDED' }));
     expect(host.textContent).toContain(
       'Voice consent evidence recorded. It cannot be edited from this application.',
     );
@@ -247,6 +236,40 @@ describe('ContactGovernance', () => {
     expect(host.querySelectorAll('form')).toHaveLength(0);
   });
 
+  it('refuses a natural-language consent source before offering confirmation', async () => {
+    await mount();
+
+    await click('Record consent evidence');
+    await fill('consent-at', '2026-10-20T09:00');
+    // The API accepts an identifier, not a description, so the exact input the
+    // field hint warns about must be stopped here rather than by a 400 later.
+    await fill('consent-source', 'Signed membership form');
+    await fill('consent-evidence', 'CRM-2026-00123');
+    await toggle();
+    await submitForm();
+
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('3–80 characters');
+    expect(host.textContent).not.toContain('Record this consent evidence?');
+    expect(requests).toHaveLength(0);
+
+    await fill('consent-source', 'signed_form');
+    await submitForm();
+
+    expect(host.textContent).toContain('Record this consent evidence?');
+    expect(requests).toHaveLength(0);
+  });
+
+  it('describes the accepted consent source format next to the field', async () => {
+    await mount();
+    await click('Record consent evidence');
+
+    const input = host.querySelector<HTMLInputElement>('#consent-source')!;
+    expect(input.placeholder).toBe('signed_form');
+    const describedBy = input.getAttribute('aria-describedby');
+    expect(describedBy).toBe('consent-source-hint');
+    expect(host.querySelector(`#${describedBy}`)?.textContent).toContain('signed_form');
+  });
+
   it('requires confirmation before suppressing and posts the exact reason', async () => {
     reply = () =>
       json({
@@ -272,6 +295,55 @@ describe('ContactGovernance', () => {
     expect(requests[0]!.body).toEqual({ reason: 'invalid_number' });
     expect(onUpdated).toHaveBeenCalledWith(expect.objectContaining({ suppressed: true }));
     expect(host.textContent).toContain('Contact suppressed.');
+  });
+
+  it('requires an explicitly chosen suppression reason before confirmation', async () => {
+    await mount();
+
+    await click('Suppress contact');
+    const select = host.querySelector<HTMLSelectElement>('#suppression-reason')!;
+    // No reason is preselected: the stored reason must be the operator's choice.
+    expect(select.value).toBe('');
+    expect(select.options[0]?.textContent).toBe('Select a reason');
+
+    await submitForm();
+
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+      'Select the reason for suppressing this contact.',
+    );
+    expect(host.textContent).not.toContain('Suppress this contact?');
+    expect(requests).toHaveLength(0);
+
+    await choose('suppression-reason', 'operator_request');
+    await submitForm();
+
+    expect(host.textContent).toContain('Suppress this contact?');
+    expect(host.textContent).toContain('An operator decided to stop calling this contact');
+    expect(requests).toHaveLength(0);
+  });
+
+  it('gives each confirmation dialog an accessible name', async () => {
+    await mount();
+
+    await click('Record consent evidence');
+    await fillConsentEvidence();
+    await submitForm();
+
+    const consentDialog = host.querySelector('[role="alertdialog"]')!;
+    const consentLabel = consentDialog.getAttribute('aria-labelledby')!;
+    expect(host.querySelector(`#${consentLabel}`)?.textContent).toBe(
+      'Record this consent evidence?',
+    );
+
+    await click('Go back');
+    await click('Cancel');
+    await click('Suppress contact');
+    await choose('suppression-reason', 'invalid_number');
+    await submitForm();
+
+    const suppressionDialog = host.querySelector('[role="alertdialog"]')!;
+    const suppressionLabel = suppressionDialog.getAttribute('aria-labelledby')!;
+    expect(host.querySelector(`#${suppressionLabel}`)?.textContent).toBe('Suppress this contact?');
   });
 
   it('lets the operator go back from suppression without writing', async () => {

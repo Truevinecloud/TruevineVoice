@@ -6,6 +6,7 @@ import { messageFor } from '../../../lib/api';
 import {
   SUPPRESSION_REASON_LABELS,
   SUPPRESSION_REASONS,
+  isSafeConsentSource,
   isSafeReference,
   recordVoiceConsent,
   suppressContact,
@@ -39,12 +40,18 @@ export function ContactGovernance({
   const [source, setSource] = useState('');
   const [evidenceReference, setEvidenceReference] = useState('');
   const [sourceVerified, setSourceVerified] = useState(false);
-  const [reason, setReason] = useState<SuppressionReason>('user_opt_out');
+  /**
+   * No reason is selected until the operator chooses one. Suppression is
+   * irreversible and audited, so the form must not put a default reason on the
+   * record: whichever reason is stored has to be the one the operator meant.
+   */
+  const [reason, setReason] = useState<SuppressionReason | ''>('');
   const [busy, setBusy] = useState<'consent' | 'suppression' | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   const consentRecorded = contact.voiceConsent === 'RECORDED';
+  const reasonLabel = reason === '' ? '' : SUPPRESSION_REASON_LABELS[reason];
 
   function reset(): void {
     setConsentStep('idle');
@@ -53,7 +60,7 @@ export function ContactGovernance({
     setSource('');
     setEvidenceReference('');
     setSourceVerified(false);
-    setReason('user_opt_out');
+    setReason('');
     setError('');
   }
 
@@ -66,7 +73,13 @@ export function ContactGovernance({
       return;
     }
     if (!source.trim()) {
-      setError('Describe where the consent came from.');
+      setError('Enter the source of the consent evidence.');
+      return;
+    }
+    if (!isSafeConsentSource(source)) {
+      setError(
+        'The source must be 3–80 characters, starting with a letter or digit, using letters, digits, dot, underscore, colon or hyphen, for example signed_form.',
+      );
       return;
     }
     if (!isSafeReference(evidenceReference)) {
@@ -106,6 +119,12 @@ export function ContactGovernance({
   }
 
   async function saveSuppression(): Promise<void> {
+    if (reason === '') {
+      // Defensive: the confirmation step is unreachable without a reason.
+      setError('Select the reason for suppressing this contact.');
+      setSuppressionStep('form');
+      return;
+    }
     setBusy('suppression');
     setError('');
     try {
@@ -171,16 +190,22 @@ export function ContactGovernance({
                   </span>
                 </div>
                 <div className="field">
-                  <label htmlFor="consent-source">Where the consent came from</label>
+                  <label htmlFor="consent-source">Consent source</label>
                   <input
                     id="consent-source"
+                    minLength={3}
                     maxLength={80}
                     required
                     value={source}
                     onChange={(event) => setSource(event.target.value)}
-                    placeholder="For example, signed form or call recording"
+                    placeholder="signed_form"
                     disabled={busy !== null}
+                    aria-describedby="consent-source-hint"
                   />
+                  <span className="field-hint" id="consent-source-hint">
+                    A 3-80 character identifier starting with a letter or digit. Letters, digits,
+                    dot, underscore, colon or hyphen, for example signed_form or call_recording.
+                  </span>
                 </div>
                 <div className="field">
                   <label htmlFor="consent-evidence">Evidence reference</label>
@@ -223,8 +248,13 @@ export function ContactGovernance({
               </form>
             )}
             {consentStep === 'confirm' && (
-              <div className="contact-governance__confirm" role="alertdialog" aria-modal="false">
-                <h4>Record this consent evidence?</h4>
+              <div
+                className="contact-governance__confirm"
+                role="alertdialog"
+                aria-modal="false"
+                aria-labelledby="consent-confirm-title"
+              >
+                <h4 id="consent-confirm-title">Record this consent evidence?</h4>
                 <dl>
                   <dt>Given at</dt>
                   <dd>{formatDateTime(new Date(consentedAt).toISOString())}</dd>
@@ -294,24 +324,42 @@ export function ContactGovernance({
                 className="contact-governance__form"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  setSuppressionStep('confirm');
                   setError('');
+                  if (reason === '') {
+                    setError('Select the reason for suppressing this contact.');
+                    return;
+                  }
+                  setSuppressionStep('confirm');
                 }}
+                noValidate
               >
                 <div className="field">
                   <label htmlFor="suppression-reason">Reason</label>
                   <select
                     id="suppression-reason"
+                    required
                     value={reason}
-                    onChange={(event) => setReason(event.target.value as SuppressionReason)}
+                    onChange={(event) =>
+                      setReason(
+                        event.target.value === '' ? '' : (event.target.value as SuppressionReason),
+                      )
+                    }
                     disabled={busy !== null}
+                    aria-describedby="suppression-reason-hint"
                   >
+                    <option value="" disabled>
+                      Select a reason
+                    </option>
                     {SUPPRESSION_REASONS.map((value) => (
                       <option key={value} value={value}>
                         {SUPPRESSION_REASON_LABELS[value]}
                       </option>
                     ))}
                   </select>
+                  <span className="field-hint" id="suppression-reason-hint">
+                    Choose the reason that actually applies. It becomes part of the permanent,
+                    audited suppression record.
+                  </span>
                 </div>
                 <div className="button-row">
                   <button className="button-secondary button-danger" disabled={busy !== null}>
@@ -329,12 +377,17 @@ export function ContactGovernance({
               </form>
             )}
             {suppressionStep === 'confirm' && (
-              <div className="contact-governance__confirm" role="alertdialog" aria-modal="false">
-                <h4>Suppress this contact?</h4>
+              <div
+                className="contact-governance__confirm"
+                role="alertdialog"
+                aria-modal="false"
+                aria-labelledby="suppression-confirm-title"
+              >
+                <h4 id="suppression-confirm-title">Suppress this contact?</h4>
                 <p>
-                  Reason: {SUPPRESSION_REASON_LABELS[reason]}. The contact will be excluded from
-                  calling audiences. Suppression cannot be undone from this application, and the
-                  contact record is kept.
+                  Reason: {reasonLabel}. The contact will be excluded from calling audiences.
+                  Suppression cannot be undone from this application, and the contact record is
+                  kept.
                 </p>
                 <div className="button-row">
                   <button
