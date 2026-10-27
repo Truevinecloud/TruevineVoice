@@ -2,20 +2,19 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { OrganizationRole } from '@truevine/auth';
 import { ORGANIZATION_ROLE_PERMISSIONS } from '@truevine/auth';
-import ContactsPage from './contacts/page';
-import ContactGroupsPage from './contact-groups/page';
+import type { MembershipSummary } from '../../lib/session';
 import AudioPage from './audio/page';
+import BillingPage from './billing/page';
 import CampaignsPage from './campaigns/page';
+import ContactGroupsPage from './contact-groups/page';
+import ContactsPage from './contacts/page';
+import InvitationsPage from './invitations/page';
+import DashboardPage from './page';
 import ReportsPage from './reports/page';
 import SettingsPage from './settings/page';
 import TeamPage from './team/page';
-import InvitationsPage from './invitations/page';
-import BillingPage from './billing/page';
-import DashboardPage from './page';
 import { organizationNavigationItems } from './AppNavigation';
-import type { MembershipSummary } from '../../lib/session';
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -25,24 +24,14 @@ const mocks = vi.hoisted(() => ({
   members: vi.fn(),
   invitations: vi.fn(),
   billing: vi.fn(),
-  contacts: vi.fn(),
-  groups: vi.fn(),
-  audio: vi.fn(),
 }));
 
 vi.mock('../../lib/session', () => ({
   currentSession: mocks.session,
   hasPermission: (
-    membership:
-      | {
-          permissions: readonly string[];
-          role?: string;
-          userId?: string;
-          organizationId?: string;
-        }
-      | undefined,
+    membership: { readonly permissions: readonly string[] } | undefined,
     permission: string,
-  ) => (membership?.permissions?.includes(permission) ?? false),
+  ) => membership?.permissions.includes(permission) ?? false,
 }));
 
 vi.mock('../../lib/org-api', () => ({
@@ -63,23 +52,29 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
+function campaignManagerMembership(): MembershipSummary {
+  return {
+    organizationId: 'org-a',
+    organizationSlug: 'alpha',
+    organizationName: 'Alpha',
+    role: 'CAMPAIGN_MANAGER',
+    permissions: [...ORGANIZATION_ROLE_PERMISSIONS.CAMPAIGN_MANAGER],
+  };
+}
+
 function campaignManagerSession() {
   return {
     ok: true,
     me: {
       termsAccepted: true,
       userId: 'user-cm',
-      memberships: [
-        {
-          organizationId: 'org-a',
-          organizationSlug: 'alpha',
-          organizationName: 'Alpha',
-          role: 'CAMPAIGN_MANAGER' as OrganizationRole,
-          permissions: [...ORGANIZATION_ROLE_PERMISSIONS.CAMPAIGN_MANAGER],
-        },
-      ],
+      memberships: [campaignManagerMembership()],
     },
   };
+}
+
+function organizationSearchParams(): { searchParams: Promise<{ organization: string }> } {
+  return { searchParams: Promise.resolve({ organization: 'org-a' }) };
 }
 
 afterEach(() => {
@@ -87,17 +82,21 @@ afterEach(() => {
 });
 
 describe('RBAC-003 Campaign Manager navigation visibility', () => {
-  it('shows only permitted items in nav', () => {
-    const session = campaignManagerSession();
-    const membership = session.me.memberships[0] as MembershipSummary;
-    const labels = organizationNavigationItems(membership).map((item) => item.label);
+  it('shows only the items the policy grants', () => {
+    const labels = organizationNavigationItems(campaignManagerMembership()).map(
+      (item) => item.label,
+    );
+
     expect(labels).toContain('Dashboard');
     expect(labels).toContain('Contacts');
     expect(labels).toContain('Contact Groups');
     expect(labels).toContain('Campaigns');
     expect(labels).toContain('Reports');
+    expect(labels).toContain('Audio Library');
     expect(labels).toContain('Organization Settings');
-    expect(labels).not.toContain('Audio Library');
+
+    // CAMPAIGN_MANAGER is not granted member:read, invitation:read, billing:read
+    // or wallet:read, so those surfaces must not be advertised.
     expect(labels).not.toContain('Team Members');
     expect(labels).not.toContain('Invitations');
     expect(labels).not.toContain('Billing');
@@ -108,111 +107,123 @@ describe('RBAC-003 Campaign Manager page guards - allowed', () => {
   it('allows dashboard', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.organization.mockResolvedValue({ id: 'org-a', name: 'Alpha' });
-    mocks.members.mockResolvedValue([]);
-    mocks.invitations.mockResolvedValue([]);
-    const element = await (DashboardPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
-    const html = renderToStaticMarkup(element as any);
+
+    const html = renderToStaticMarkup(await DashboardPage(organizationSearchParams()));
+
     expect(html).toContain('Alpha');
+    // The dashboard does not leak the member list to a role without member:read.
+    expect(html).toContain('You do not have permission to view members of this organization.');
   });
 
   it('allows contacts', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    const element = await (ContactsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
-    const html = renderToStaticMarkup(element as any);
-    expect(html).not.toContain('do not have access');
+
+    const html = renderToStaticMarkup(await ContactsPage(organizationSearchParams()));
+
     expect(html).toContain('Contacts');
+    expect(html).not.toContain('You do not have access to contacts');
   });
 
   it('allows contact groups', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    const element = await (ContactGroupsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
-    const html = renderToStaticMarkup(element as any);
-    expect(html).not.toContain('do not have access');
+
+    const html = renderToStaticMarkup(await ContactGroupsPage(organizationSearchParams()));
+
     expect(html).toContain('Contact groups');
+    expect(html).not.toContain('You do not have access to contact groups');
   });
 
   it('allows campaigns', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.campaigns.mockResolvedValue([]);
-    const element = await (CampaignsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
-    const html = renderToStaticMarkup(element as any);
-    expect(html).not.toContain('do not have access');
+
+    const html = renderToStaticMarkup(await CampaignsPage(organizationSearchParams()));
+
     expect(html).toContain('Campaigns');
+    expect(html).not.toContain('You do not have campaign access');
   });
 
   it('allows reports', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    mocks.report.mockResolvedValue({ totalCalls: 0, totalDurationSeconds: 0, statusBreakdown: [] });
-    const element = await (ReportsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
-    const html = renderToStaticMarkup(element as any);
-    expect(html).not.toContain('do not have access');
+    mocks.report.mockResolvedValue({ total: 0, draft: 0, active: 0, completed: 0 });
+
+    const html = renderToStaticMarkup(await ReportsPage(organizationSearchParams()));
+
     expect(html).toContain('Reports');
+    expect(html).not.toContain('You do not have reporting access');
   });
 
-  it('allows organization settings read-only surface', async () => {
+  it('allows the read-only organization settings surface', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.organization.mockResolvedValue({ id: 'org-a', name: 'Alpha', slug: 'alpha' });
-    const element = await (SettingsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
-    const html = renderToStaticMarkup(element as any);
-    expect(html).not.toContain('do not have access');
+
+    const html = renderToStaticMarkup(await SettingsPage(organizationSearchParams()));
+
+    expect(html).toContain('Organization settings');
+    expect(html).toContain('Alpha');
+    // organization:update is not granted, so the profile stays read-only.
+    expect(html).toContain('does not include changing its settings');
+  });
+
+  it('allows the audio library', async () => {
+    mocks.session.mockResolvedValue(campaignManagerSession());
+
+    const html = renderToStaticMarkup(await AudioPage(organizationSearchParams()));
+
+    expect(html).toContain('Audio Library');
+    expect(html).not.toContain('You do not have audio access');
   });
 });
 
 describe('RBAC-003 Campaign Manager page guards - denied', () => {
   it('denies team members', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    const element = await (TeamPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
-    const html = renderToStaticMarkup(element as any);
-    expect(html).toContain('do not have access');
+
+    const html = renderToStaticMarkup(await TeamPage(organizationSearchParams()));
+
+    expect(html).toContain('You do not have permission to view members of this organization.');
   });
 
   it('denies invitations', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    const element = await (InvitationsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
-    const html = renderToStaticMarkup(element as any);
-    expect(html).toContain('do not have access');
+
+    const html = renderToStaticMarkup(await InvitationsPage(organizationSearchParams()));
+
+    expect(html).toContain('Your role cannot view invitations for this organization.');
   });
 
   it('denies billing', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    const element = await (BillingPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
-    const html = renderToStaticMarkup(element as any);
-    expect(html).toContain('do not have access');
-  });
 
-  it('denies audio library', async () => {
-    mocks.session.mockResolvedValue(campaignManagerSession());
-    const element = await (AudioPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
-    const html = renderToStaticMarkup(element as any);
-    expect(html).toContain('do not have access');
-  });
+    const html = renderToStaticMarkup(await BillingPage(organizationSearchParams()));
 
-  it('denies ownership transfer actions context', async () => {
-    mocks.session.mockResolvedValue(campaignManagerSession());
-    const element = await (SettingsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
-    const html = renderToStaticMarkup(element as any);
-    expect(html).not.toContain('Transfer ownership');
+    expect(html).toContain('You do not have billing access in this organization.');
   });
 });
 
 describe('RBAC-003 Campaign Manager cross-tenant guard', () => {
-  it('redirects or denies cross-tenant access', async () => {
+  it('refuses an organization the caller is not a member of', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
-    try {
-      await (CampaignsPage as any)({ searchParams: Promise.resolve({ organization: 'org-b' }) });
-      expect.fail('expected redirect or access denial');
-    } catch (error) {
-      expect((error as Error).message).toMatch(/redirect:|do not have access/);
-    }
+
+    const html = renderToStaticMarkup(
+      await CampaignsPage({ searchParams: Promise.resolve({ organization: 'org-b' }) }),
+    );
+
+    // The page resolves the requested organization against /me memberships and
+    // renders a refusal rather than reading another tenant's campaigns.
+    expect(html).toContain('You do not have campaign access in this organization.');
+    expect(mocks.campaigns).not.toHaveBeenCalled();
   });
 });
 
-describe('RBAC-003 Campaign Manager campaign UI', () => {
-  it('renders campaign surface without policy violations', async () => {
+describe('RBAC-003 Campaign Manager campaign surface', () => {
+  it('renders the campaign workspace for a permitted role', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.campaigns.mockResolvedValue([]);
-    const element = await (CampaignsPage as any)({ searchParams: Promise.resolve({ organization: 'org-a' }) });
-    const html = renderToStaticMarkup(element as any);
-    expect(html).toContain('Campaign');
+
+    const html = renderToStaticMarkup(await CampaignsPage(organizationSearchParams()));
+
+    expect(html).toContain('Campaigns');
+    expect(html).toContain('No campaigns yet');
   });
 });
