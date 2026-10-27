@@ -58,8 +58,9 @@ vi.mock('../../../lib/billing-api', () => ({
 }));
 
 vi.mock('next/navigation', () => ({
-  redirect: (url: string) => {
-    throw new Error(edirect:);
+  rredirect: (url: string) => {
+    throw new Error(
+redirect:);
   },
 }));
 
@@ -235,7 +236,7 @@ describe('RBAC-003 Campaign Manager cross-tenant guard', () => {
       });
       expect.fail('expected redirect or access denial');
     } catch (error) {
-      expect((error as Error).message).toMatch(/redirect:|do not have access/);
+      expect((error as Error).message).toMatch(/rredirect:|do not have access/);
     }
   });
 });
