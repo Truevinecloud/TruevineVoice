@@ -1,12 +1,18 @@
 import { redirect } from 'next/navigation';
 
 import { fetchCampaigns } from '../../../lib/org-api';
-import { CampaignAudio } from './campaign-audio';
-import { CampaignBuilder } from './campaign-builder';
 import { currentSession, hasPermission } from '../../../lib/session';
-import { EmptyState, PageHeader, SectionCard } from '../AppUI';
+import { PageHeader } from '../AppUI';
+import { CampaignsWorkspace } from './campaigns-workspace';
 
-/** Read-only campaign inventory for organization members with campaign:read. */
+/**
+ * Campaign workspace for organization members with campaign:read.
+ *
+ * The server resolves the organization from the caller's own memberships and
+ * loads the initial inventory. Everything a Campaign Manager can change stays in
+ * the client workspace, which can refresh the list after a save without a full
+ * page navigation.
+ */
 export default async function CampaignsPage({
   searchParams,
 }: {
@@ -35,7 +41,6 @@ export default async function CampaignsPage({
       </>
     );
   }
-  const canUpdate = hasPermission(membership, 'campaign:update');
 
   const campaigns = await fetchCampaigns(membership.organizationId);
 
@@ -46,60 +51,18 @@ export default async function CampaignsPage({
         eyebrow={membership.organizationName}
         description="Prepare campaign drafts and review their readiness. Outbound calling is not started from this workspace."
       />
-      {campaigns !== null && (
-        <CampaignBuilder
+      {campaigns === null ? (
+        <p className="notice notice-error" role="alert">
+          Campaigns could not be loaded. Refresh the page or sign in again if your session ended.
+        </p>
+      ) : (
+        <CampaignsWorkspace
           organizationId={membership.organizationId}
           initialCampaigns={campaigns}
-          canUpdate={canUpdate}
+          canUpdate={hasPermission(membership, 'campaign:update')}
+          canDelete={hasPermission(membership, 'campaign:delete')}
         />
       )}
-      {campaigns === null ? (
-        <p role="alert">Campaigns could not be loaded.</p>
-      ) : campaigns.length === 0 ? (
-        <SectionCard>
-          <EmptyState title="No campaigns yet">
-            Create a draft to select audio, choose an audience, and review preflight readiness.
-          </EmptyState>
-        </SectionCard>
-      ) : (
-        <SectionCard
-          title="Campaign drafts"
-          description="Current campaign records for this organization."
-        >
-          <table className="table">
-            <thead>
-              <tr>
-                <th scope="col">Campaign</th>
-                <th scope="col">Status</th>
-                <th scope="col">Created</th>
-                <th scope="col">Updated</th>
-                <th scope="col">Audio</th>
-              </tr>
-            </thead>
-            <tbody>
-              {campaigns.map((campaign) => (
-                <tr key={campaign.id}>
-                  <th scope="row">{campaign.name}</th>
-                  <td>{campaign.status}</td>
-                  <td>{new Date(campaign.createdAt).toISOString().slice(0, 10)}</td>
-                  <td>{new Date(campaign.updatedAt).toISOString().slice(0, 10)}</td>
-                  <td>
-                    <CampaignAudio
-                      organizationId={membership.organizationId}
-                      campaign={campaign}
-                      canUpdate={canUpdate}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </SectionCard>
-      )}
-      <p className="notice notice-info">
-        Campaign execution and call outcome data are not available yet. Saving a draft or running
-        preflight does not place calls.
-      </p>
     </>
   );
 }

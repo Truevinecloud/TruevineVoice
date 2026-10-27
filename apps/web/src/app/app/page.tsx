@@ -1,12 +1,17 @@
 import { redirect } from 'next/navigation';
 
-import { fetchInvitations, fetchMembers, fetchOrganization } from '../../lib/org-api';
+import { fetchCampaigns, fetchInvitations, fetchMembers, fetchOrganization } from '../../lib/org-api';
+import { summarizeCampaigns } from '../../lib/campaigns';
 import { currentSession, hasPermission } from '../../lib/session';
 import { EmptyState, PageHeader, SectionCard } from './AppUI';
 
 /**
- * Organization dashboard. Shows actual organization data and points authorized
- * members to the billing journey; no invented usage or wallet figures.
+ * Organization dashboard.
+ *
+ * It shows only surfaces the caller's role can actually open, and derives every
+ * number from records the API returned. A role without member, invitation or
+ * billing permissions is not told about those areas at all: an empty card that
+ * says "no permission" still reads as a feature the organization has.
  */
 export default async function DashboardPage({
   searchParams,
@@ -56,17 +61,27 @@ export default async function DashboardPage({
     );
   }
 
-  const [organization, members, invitations] = await Promise.all([
-    fetchOrganization(membership.organizationId),
-    hasPermission(membership, 'member:read')
-      ? fetchMembers(membership.organizationId)
-      : Promise.resolve(null),
-    hasPermission(membership, 'invitation:read')
-      ? fetchInvitations(membership.organizationId)
-      : Promise.resolve(null),
+  const organizationId = membership.organizationId;
+  const canReadMembers = hasPermission(membership, 'member:read');
+  const canReadInvitations = hasPermission(membership, 'invitation:read');
+  const canReadCampaigns = hasPermission(membership, 'campaign:read');
+  const canReadContacts = hasPermission(membership, 'contact:read');
+  const canReadReports = hasPermission(membership, 'reporting:read');
+  const canReadAudio = hasPermission(membership, 'audio:read');
+  const canReadBilling = hasPermission(membership, 'billing:read');
+
+  const [organization, members, invitations, campaigns] = await Promise.all([
+    fetchOrganization(organizationId),
+    canReadMembers ? fetchMembers(organizationId) : Promise.resolve(null),
+    canReadInvitations ? fetchInvitations(organizationId) : Promise.resolve(null),
+    canReadCampaigns ? fetchCampaigns(organizationId) : Promise.resolve(null),
   ]);
 
   const outstanding = invitations?.filter((invitation) => invitation.outstanding) ?? null;
+  const loadedCampaigns = campaigns ?? null;
+  const campaignSummary =
+    loadedCampaigns === null ? null : summarizeCampaigns(loadedCampaigns);
+  const organizationParam = `organization=${encodeURIComponent(organizationId)}`;
 
   return (
     <>
@@ -76,48 +91,142 @@ export default async function DashboardPage({
         description={`Signed in as ${membership.role.replace(/_/g, ' ').toLowerCase()} in this organization.`}
       />
 
-      <SectionCard title="Team" description="People who have access to this organization.">
-        {members === null ? (
-          <p>You do not have permission to view members of this organization.</p>
-        ) : (
-          <p>
-            {members.length} {members.length === 1 ? 'member' : 'members'}.{' '}
-            <a href={`/app/team?organization=${encodeURIComponent(membership.organizationId)}`}>
-              View the team
-            </a>
-          </p>
-        )}
-      </SectionCard>
+      {(canReadContacts || canReadCampaigns || canReadReports || canReadAudio) && (
+        <SectionCard title="Your workspace" description="Areas this role can open.">
+          <nav className="dashboard-shortcuts" aria-label="Authorized workspace areas">
+            {canReadContacts && (
+              <a className="dashboard-shortcut" href={`/app/contacts?${organizationParam}`}>
+                <strong>Contacts</strong>
+                <span>Manage people, consent and suppression.</span>
+              </a>
+            )}
+            {canReadCampaigns && (
+              <a className="dashboard-shortcut" href={`/app/campaigns?${organizationParam}`}>
+                <strong>Campaigns</strong>
+                <span>Prepare drafts and review readiness.</span>
+              </a>
+            )}
+            {canReadReports && (
+              <a className="dashboard-shortcut" href={`/app/reports?${organizationParam}`}>
+                <strong>Reports</strong>
+                <span>Campaign record status.</span>
+              </a>
+            )}
+            {canReadAudio && (
+              <a className="dashboard-shortcut" href={`/app/audio?${organizationParam}`}>
+                <strong>Audio Library</strong>
+                <span>Record, upload or generate message audio when configured.</span>
+              </a>
+            )}
+          </nav>
+        </SectionCard>
+      )}
 
-      <SectionCard
-        title="Pending invitations"
-        description="Outstanding invitations for this organization."
-      >
-        {outstanding === null ? (
-          <p>You do not have permission to view invitations for this organization.</p>
-        ) : outstanding.length === 0 ? (
-          <p>No invitations are waiting for a response.</p>
-        ) : (
-          <p>
-            {outstanding.length} {outstanding.length === 1 ? 'invitation is' : 'invitations are'}{' '}
-            waiting for a response.{' '}
-            <a
-              href={`/app/invitations?organization=${encodeURIComponent(membership.organizationId)}`}
+      {canReadCampaigns && (
+        <SectionCard
+          title="Campaigns"
+          description="Counts derived from this organization’s campaign records."
+        >
+          {loadedCampaigns === null || campaignSummary === null ? (
+            <p className="notice notice-error" role="alert">
+              Campaign records could not be loaded.
+            </p>
+          ) : loadedCampaigns.length === 0 ? (
+            <EmptyState
+              title="No campaign records yet"
+              action={
+                <a className="button-primary" href={`/app/campaigns?${organizationParam}`}>
+                  Open campaigns
+                </a>
+              }
             >
-              Review them
-            </a>
+              A Campaign Manager can prepare a draft. Preparing a draft does not place any calls.
+            </EmptyState>
+          ) : (
+            <>
+              <dl className="dashboard-metrics">
+                <div>
+                  <dt>Total records</dt>
+                  <dd>{campaignSummary.total}</dd>
+                </div>
+                <div>
+                  <dt>Drafts</dt>
+                  <dd>{campaignSummary.drafts}</dd>
+                </div>
+                <div>
+                  <dt>Drafts with a schedule</dt>
+                  <dd>{campaignSummary.scheduledDrafts}</dd>
+                </div>
+                <div>
+                  <dt>Other statuses</dt>
+                  <dd>{campaignSummary.otherStatuses}</dd>
+                </div>
+              </dl>
+              <p className="field-hint">
+                Drafts and schedules are prepared records only. Execution and call outcomes are not
+                available yet. <a href={`/app/campaigns?${organizationParam}`}>Open campaigns</a>
+              </p>
+            </>
+          )}
+        </SectionCard>
+      )}
+
+      {canReadMembers && (
+        <SectionCard title="Team" description="People who have access to this organization.">
+          {members === null ? (
+            <p className="notice notice-error" role="alert">
+              Team members could not be loaded.
+            </p>
+          ) : members.length === 0 ? (
+            <p>No members are listed for this organization.</p>
+          ) : (
+            <p>
+              {members.length} {members.length === 1 ? 'member' : 'members'}.{' '}
+              <a href={`/app/team?${organizationParam}`}>View the team</a>
+            </p>
+          )}
+        </SectionCard>
+      )}
+
+      {canReadInvitations && (
+        <SectionCard
+          title="Pending invitations"
+          description="Outstanding invitations for this organization."
+        >
+          {outstanding === null ? (
+            <p className="notice notice-error" role="alert">
+              Invitations could not be loaded.
+            </p>
+          ) : outstanding.length === 0 ? (
+            <p>No invitations are waiting for a response.</p>
+          ) : (
+            <p>
+              {outstanding.length}{' '}
+              {outstanding.length === 1 ? 'invitation is' : 'invitations are'} waiting for a
+              response.{' '}
+              <a href={`/app/invitations?${organizationParam}`}>Review them</a>
+            </p>
+          )}
+        </SectionCard>
+      )}
+
+      {canReadBilling && (
+        <SectionCard title="Billing" description="Wallet and plan details for this organization.">
+          <p>
+            <a href={`/app/billing?${organizationParam}`}>Open billing</a> to review the wallet and
+            plan. No usage figures are estimated here.
           </p>
-        )}
-      </SectionCard>
+        </SectionCard>
+      )}
 
       <SectionCard
         title="Product status"
         description="Availability based on the current implementation."
       >
         <p>
-          Contacts, campaigns, and billing appear in navigation only when your session grants the
-          required organization permissions. Call history and campaign outcomes are not available
-          yet; no activity metrics are fabricated.
+          Campaign execution, call history and campaign outcomes are not available yet. No activity
+          metrics are fabricated. Areas without an entry in the navigation are not available to your
+          role.
         </p>
       </SectionCard>
     </>

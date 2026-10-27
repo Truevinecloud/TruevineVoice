@@ -48,6 +48,7 @@ export function AudioLibrary({
   const [text, setText] = useState('');
   const [voice, setVoice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [recording, setRecording] = useState(false);
@@ -55,12 +56,20 @@ export function AudioLibrary({
   const chunks = useRef<Blob[]>([]);
 
   async function refresh(): Promise<void> {
-    const { assets: items, voiceInfo } = await fetchLibrary(organizationId);
-    setAssets(items);
-    setVoices(voiceInfo.voices);
-    setTtsAvailable(voiceInfo.available);
-    setStorageAvailable(voiceInfo.storageAvailable);
-    if (!voice && voiceInfo.voices[0]) setVoice(voiceInfo.voices[0].id);
+    setLoading(true);
+    setError('');
+    try {
+      const { assets: items, voiceInfo } = await fetchLibrary(organizationId);
+      setAssets(items);
+      setVoices(voiceInfo.voices);
+      setTtsAvailable(voiceInfo.available);
+      setStorageAvailable(voiceInfo.storageAvailable);
+      if (!voice && voiceInfo.voices[0]) setVoice(voiceInfo.voices[0].id);
+    } catch (cause) {
+      setError(messageFor(cause));
+    } finally {
+      setLoading(false);
+    }
   }
   useEffect(() => {
     let active = true;
@@ -75,6 +84,9 @@ export function AudioLibrary({
       })
       .catch((cause: unknown) => {
         if (active) setError(messageFor(cause));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
     return () => {
       active = false;
@@ -166,22 +178,34 @@ export function AudioLibrary({
 
   return (
     <div className="audio-library">
+      {loading && <p role="status">Loading the audio library…</p>}
       {error && (
-        <p className="notice notice-error" role="alert">
-          {error}
-        </p>
+        <div className="notice notice-error" role="alert">
+          <p>{error}</p>
+          {!loading && (
+            <button
+              className="button-secondary"
+              type="button"
+              onClick={() => void refresh()}
+              disabled={busy}
+            >
+              Retry loading the library
+            </button>
+          )}
+        </div>
       )}
       {notice && (
         <p className="notice notice-success" role="status">
           {notice}
         </p>
       )}
-      {canCreate && (
+      {!loading && canCreate && (
         <>
           {!storageAvailable && (
             <p className="notice notice-info" role="status">
-              Audio storage is not configured for this environment; recording and uploads are
-              unavailable.
+              Audio storage is not configured for this environment. Recording, uploads and
+              generated audio are unavailable until an administrator configures secure storage.
+              Nothing on this page activates a paid provider.
             </p>
           )}
           <SectionCard
@@ -195,6 +219,7 @@ export function AudioLibrary({
                 value={name}
                 maxLength={120}
                 onChange={(event) => setName(event.target.value)}
+                disabled={busy || !storageAvailable}
               />
             </div>
             <div className="button-row">
@@ -230,81 +255,104 @@ export function AudioLibrary({
                 />
               </label>
             </div>
+            {!storageAvailable && (
+              <p className="field-hint">
+                The recording and upload controls stay disabled because there is nowhere to store the
+                file yet.
+              </p>
+            )}
             {recording && <p role="status">Recording. Stop to upload and save.</p>}
           </SectionCard>
           <SectionCard
             title="Generate speech"
             description="Use the configured text-to-speech provider to create a reusable audio asset."
           >
-            {!ttsAvailable && (
+            {!ttsAvailable ? (
               <p className="notice notice-info">
-                Text to speech is not configured for this environment.
+                Text to speech is not configured for this environment. No generated audio can be
+                created, and this page does not contact a provider.
               </p>
+            ) : (
+              <>
+                <div className="field">
+                  <label htmlFor="audio-tts-text">Text</label>
+                  <textarea
+                    id="audio-tts-text"
+                    value={text}
+                    maxLength={3000}
+                    onChange={(event) => setText(event.target.value)}
+                    disabled={busy || !storageAvailable}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="audio-tts-voice">Voice</label>
+                  <select
+                    id="audio-tts-voice"
+                    value={voice}
+                    onChange={(event) => setVoice(event.target.value)}
+                    disabled={busy || !storageAvailable}
+                  >
+                    {voices.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label} · {item.language}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  disabled={
+                    busy ||
+                    !storageAvailable ||
+                    !ttsAvailable ||
+                    !text.trim() ||
+                    !name.trim() ||
+                    !voice
+                  }
+                  onClick={() => void synthesize()}
+                >
+                  Generate and save
+                </button>
+              </>
             )}
-            <div className="field">
-              <label htmlFor="audio-tts-text">Text</label>
-              <textarea
-                id="audio-tts-text"
-                value={text}
-                maxLength={3000}
-                onChange={(event) => setText(event.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="audio-tts-voice">Voice</label>
-              <select
-                id="audio-tts-voice"
-                value={voice}
-                onChange={(event) => setVoice(event.target.value)}
-              >
-                {voices.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label} · {item.language}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="button"
-              disabled={
-                busy || !storageAvailable || !ttsAvailable || !text.trim() || !name.trim() || !voice
-              }
-              onClick={() => void synthesize()}
-            >
-              Generate and save
-            </button>
           </SectionCard>
         </>
       )}
-      <SectionCard
-        title="Audio assets"
-        description="Assets are private to this organization and can be selected in a campaign draft."
-      >
-        {assets.length === 0 ? (
-          <EmptyState title="No audio assets available">
-            When secure storage is configured, recordings and generated audio will appear here.
-          </EmptyState>
-        ) : (
-          <ul>
-            {assets.map((asset) => (
-              <li key={asset.id}>
-                <strong>{asset.name}</strong> — {asset.source};{' '}
-                {asset.durationMs === null
-                  ? 'duration unavailable'
-                  : `${Math.round(asset.durationMs / 1000)} sec`}
-                ; {asset.campaignCount} campaigns{' '}
-                <button type="button" onClick={() => void play(asset)}>
-                  Play
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <p className="field-hint">
-          Audio is available only within this organization. Campaign selection stores a reference;
-          call execution is not connected.
-        </p>
-      </SectionCard>
+      {!loading && (
+        <SectionCard
+          title="Audio assets"
+          description="Assets are private to this organization and can be selected in a campaign draft."
+        >
+          {assets.length === 0 ? (
+            <EmptyState
+              title={storageAvailable ? 'No audio assets yet' : 'Audio storage is not configured'}
+            >
+              {storageAvailable
+                ? 'Record, upload or generate audio to make it selectable in a campaign draft.'
+                : 'When secure storage is configured for this environment, recordings and generated audio will appear here.'}
+            </EmptyState>
+          ) : (
+            <ul>
+              {assets.map((asset) => (
+                <li key={asset.id}>
+                  <strong>{asset.name}</strong> — {asset.source};{' '}
+                  {asset.durationMs === null
+                    ? 'duration unavailable'
+                    : `${Math.round(asset.durationMs / 1000)} sec`}
+                  ; {asset.campaignCount} campaigns{' '}
+                  <button type="button" onClick={() => void play(asset)}>
+                    Play
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="field-hint">
+            Audio is available only within this organization. Campaign selection stores a
+            reference; call execution is not connected.
+          </p>
+        </SectionCard>
+      )}
     </div>
   );
 }

@@ -34,6 +34,7 @@ export default async function ContactsPage({
       organizationName={membership.organizationName}
       canCreate={hasPermission(membership, 'contact:create')}
       canUpdate={hasPermission(membership, 'contact:update')}
+      canImport={hasPermission(membership, 'contact:import')}
     />
   );
 }

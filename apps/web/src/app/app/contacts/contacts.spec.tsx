@@ -45,7 +45,7 @@ async function submit(id: string) {
     host.querySelector(id)!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   });
 }
-async function mount(canCreate = true, canUpdate = true) {
+async function mount(canCreate = true, canUpdate = true, canImport = false) {
   await act(async () => {
     root.render(
       <ContactsView
@@ -53,6 +53,7 @@ async function mount(canCreate = true, canUpdate = true) {
         organizationName="Synthetic Tenant"
         canCreate={canCreate}
         canUpdate={canUpdate}
+        canImport={canImport}
       />,
     );
   });
@@ -299,11 +300,13 @@ describe('Contacts interactive integration through the same-origin API client', 
           organizationName="Synthetic Tenant"
           canCreate={false}
           canUpdate={false}
+          canImport={false}
         />,
       );
     });
     expect(host.textContent).not.toContain('Add Contact');
     expect(host.textContent).not.toContain('Edit Contact');
     expect(host.textContent).not.toContain('Delete Contact');
+    expect(host.textContent).not.toContain('Import contacts from CSV');
   });
 });

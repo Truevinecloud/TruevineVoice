@@ -104,15 +104,24 @@ describe('RBAC-003 Campaign Manager navigation visibility', () => {
 });
 
 describe('RBAC-003 Campaign Manager page guards - allowed', () => {
-  it('allows dashboard', async () => {
+  it('allows dashboard and hides member, invitation and billing surfaces', async () => {
     mocks.session.mockResolvedValue(campaignManagerSession());
     mocks.organization.mockResolvedValue({ id: 'org-a', name: 'Alpha' });
+    mocks.campaigns.mockResolvedValue([]);
 
     const html = renderToStaticMarkup(await DashboardPage(organizationSearchParams()));
 
     expect(html).toContain('Alpha');
-    // The dashboard does not leak the member list to a role without member:read.
-    expect(html).toContain('You do not have permission to view members of this organization.');
+    expect(html).toContain('Your workspace');
+    expect(html).toContain('No campaign records yet');
+    // A role without member:read, invitation:read or billing:read is not shown
+    // those areas at all, not even as an empty "no permission" card.
+    expect(html).not.toContain('Team');
+    expect(html).not.toContain('Pending invitations');
+    expect(html).not.toContain('Billing');
+    expect(mocks.members).not.toHaveBeenCalled();
+    expect(mocks.invitations).not.toHaveBeenCalled();
+    expect(mocks.billing).not.toHaveBeenCalled();
   });
 
   it('allows contacts', async () => {
