@@ -131,9 +131,11 @@ describe('CampaignBuilder', () => {
     await mount(baseCampaign);
 
     const schedule = host!.querySelector<HTMLInputElement>('#campaign-scheduled-at')!;
-    // Regression for the UTC-in-a-local-control bug.
+    // Regression for the UTC-in-a-local-control bug. The helper's own spec
+    // proves it uses local getters; here the editor must simply display the
+    // helper's value. Under a UTC runner local and UTC clocks legitimately
+    // coincide, so comparing against a hard-coded UTC string would be wrong.
     expect(schedule.value).toBe(localDateTimeValue(baseCampaign.scheduledAt));
-    expect(schedule.value).not.toBe('2026-11-05T14:30');
 
     await act(async () => {
       setInputValue(schedule, '2026-12-24T09:15');
