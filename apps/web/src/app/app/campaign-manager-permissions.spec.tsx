@@ -59,7 +59,7 @@ vi.mock('../../../lib/billing-api', () => ({
 
 vi.mock('next/navigation', () => ({
   redirect: (url: string) => {
-    throw new Error(edirect:);
+    throw new Error('redirect:' + url);
   },
 }));
 
