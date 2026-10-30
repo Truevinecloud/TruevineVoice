@@ -199,6 +199,21 @@ loopback test database with the new migration applied, `NODE_ENV=test`, and
 Tests fail loudly if those requirements are missing. Do not point them at
 production or a database whose test records cannot be discarded.
 
+## Platform payment-provider configuration (development)
+
+Super Admin -> Settings -> Payment integrations (`/settings/payments`) configures
+MTN Mobile Money and Airtel Money for Sandbox and Production. Only
+`PLATFORM_OWNER` holds `platform:payments:read` / `platform:payments:configure`.
+Credentials are encrypted with AES-256-GCM using
+`PAYMENT_CREDENTIAL_ENCRYPTION_KEY`; the API returns field presence and
+timestamps only, never a value. Saving never activates an environment, activation
+is a separate confirmed action, and at most one environment per provider can be
+active. No MTN or Airtel client is linked in this build, so **Test connection is
+disabled with an explanation** rather than reporting a simulated success, and no
+payment, callback, wallet credit or reconciliation path is implemented. The
+additive migration is not in the reviewed-migrations manifest and blocks
+deployment until reviewed. See [ADR 0024](./docs/adr/0024-payment-provider-credential-configuration.md).
+
 ## W2-02 Increment 1 Contacts UI
 
 `/app/contacts` lists organization contacts, searches name/phone/email across API
@@ -629,6 +644,7 @@ safe placeholders only.
 | `AUDIO_STORAGE_ENDPOINT` | no | AWS default | Optional S3-compatible endpoint |
 | `AUDIO_STORAGE_FORCE_PATH_STYLE` | no | `false` | Path-style addressing for compatible S3 services |
 | `AUDIO_TTS_REGION` | no | unset | AWS Polly region; enables speech synthesis |
+| `PAYMENT_CREDENTIAL_ENCRYPTION_KEY` | production: yes; development/test: no | unset | Base64 32-byte AES-256-GCM key for stored payment-provider credentials |
 | `POSTGRES_PORT`           | no       | `5432`        | Host port Compose publishes PostgreSQL on   |
 | `REDIS_PORT`              | no       | `6379`        | Host port Compose publishes Redis on        |
 | `LOG_LEVEL`               | no       | —             | `debug` enables extra Prisma client logging |
@@ -642,6 +658,8 @@ working directory.
 Authentication secrets, Africa's Talking credentials and payment credentials
 are not configured by these audio settings. S3 and Polly credentials must be
 provided through the runtime AWS credential chain; they never belong in source.
+Provider payment credentials are stored encrypted in PostgreSQL, not in `.env`;
+only `PAYMENT_CREDENTIAL_ENCRYPTION_KEY` belongs in the environment.
 Without storage configuration, audio mutations are unavailable. Without the
 Polly region, the UI offers recording and upload but disables synthesis.
 

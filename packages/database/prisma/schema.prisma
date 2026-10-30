@@ -106,6 +106,27 @@ enum AuditOutcome {
   DENIED
 }
 
+/// A payment provider whose credentials platform Super Admins may configure.
+///
+/// Deliberately provider-specific rather than a generic "payment gateway" row:
+/// MTN and Airtel do not share a credential contract, and one table with a
+/// free-form JSON blob would let either provider's field names drift into the
+/// other's. Adding a provider is a reviewed migration, not a data edit.
+enum PaymentProvider {
+  MTN_MOMO
+  AIRTEL_MONEY
+}
+
+/// Whether a credential set targets the provider's sandbox or live environment.
+///
+/// Kept separate from `PaymentProvider` because the same provider needs two
+/// independent credential sets. Activation is per environment, and the
+/// database permits at most one active environment per provider.
+enum PaymentProviderEnvironment {
+  SANDBOX
+  PRODUCTION
+}
+
 /// A person who can authenticate.
 ///
 /// NOT TENANT-OWNED. A user is an identity, not an organization resource: the
@@ -148,6 +169,7 @@ model User {
   identityAuditEvents  IdentityAuditEvent[]
   platformOwnerBootstrap PlatformOwnerBootstrap?
   campaignsCreated     Campaign[]
+  paymentProviderConfigurations PaymentProviderConfiguration[] @relation("PaymentProviderConfiguredBy")
 
   @@map("users")
 }
@@ -910,4 +932,64 @@ model CallEvent {
   @@index([organizationId, attemptId, eventKey])
   @@index([organizationId, disposition, receivedAt])
   @@map("call_events")
+}
+
+/// Platform-owned payment-provider credentials (MTN MoMo / Airtel Money).
+///
+/// NOT TENANT-OWNED. A payment provider account belongs to Truevine, not to a
+/// customer organization, so this table has no `organization_id` and no
+/// customer-facing endpoint may reach it.
+///
+/// SECRETS AT REST
+/// ---------------
+/// The credential values are stored only as an AES-256-GCM envelope produced by
+/// `AesPaymentCredentialCipher`. `credentials_ciphertext` includes the nonce,
+/// authentication tag and ciphertext; the additional authenticated data binds
+/// the envelope to `provider` and `environment`, so a row cannot be copied to
+/// another provider or environment and still decrypt. The key comes from
+/// `PAYMENT_CREDENTIAL_ENCRYPTION_KEY` and has no default. `credential_fields`
+/// holds names only, which is what lets the API report "configured" without
+/// decrypting or returning a value.
+///
+/// ACTIVATION IS NOT IMPLIED BY CONFIGURATION
+/// ------------------------------------------
+/// A row becomes `active` only through the explicit activation endpoint. The
+/// database repeats that rule with a CHECK constraint (active requires an
+/// encrypted credential set and a callback URL) and a partial unique index
+/// allowing at most one active environment per provider. Credential updates on
+/// an active row are refused by the store, so replacing a secret cannot leave a
+/// live configuration silently using a half-reviewed value.
+model PaymentProviderConfiguration {
+  id String @id @default(uuid()) @db.Uuid
+
+  provider    PaymentProvider
+  environment PaymentProviderEnvironment
+
+  /// AES-256-GCM envelope. Null until the first credential save.
+  credentialsCiphertext String? @map("credentials_ciphertext") @db.Text
+  /// Credential field names only, never values. Used for redacted metadata.
+  credentialFields      String[] @default([]) @map("credential_fields")
+
+  /// Provider callback endpoint, if configured. Validated as an HTTPS URL with
+  /// no query string or fragment so it cannot carry a routing token.
+  callbackUrl String? @map("callback_url") @db.VarChar(512)
+
+  active        Boolean   @default(false)
+  configuredAt  DateTime? @map("configured_at") @db.Timestamptz(3)
+  activatedAt   DateTime? @map("activated_at") @db.Timestamptz(3)
+  deactivatedAt DateTime? @map("deactivated_at") @db.Timestamptz(3)
+
+  /// Optimistic concurrency. A save carries the version it read; a concurrent
+  /// change fails instead of overwriting the other operator's credentials.
+  version Int @default(1)
+
+  updatedByUserId String   @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  updatedBy User @relation("PaymentProviderConfiguredBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([provider, environment])
+  @@index([provider, active])
+  @@map("payment_provider_configurations")
 }

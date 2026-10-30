@@ -11,6 +11,8 @@ const ALLOWED = [
   /^platform\/support\/users\/[0-9a-f-]+(\/audit)?$/i,
   /^platform\/technical\/(me|overview|providers|queues|logs|audit)$/,
   /^platform\/audit\/(me|overview|organizations|audit)$/,
+  /^platform\/payments\/(me|providers)$/,
+  /^platform\/payments\/providers\/(MTN_MOMO|AIRTEL_MONEY)\/environments\/(SANDBOX|PRODUCTION)(\/activation)?$/i,
 ];
 
 async function forward(request: NextRequest, context: RouteContext) {
@@ -33,7 +35,13 @@ async function forward(request: NextRequest, context: RouteContext) {
   const upstream = await fetch(target, {
     method: request.method,
     headers,
-    ...(request.method === 'POST' ? { body: await request.arrayBuffer() } : {}),
+    // Forward the body for every method that may carry one. PUT is used by the
+    // payment-provider configuration routes; restricting this to POST silently
+    // sent an empty body and produced a validation error that looked like a
+    // client bug.
+    ...(request.method === 'GET' || request.method === 'HEAD'
+      ? {}
+      : { body: await request.arrayBuffer() }),
     cache: 'no-store',
     redirect: 'manual',
   }).catch(() => undefined);
@@ -51,3 +59,4 @@ async function forward(request: NextRequest, context: RouteContext) {
 
 export const GET = forward;
 export const POST = forward;
+export const PUT = forward;

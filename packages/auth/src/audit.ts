@@ -121,6 +121,16 @@ export const AUDIT_ACTIONS = [
   'platform.audit.organizations_viewed',
   'platform.audit.audit_viewed',
 
+  // Payment-provider configuration (MTN MoMo / Airtel Money). These events
+  // record that a credential set changed or an environment was activated, but
+  // never the credential values, the encrypted envelope, or the callback URL:
+  // a callback URL can itself contain a routing token.
+  'platform.payment_provider.configurations_viewed',
+  'platform.payment_provider.configuration_viewed',
+  'platform.payment_provider.configured',
+  'platform.payment_provider.activated',
+  'platform.payment_provider.deactivated',
+
   // Authorization denials. A trail of successes alone cannot answer "was this an
   // attack?", so refusals are recorded too.
   'authorization.denied',

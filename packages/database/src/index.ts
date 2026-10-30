@@ -35,6 +35,8 @@ export type {
   AuditScope,
   CampaignStatus,
   MembershipRole,
+  PaymentProvider,
+  PaymentProviderEnvironment,
   PlatformRole,
   UserStatus,
 } from './generated/prisma/client.js';

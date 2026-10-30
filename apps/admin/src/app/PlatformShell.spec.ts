@@ -22,5 +22,12 @@ describe('platform navigation entitlements', () => {
     ]);
     expect(platformNavigationItems('BILLING_ADMIN')).toEqual([]);
     expect(platformNavigationItems(null)).toEqual([]);
+    expect(platformNavigationItems('PLATFORM_OWNER').map((item) => item.label)).toEqual([
+      'Operations',
+      'Support',
+      'Technical',
+      'Audit',
+      'Settings',
+    ]);
   });
 });
