@@ -71,6 +71,11 @@ export const PLATFORM_PERMISSIONS = [
   'platform:technical:write',
   'platform:audit:read',
   'platform:admin:manage',
+  // Payment-provider credentials (MTN MoMo / Airtel Money). Held by
+  // PLATFORM_OWNER alone: a payment credential is not a support or technical
+  // diagnostic, and no other platform role has a reason to read or replace it.
+  'platform:payments:read',
+  'platform:payments:configure',
 ] as const;
 
 export type PlatformPermission = (typeof PLATFORM_PERMISSIONS)[number];

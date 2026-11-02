@@ -141,6 +141,39 @@ through the same approved access arrangement as the rest of the file:
 was requested without delivering it. Set it only once a provider account exists.
 The pipeline still never reads, replaces or creates `.env`.
 
+### Variables this payment-provider release requires
+
+The Super Admin payment-integration release makes the API **refuse to boot in
+production** without a credential-encryption key. Add this to the same shared
+`.env`, through the approved access arrangement, before dispatching deployment:
+
+- `PAYMENT_CREDENTIAL_ENCRYPTION_KEY` — a base64-encoded 32-byte AES-256-GCM key,
+  generated once per environment. It is key material: never paste it into a
+  terminal transcript, GitHub, chat, an issue or this repository. Provider
+  credentials themselves are entered in the admin UI and encrypted with this
+  key; they are never placed in `.env`.
+
+Confirm presence and shape without printing the value, as the deployment
+account:
+
+```bash
+cd /var/www/TruevineVoice
+node -e '
+const fs = require("node:fs");
+const line = fs.readFileSync(".env", "utf8").split(/\r?\n/)
+  .find((entry) => entry.startsWith("PAYMENT_CREDENTIAL_ENCRYPTION_KEY="));
+const value = line ? line.slice(line.indexOf("=") + 1) : "";
+const valid = /^[A-Za-z0-9+/]{43}=$/.test(value) && Buffer.from(value, "base64").length === 32;
+console.log(valid ? "PAYMENT_CREDENTIAL_ENCRYPTION_KEY present and valid" : "PAYMENT_CREDENTIAL_ENCRYPTION_KEY missing or invalid");
+process.exit(valid ? 0 : 1);
+'
+```
+
+A missing or malformed key exits the API at boot; the deployment HTTP check then
+fails and the previous release is restored. Do not weaken the check or add a
+fallback key to make a deployment pass. Rotating the key makes stored ciphertext
+unreadable; no rotation procedure exists yet.
+
 Create `/var/www/TruevineVoice/deployment.json` privately on the VPS using this
 shape, replacing the API URL with the route found in the Nginx audit:
 

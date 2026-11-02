@@ -533,6 +533,18 @@ describe('platform roles stay inside their scope', () => {
     expect(holders).toEqual(['PLATFORM_OWNER', 'BILLING_ADMIN']);
   });
 
+  it('reserves payment-provider configuration for the platform owner alone', () => {
+    const readers = ALL_PLATFORM_ROLES.filter((role) =>
+      canActAsPlatform(role, 'platform:payments:read'),
+    );
+    const configurers = ALL_PLATFORM_ROLES.filter((role) =>
+      canActAsPlatform(role, 'platform:payments:configure'),
+    );
+
+    expect(readers).toEqual(['PLATFORM_OWNER']);
+    expect(configurers).toEqual(['PLATFORM_OWNER']);
+  });
+
   it('grants no platform role an organization permission', () => {
     const organization = new Set<string>(ORGANIZATION_PERMISSIONS);
 

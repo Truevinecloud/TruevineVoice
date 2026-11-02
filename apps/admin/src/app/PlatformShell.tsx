@@ -20,6 +20,7 @@ const PLATFORM_LINKS: readonly PlatformLink[] = [
   { label: 'Support', href: '/support', permission: 'platform:support:read' },
   { label: 'Technical', href: '/technical', permission: 'platform:technical:read' },
   { label: 'Audit', href: '/auditor', permission: 'platform:audit:read' },
+  { label: 'Settings', href: '/settings', permission: 'platform:payments:read' },
 ];
 
 export function platformNavigationItems(role: PlatformRole | null): readonly PlatformLink[] {

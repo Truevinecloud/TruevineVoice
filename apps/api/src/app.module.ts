@@ -11,6 +11,7 @@ import { HealthModule } from './health/health.module.js';
 import { InfrastructureModule } from './infrastructure/infrastructure.module.js';
 import { OrganizationsModule } from './organizations/organizations.module.js';
 import { OperationsModule } from './operations/operations.module.js';
+import { PaymentProvidersModule } from './payments/payment-providers.module.js';
 import { SupportModule } from './support/support.module.js';
 import { TechnicalModule } from './technical/technical.module.js';
 
@@ -33,6 +34,7 @@ import { TechnicalModule } from './technical/technical.module.js';
     BillingModule,
     ContactsModule,
     OperationsModule,
+    PaymentProvidersModule,
     SupportModule,
     TechnicalModule,
     AuditModule,
