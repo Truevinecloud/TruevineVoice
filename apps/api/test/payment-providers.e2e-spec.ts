@@ -127,6 +127,8 @@ describe('payment-provider persistence on disposable PostgreSQL', () => {
       environment: PaymentProviderEnvironment;
       callbackUrl: string | null;
       active: boolean;
+      activatedAt: Date | null;
+      deactivatedAt: Date | null;
     }> = {},
   ) {
     return {
@@ -232,7 +234,7 @@ describe('payment-provider persistence on disposable PostgreSQL', () => {
     // Active without a callback target.
     await expect(
       database.paymentProviderConfiguration.create({
-        data: rawRow({ active: true, callbackUrl: null }),
+        data: rawRow({ active: true, callbackUrl: null, activatedAt: now }),
       }),
     ).rejects.toThrow();
 
@@ -252,12 +254,12 @@ describe('payment-provider persistence on disposable PostgreSQL', () => {
 
   it('enforces at most one active environment per provider in the database', async () => {
     await database.paymentProviderConfiguration.create({
-      data: rawRow({ active: true, environment: 'SANDBOX' }),
+      data: rawRow({ active: true, environment: 'SANDBOX', activatedAt: now }),
     });
 
     await expect(
       database.paymentProviderConfiguration.create({
-        data: rawRow({ active: true, environment: 'PRODUCTION' }),
+        data: rawRow({ active: true, environment: 'PRODUCTION', activatedAt: now }),
       }),
     ).rejects.toThrow();
   });
