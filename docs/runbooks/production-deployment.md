@@ -67,11 +67,13 @@ bindings. No database or Redis port should be publicly reachable. Do not run the
 repository's development Compose file in production: its credentials are public
 placeholders. Keep existing production databases, volumes and credentials.
 
-The repository defines no admin hostname, public admin route, Nginx
-configuration, or admin authentication. The admin app sets its own `/admin`
-`basePath` and listens on `127.0.0.1:3002`. Publishing it needs a separately
-reviewed Nginx change and an authentication decision first. Keep admin on
-loopback and access it through an SSH tunnel. There is no admin authentication.
+The repository defines no admin hostname or Nginx configuration. The admin app
+sets its own `/admin` basePath and listens on `127.0.0.1:3002`. Publishing it
+requires a reviewed Nginx change (see `infrastructure/nginx/`) and an
+authentication decision. When `adminAccess` is `public`, the admin app is
+served at `https://voice.truevinecloud.online/admin` behind Nginx with
+rate limiting and security headers. The admin app uses platform authentication
+(session cookies, CSRF tokens, and `PLATFORM_OWNER` role enforcement).
 
 Node must be exactly `24.19.0`, npm exactly `11.17.0`. Install those through the
 server's established package management procedure; make `node`, `npm`, `bash`,
