@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { platformNavigationItems } from './PlatformShell';
+import { isPlatformNavItemActive, platformNavigationItems } from './PlatformShell';
 
 describe('platform navigation entitlements', () => {
   it('keeps platform administration separate and lists only entitled workspaces', () => {
@@ -29,5 +29,19 @@ describe('platform navigation entitlements', () => {
       'Audit',
       'Settings',
     ]);
+  });
+});
+
+describe('platform navigation active state', () => {
+  it('highlights the exact dashboard route only on the root path', () => {
+    expect(isPlatformNavItemActive('/', '/')).toBe(true);
+    expect(isPlatformNavItemActive('/support', '/')).toBe(false);
+  });
+
+  it('highlights a section for its route and nested routes', () => {
+    expect(isPlatformNavItemActive('/settings', '/settings')).toBe(true);
+    expect(isPlatformNavItemActive('/settings/payments', '/settings')).toBe(true);
+    expect(isPlatformNavItemActive('/support/users/123', '/support')).toBe(true);
+    expect(isPlatformNavItemActive('/technical', '/support')).toBe(false);
   });
 });
