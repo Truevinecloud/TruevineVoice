@@ -23,6 +23,10 @@ const PLATFORM_LINKS: readonly PlatformLink[] = [
   { label: 'Settings', href: '/settings', permission: 'platform:payments:read' },
 ];
 
+export function isPlatformNavItemActive(pathname: string, href: string): boolean {
+  return href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function platformNavigationItems(role: PlatformRole | null): readonly PlatformLink[] {
   if (!role || !PLATFORM_ROLES.includes(role)) return [];
   return PLATFORM_LINKS.filter((item) => canActAsPlatform(role, item.permission));
@@ -70,20 +74,15 @@ export function PlatformShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="platform-app-shell">
-      <header className="platform-shell-header">
+      <header className="platform-mobile-header">
         <Link className="platform-shell-brand" href="/">
           Truevine Voice <span>Platform</span>
         </Link>
-        {checked && role && (
-          <button className="platform-shell-signout" type="button" onClick={() => void signOut()}>
-            Sign out
-          </button>
-        )}
-        {checked && role && (
+        {checked && role && items.length > 0 && (
           <button
             className="platform-shell-toggle"
             type="button"
-            aria-controls="platform-shell-links"
+            aria-controls="platform-sidebar"
             aria-expanded={open}
             onClick={() => setOpen((value) => !value)}
           >
@@ -91,30 +90,69 @@ export function PlatformShell({ children }: { children: ReactNode }) {
           </button>
         )}
       </header>
-      {checked && role && items.length > 0 && (
-        <nav className="platform-shell-nav" aria-label="Platform administration">
-          <span className="platform-shell-context">Platform administration</span>
-          <div id="platform-shell-links" className="platform-shell-links" data-open={open}>
-            {items.map((item) => {
-              const active =
-                item.href === '/'
-                  ? pathname === '/'
-                  : pathname === item.href || pathname.startsWith(`${item.href}/`);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  aria-current={active ? 'page' : undefined}
-                  onClick={() => setOpen(false)}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-        </nav>
+
+      <aside
+        id="platform-sidebar"
+        className="platform-sidebar"
+        data-open={open}
+        aria-label="Platform administration"
+      >
+        <div className="platform-sidebar-header">
+          <Link className="platform-shell-brand" href="/">
+            Truevine Voice <span>Platform</span>
+          </Link>
+          {checked && role && items.length > 0 && (
+            <button
+              className="platform-shell-toggle platform-sidebar-close"
+              type="button"
+              aria-controls="platform-sidebar"
+              aria-expanded={open}
+              onClick={() => setOpen(false)}
+            >
+              Close
+            </button>
+          )}
+        </div>
+
+        {checked && role && items.length > 0 && (
+          <>
+            <span className="platform-shell-context">Platform administration</span>
+            <nav className="platform-sidebar-nav">
+              <div className="platform-shell-links">
+                {items.map((item) => {
+                  const active = isPlatformNavItemActive(pathname, item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      aria-current={active ? 'page' : undefined}
+                      onClick={() => setOpen(false)}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </nav>
+            <div className="platform-sidebar-footer">
+              <button className="platform-shell-signout" type="button" onClick={() => void signOut()}>
+                Sign out
+              </button>
+            </div>
+          </>
+        )}
+      </aside>
+
+      {open && (
+        <button
+          type="button"
+          className="platform-sidebar-backdrop"
+          aria-label="Close navigation"
+          onClick={() => setOpen(false)}
+        />
       )}
-      {children}
+
+      <main className="platform-main">{children}</main>
     </div>
   );
 }
