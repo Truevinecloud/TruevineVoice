@@ -60,8 +60,9 @@ ARRAY[]::TEXT[]` (nullable array). The migration had added `NOT NULL`, which
   `coalesce(cardinality(credential_fields), 0)` so a NULL array is still treated
   as "no fields" rather than silently passing the CHECK.
 
-The migration has never been applied anywhere, so editing it is safe; no applied
-migration was modified.
+The migration has been exercised against disposable PostgreSQL databases in CI,
+but it has not been applied to production, so editing it before production
+application is safe; no applied production migration was modified.
 
 ## 3. Constraints and indexes
 
@@ -119,11 +120,16 @@ retrying.
 
 ## 6. Residual risks and prerequisites for approval
 
-1. **Execution evidence on real PostgreSQL is required.** Run the migration and
-   the payment persistence E2E suite
-   (`apps/api/test/payment-providers.e2e-spec.ts`) against a disposable
-   database before approving. Locally this requires Docker; the PR's CI
-   `e2e-tests` job provides it.
+1. **Execution evidence.** The migration has been exercised against disposable
+   PostgreSQL databases in CI (`e2e-tests` applies it to a throwaway Compose
+   database; `rbac-database-e2e.yml` applies it to service containers, including
+   `apps/api/test/payment-providers.e2e-spec.ts`). That evidence covers disposable
+   databases only. Production application is still a supervised operator step and
+   has not happened. Re-run `prisma migrate deploy` and the payment persistence E2E
+   suite against a disposable database before approving, and confirm
+   `_prisma_migrations` records it as applied. Locally this requires Docker; the
+   PR's CI `e2e-tests` job provides it.
+
 2. **Backup and recovery.** Confirm the current production backup/restore
    procedure and a recovery plan before applying; see the production runbook.
 3. **Secret provisioning.** `PAYMENT_CREDENTIAL_ENCRYPTION_KEY` must be in the
