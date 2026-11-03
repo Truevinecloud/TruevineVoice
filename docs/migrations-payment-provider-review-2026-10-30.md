@@ -8,18 +8,21 @@ approval manifest (`infrastructure/migrations-reviewed.json`) is deliberately
 unchanged, so `deploy:release` refuses this tree.
 
 This review was performed statically and against Prisma's own DDL generator.
-No disposable PostgreSQL instance was available in the review environment
-(Docker and `psql` are absent), so the migration has **not** been applied here.
-It is applied by the `e2e-tests` CI job to a throwaway Compose database, and by
-`rbac-database-e2e.yml` to service containers, on every pull request. That CI
-result is the execution evidence, not this document.
+No disposable PostgreSQL instance was available in the original review
+environment (Docker and `psql` are absent), so the migration was not applied
+there. Since then it has been exercised against disposable PostgreSQL instances
+in CI: the `e2e-tests` job applies it to a throwaway Compose database, and
+`rbac-database-e2e.yml` applies it to service containers, including
+`apps/api/test/payment-providers.e2e-spec.ts`. That CI execution is evidence for
+a disposable database only. The migration has **not** been applied to
+production, and production approval remains pending.
 
 ---
 
 ## 1. Scope and additive-only check
 
 The migration contains only `CREATE TYPE` (×2), `CREATE TABLE` (×1), `CREATE
-INDEX` (×2), one `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY`, and four
+INDEX` (×3), one `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY`, and five
 `ADD CONSTRAINT ... CHECK` statements on the new table. It does not alter, drop,
 rename or rewrite any existing table, column, index, enum or row, and it takes
 no lock that outlives its own transaction beyond the brief catalog locks needed
@@ -30,9 +33,9 @@ to add the foreign key to the new (empty) table.
 | `CREATE TYPE "PaymentProvider"`                  | —                       | new enum                                                      |
 | `CREATE TYPE "PaymentProviderEnvironment"`       | —                       | new enum                                                      |
 | `CREATE TABLE "payment_provider_configurations"` | —                       | new table, empty                                              |
-| two indexes + PK                                 | —                       | on the new table                                              |
+| PK plus three indexes                            | —                       | on the new table                                              |
 | FK → `users(id)`                                 | `users`                 | catalog-level FK; validation scans zero rows in the new table |
-| four CHECKs                                      | —                       | on the new table                                              |
+| five CHECKs                                      | —                       | on the new table                                              |
 
 `ON DELETE RESTRICT` on `updated_by_user_id` matches the model: a user with
 configuration history cannot be deleted, which is consistent with the existing
