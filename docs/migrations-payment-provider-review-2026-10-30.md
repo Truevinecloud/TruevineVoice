@@ -8,18 +8,21 @@ approval manifest (`infrastructure/migrations-reviewed.json`) is deliberately
 unchanged, so `deploy:release` refuses this tree.
 
 This review was performed statically and against Prisma's own DDL generator.
-No disposable PostgreSQL instance was available in the review environment
-(Docker and `psql` are absent), so the migration has **not** been applied here.
-It is applied by the `e2e-tests` CI job to a throwaway Compose database, and by
-`rbac-database-e2e.yml` to service containers, on every pull request. That CI
-result is the execution evidence, not this document.
+No disposable PostgreSQL instance was available in the original review
+environment (Docker and `psql` are absent), so the migration was not applied
+there. Since then it has been exercised against disposable PostgreSQL instances
+in CI: the `e2e-tests` job applies it to a throwaway Compose database, and
+`rbac-database-e2e.yml` applies it to service containers, including
+`apps/api/test/payment-providers.e2e-spec.ts`. That CI execution is evidence for
+a disposable database only. The migration has **not** been applied to
+production, and production approval remains pending.
 
 ---
 
 ## 1. Scope and additive-only check
 
 The migration contains only `CREATE TYPE` (×2), `CREATE TABLE` (×1), `CREATE
-INDEX` (×2), one `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY`, and four
+INDEX` (×3), one `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY`, and five
 `ADD CONSTRAINT ... CHECK` statements on the new table. It does not alter, drop,
 rename or rewrite any existing table, column, index, enum or row, and it takes
 no lock that outlives its own transaction beyond the brief catalog locks needed
@@ -30,9 +33,9 @@ to add the foreign key to the new (empty) table.
 | `CREATE TYPE "PaymentProvider"`                  | —                       | new enum                                                      |
 | `CREATE TYPE "PaymentProviderEnvironment"`       | —                       | new enum                                                      |
 | `CREATE TABLE "payment_provider_configurations"` | —                       | new table, empty                                              |
-| two indexes + PK                                 | —                       | on the new table                                              |
+| PK plus three indexes                            | —                       | on the new table                                              |
 | FK → `users(id)`                                 | `users`                 | catalog-level FK; validation scans zero rows in the new table |
-| four CHECKs                                      | —                       | on the new table                                              |
+| five CHECKs                                      | —                       | on the new table                                              |
 
 `ON DELETE RESTRICT` on `updated_by_user_id` matches the model: a user with
 configuration history cannot be deleted, which is consistent with the existing
@@ -57,8 +60,9 @@ ARRAY[]::TEXT[]` (nullable array). The migration had added `NOT NULL`, which
   `coalesce(cardinality(credential_fields), 0)` so a NULL array is still treated
   as "no fields" rather than silently passing the CHECK.
 
-The migration has never been applied anywhere, so editing it is safe; no applied
-migration was modified.
+The migration has been exercised against disposable PostgreSQL databases in CI,
+but it has not been applied to production, so editing it before production
+application is safe; no applied production migration was modified.
 
 ## 3. Constraints and indexes
 
@@ -116,11 +120,16 @@ retrying.
 
 ## 6. Residual risks and prerequisites for approval
 
-1. **Execution evidence on real PostgreSQL is required.** Run the migration and
-   the payment persistence E2E suite
-   (`apps/api/test/payment-providers.e2e-spec.ts`) against a disposable
-   database before approving. Locally this requires Docker; the PR's CI
-   `e2e-tests` job provides it.
+1. **Execution evidence.** The migration has been exercised against disposable
+   PostgreSQL databases in CI (`e2e-tests` applies it to a throwaway Compose
+   database; `rbac-database-e2e.yml` applies it to service containers, including
+   `apps/api/test/payment-providers.e2e-spec.ts`). That evidence covers disposable
+   databases only. Production application is still a supervised operator step and
+   has not happened. Re-run `prisma migrate deploy` and the payment persistence E2E
+   suite against a disposable database before approving, and confirm
+   `_prisma_migrations` records it as applied. Locally this requires Docker; the
+   PR's CI `e2e-tests` job provides it.
+
 2. **Backup and recovery.** Confirm the current production backup/restore
    procedure and a recovery plan before applying; see the production runbook.
 3. **Secret provisioning.** `PAYMENT_CREDENTIAL_ENCRYPTION_KEY` must be in the
