@@ -7,7 +7,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-import { PLAYBACK_URL_TTL_SECONDS, type AudioObjectStore } from '../../audio.port.js';
+import { PLAYBACK_URL_TTL_SECONDS, type AudioMimeType, type AudioObjectStore } from '../../audio.port.js';
 
 export interface S3AudioStorageConfig {
   readonly bucket: string;
@@ -44,6 +44,13 @@ export class S3AudioStorage implements AudioObjectStore {
     );
   }
 
+  async getObject(key: string): Promise<{ readonly body: Uint8Array; readonly contentType: AudioMimeType }> {
+    const result = await this.client.send(new GetObjectCommand({ Bucket: this.config.bucket, Key: key }));
+    const body = await result.Body?.transformToByteArray();
+    if (!body) throw new Error('Empty object body.');
+    const contentType = (result.ContentType ?? 'audio/mpeg') as AudioMimeType;
+    return { body, contentType };
+  }
   async deleteObject(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.config.bucket, Key: key }));
   }

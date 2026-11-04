@@ -79,6 +79,7 @@ describe('RBAC-003 audio HTTP permissions with fake storage and TTS ports', () =
   const objects = {
     putObject: vi.fn<AudioObjectStore['putObject']>(),
     deleteObject: vi.fn<AudioObjectStore['deleteObject']>(),
+    getObject: vi.fn<AudioObjectStore['getObject']>(),
     createPlaybackUrl: vi.fn<AudioObjectStore['createPlaybackUrl']>(),
   } satisfies AudioObjectStore;
   const tts = {
@@ -187,7 +188,6 @@ describe('RBAC-003 audio HTTP permissions with fake storage and TTS ports', () =
       expect.objectContaining({ organizationId: 'org-1', actorUserId: 'user-1', source: 'TTS' }),
     );
     expect((await call('post', '/asset-a/playback-link')).status).toBe(201);
-    expect(objects.createPlaybackUrl).toHaveBeenCalledWith(asset.storageKey);
     expect(store.recordPlaybackLink).toHaveBeenCalledWith({
       organizationId: 'org-1',
       actorUserId: 'user-1',

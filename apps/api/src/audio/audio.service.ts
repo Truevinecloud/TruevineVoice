@@ -180,17 +180,28 @@ export class AudioService {
     actorUserId: string,
     assetId: string,
   ): Promise<{ readonly url: string }> {
+    const target = await this.store.findPlaybackTarget(organizationId, assetId);
+    if (!target) throw audioAssetNotFound();
+    await this.store.recordPlaybackLink({ organizationId, actorUserId, assetId });
+    return { url: `/organizations/${organizationId}/audio-assets/${assetId}/content` };
+  }
+
+  async playbackContent(
+    organizationId: string,
+    actorUserId: string,
+    assetId: string,
+  ): Promise<{ readonly body: Uint8Array; readonly contentType: AudioMimeType }> {
     if (!this.objects) throw audioNotConfigured();
     const target = await this.store.findPlaybackTarget(organizationId, assetId);
     if (!target) throw audioAssetNotFound();
-    let url: string;
+    let result: { readonly body: Uint8Array; readonly contentType: AudioMimeType };
     try {
-      url = await this.objects.createPlaybackUrl(target.storageKey);
+      result = await this.objects.getObject(target.storageKey);
     } catch {
       throw audioProviderUnavailable();
     }
-    await this.store.recordPlaybackLink({ organizationId, actorUserId, assetId });
-    return { url };
+    await this.store.recordPlaybackLink({ organizationId, actorUserId, assetId }).catch(() => undefined);
+    return result;
   }
 
   private async saveAsset(input: {

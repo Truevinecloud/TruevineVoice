@@ -24,6 +24,7 @@ export interface AudioObjectStore {
     readonly contentType: AudioMimeType;
   }): Promise<void>;
   deleteObject(key: string): Promise<void>;
+  getObject(key: string): Promise<{ readonly body: Uint8Array; readonly contentType: AudioMimeType }>;
   createPlaybackUrl(key: string): Promise<string>;
   close?(): Promise<void> | void;
 }
