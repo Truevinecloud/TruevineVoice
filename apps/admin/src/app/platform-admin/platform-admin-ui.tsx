@@ -46,6 +46,7 @@ export default function PlatformAdminPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const activeOwnerCount = assignments.filter((item) => item.role === 'PLATFORM_OWNER' && item.revokedAt === null).length;
 
   async function load() {
     setLoading(true);
@@ -233,7 +234,10 @@ export default function PlatformAdminPage() {
                       <tr key={assignment.userId}>
                         <td data-label="User" className="email-cell">
                           {assignment.email}
-                          <small>{assignment.userId}</small>
+                          <details className="footnote">
+                            <summary>Technical details</summary>
+                            <small>{assignment.userId}</small>
+                          </details>
                         </td>
                         <td data-label="Role">{PLATFORM_ROLES.find((item) => item.value === assignment.role)?.label ?? assignment.role}</td>
                         <td data-label="Status">
@@ -247,15 +251,21 @@ export default function PlatformAdminPage() {
                           {assignment.revokedAt && <small>Revoked {formatDate(assignment.revokedAt)}</small>}
                         </td>
                         <td data-label="Actions">
-                          {assignment.revokedAt === null && (
-                            <button
-                              type="button"
-                              className="danger-button"
-                              disabled={busy}
-                              onClick={() => void revoke(assignment)}
-                            >
-                              Revoke
-                            </button>
+                          {assignment.revokedAt === null ? (
+                            assignment.role === 'PLATFORM_OWNER' && activeOwnerCount <= 1 ? (
+                              <span className="status status-suspended">Protected</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="danger-button platform-admin-action"
+                                disabled={busy}
+                                onClick={() => void revoke(assignment)}
+                              >
+                                Revoke
+                              </button>
+                            )
+                          ) : (
+                            <span className="footnote">No action</span>
                           )}
                         </td>
                       </tr>

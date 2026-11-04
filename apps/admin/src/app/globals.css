@@ -162,7 +162,9 @@ h1 {
 .platform-admin-table th:nth-child(4), .platform-admin-table td:nth-child(4) { width: 22%; }
 .platform-admin-table th:nth-child(5), .platform-admin-table td:nth-child(5) { width: 12%; }
 .platform-admin-table td { overflow-wrap: anywhere; }
-.platform-admin-table .email-cell { font-size: .95rem; font-weight: 600; }
+.platform-admin-table button { white-space: nowrap; min-width: 5.5rem; }
+.platform-admin-table tr:has(.status-suspended) { opacity: .72; }
+.platform-admin-table details summary { cursor: pointer; color: var(--muted-fg); font-size: .75rem; }
 .platform-admin-table small { font-size: .78rem; }
 @media (max-width: 900px) {
   .platform-admin-table { table-layout: auto; }
