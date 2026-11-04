@@ -742,3 +742,10 @@ describe('RBAC-003 contacts and audio permission declarations', () => {
     });
   }
 });
+describe('platform admin route regression', () => {
+  it('keeps GET /platform/admin/roles mapped', () => {
+    const handler = PlatformAdminController.prototype.listRoles as object;
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe('roles');
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.GET);
+  });
+});
