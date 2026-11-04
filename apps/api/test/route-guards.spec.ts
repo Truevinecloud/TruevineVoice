@@ -38,6 +38,7 @@ import { SupportController } from '../src/support/support.controller.js';
 import { SupportAccessGuard } from '../src/support/support-access.guard.js';
 import { SupportRateLimitGuard } from '../src/support/support-rate-limit.guard.js';
 import { TechnicalController } from '../src/technical/technical.controller.js';
+import { PlatformAdminController } from '../src/platform-admin/platform-admin.controller.js';
 
 type AnyController = new (...args: never[]) => object;
 
@@ -568,7 +569,8 @@ describe('every platform route is guarded and none is a mutation reachable by an
     ['SupportController', SupportController],
     ['TechnicalController', TechnicalController],
     ['AuditController', AuditController],
-    ['OperationsController', OperationsController],
+      ['OperationsController', OperationsController],
+      ['PlatformAdminController', PlatformAdminController],
   ];
 
   it('declares PlatformGuard on every route of every platform controller', () => {
@@ -602,7 +604,7 @@ describe('every platform route is guarded and none is a mutation reachable by an
     ]);
 
     for (const [label, controller] of PLATFORM_CONTROLLERS) {
-      if (label === 'OperationsController' || label === 'SupportController') continue;
+      if (label === 'OperationsController' || label === 'SupportController' || label === 'PlatformAdminController') continue;
 
       for (const route of handlersOf(controller)) {
         const method = route.name.split('.')[1]!;

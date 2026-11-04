@@ -28,6 +28,7 @@ describe('platform navigation entitlements', () => {
       'Technical',
       'Audit',
       'Settings',
+      'Platform Admins',
     ]);
   });
 });

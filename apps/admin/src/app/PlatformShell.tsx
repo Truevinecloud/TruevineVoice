@@ -21,6 +21,7 @@ const PLATFORM_LINKS: readonly PlatformLink[] = [
   { label: 'Technical', href: '/technical', permission: 'platform:technical:read' },
   { label: 'Audit', href: '/auditor', permission: 'platform:audit:read' },
   { label: 'Settings', href: '/settings', permission: 'platform:payments:read' },
+  { label: 'Platform Admins', href: '/platform-admin', permission: 'platform:admin:manage' },
 ];
 
 export function isPlatformNavItemActive(pathname: string, href: string): boolean {
