@@ -13,6 +13,7 @@ const ALLOWED = [
   /^platform\/audit\/(me|overview|organizations|audit)$/,
   /^platform\/admin\/(me|roles|users)$/,
   /^platform\/admin\/roles\/[0-9a-f-]+\/revoke$/i,
+  /^platform\/payments\/(me|providers)$/,
   /^platform\/payments\/providers\/(MTN_MOMO|AIRTEL_MONEY)\/environments\/(SANDBOX|PRODUCTION)(\/activation)?$/i,
 ];
 
