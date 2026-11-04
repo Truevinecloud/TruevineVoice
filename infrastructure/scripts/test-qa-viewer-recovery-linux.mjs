@@ -3,11 +3,11 @@ import { spawn } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+
 import { createDatabaseClient } from '@truevine/database';
 import { generateToken, hashToken, PASSWORD_RESET_TTL_MS } from '@truevine/auth';
 import { verifyPassword } from '@truevine/auth/passwords';
-import { recoverQaViewer } from './recover-qa-viewer.mjs';
+
 
 const root = resolve(import.meta.dirname, '../..');
 class RehearsalAssertion extends Error {}
@@ -58,7 +58,6 @@ try {
   const beforeCounts = [await database.user.count(), await database.organization.count()];
   const oldRaw = generateToken();
   const old = await database.passwordResetToken.create({ data: { userId, tokenHash: hashToken(oldRaw), expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS) } });
-  const options = { directory, baseUrl: env.WEB_PUBLIC_URL };
   const args = ['infrastructure/scripts/recover-qa-viewer.mjs', '--confirm-production', '--activation-directory', directory];
   const refused = await run([args[0], '--activation-directory', directory], env);
   check(refused.code !== 0 && (await database.passwordResetToken.count()) === 1, 'Confirmation must refuse before mutation.');
@@ -116,7 +115,7 @@ try {
   check(Boolean(raw), 'Active delivery file found without exposing token.');
   const password = randomBytes(32).toString('base64url');
   const oldRaw2 = generateToken();
-  const oldToken = await database.passwordResetToken.create({ data: { userId, tokenHash: hashToken(oldRaw2), expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS) } });
+  await database.passwordResetToken.create({ data: { userId, tokenHash: hashToken(oldRaw2), expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS) } });
   await auth.completePasswordReset(raw, password);
   check(await verifyPassword((await database.user.findUnique({ where: { id: userId } })).passwordHash, password), 'Custodian-selected password is consumed by existing flow.');
   check((await database.session.findUnique({ where: { id: (await database.session.create({ data: { userId, tokenHash: hashToken(generateToken()), expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS) } })).id } })).revokedAt !== null, 'Completion revokes previous sessions.');

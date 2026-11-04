@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { hashToken, PASSWORD_RESET_TTL_MS } from '@truevine/auth';
-import { createDatabaseClient } from '@truevine/database';
 
 const fs = vi.hoisted(() => ({
   openSync: vi.fn().mockReturnValue(42), closeSync: vi.fn(), fsyncSync: vi.fn(),
