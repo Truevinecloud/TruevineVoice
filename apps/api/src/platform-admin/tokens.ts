@@ -1,0 +1,1 @@
+export const PLATFORM_ADMIN_STORE = Symbol('PLATFORM_ADMIN_STORE');

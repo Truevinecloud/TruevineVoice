@@ -131,6 +131,10 @@ export const AUDIT_ACTIONS = [
   'platform.payment_provider.activated',
   'platform.payment_provider.deactivated',
 
+  'platform.admin.roles_viewed',
+  'platform.admin.role_granted',
+  'platform.admin.role_revoked',
+
   // Authorization denials. A trail of successes alone cannot answer "was this an
   // attack?", so refusals are recorded too.
   'authorization.denied',
