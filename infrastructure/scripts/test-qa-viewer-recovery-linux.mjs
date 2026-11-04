@@ -1,0 +1,144 @@
+import { randomUUID, randomBytes } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { createDatabaseClient } from '@truevine/database';
+import { generateToken, hashToken, PASSWORD_RESET_TTL_MS } from '@truevine/auth';
+import { verifyPassword } from '@truevine/auth/passwords';
+import { recoverQaViewer } from './recover-qa-viewer.mjs';
+
+const root = resolve(import.meta.dirname, '../..');
+class RehearsalAssertion extends Error {}
+const check = (condition, label) => { if (!condition) throw new RehearsalAssertion(label); };
+const pass = (label) => process.stdout.write(`PASS QA Viewer recovery: ${label}\n`);
+function start(args, env) {
+  const child = spawn(process.execPath, args, { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '';
+  child.stdout.on('data', (data) => { output += data; });
+  child.stderr.on('data', (data) => { output += data; });
+  const done = new Promise((resolveResult) => {
+    child.on('error', () => resolveResult({ code: 1, output }));
+    child.on('close', (code) => resolveResult({ code, output }));
+  });
+  return { done, child };
+}
+async function run(args, env) { return start(args, env).done; }
+
+let admin, database, directory, created = false;
+const name = `qa_viewer_recovery_${randomUUID().replaceAll('-', '')}`;
+try {
+  check(process.platform === 'linux' && process.env.NODE_ENV === 'test' &&
+    process.env.QA_VIEWER_RECOVERY_DISPOSABLE === '1' && process.env.npm_execpath,
+  'Linux rehearsal requires explicit disposable test environment and root npm command.');
+  const configured = new URL(process.env.DATABASE_URL);
+  check(['localhost', '127.0.0.1'].includes(configured.hostname) && configured.port === '55432' &&
+    configured.pathname === '/truevine_voice', 'Rehearsal requires the runner-local Compose database.');
+  admin = createDatabaseClient(configured.toString(), { log: [] });
+  await admin.$executeRawUnsafe(`CREATE DATABASE "${name}"`);
+  created = true;
+  const target = new URL(configured);
+  target.pathname = `/${name}`;
+  target.search = '';
+  const env = { ...process.env, DATABASE_URL: target.toString(), WEB_PUBLIC_URL: 'https://qa.example.invalid' };
+  const migration = await run([process.env.npm_execpath, 'run', 'prisma:migrate:deploy'], env);
+  check(migration.code === 0, 'Disposable migration failed (diagnostics withheld).');
+  database = createDatabaseClient(target.toString(), { log: [] });
+  directory = mkdtempSync(join(tmpdir(), 'qa-viewer-recovery-'));
+  chmodSync(directory, 0o700);
+  const userId = randomUUID(), organizationId = randomUUID();
+  await database.$transaction(async (tx) => {
+    await tx.user.create({ data: { id: userId, email: 'qa-viewer@truevoice.com', passwordHash: 'unusable-disposable-fixture' } });
+    await tx.organization.create({ data: { id: organizationId, slug: 'truevoice-testing', name: 'Disposable recovery test' } });
+    await tx.membership.create({ data: { organizationId, userId, role: 'VIEWER' } });
+  });
+  const beforeUser = await database.user.findUnique({ where: { id: userId } });
+  const beforeMembers = JSON.stringify(await database.membership.findMany({ where: { organizationId } }));
+  const beforeCounts = [await database.user.count(), await database.organization.count()];
+  const oldRaw = generateToken();
+  const old = await database.passwordResetToken.create({ data: { userId, tokenHash: hashToken(oldRaw), expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS) } });
+  const options = { directory, baseUrl: env.WEB_PUBLIC_URL };
+  const args = ['infrastructure/scripts/recover-qa-viewer.mjs', '--confirm-production', '--activation-directory', directory];
+  const refused = await run([args[0], '--activation-directory', directory], env);
+  check(refused.code !== 0 && (await database.passwordResetToken.count()) === 1, 'Confirmation must refuse before mutation.');
+  const begin = Date.now();
+  const success = await run(args, env);
+  check(success.code === 0, 'Real Node CLI must succeed.');
+  const file = join(directory, readdirSync(directory)[0]);
+  const token = new URL(readFileSync(file, 'utf8').split('\n')[0]).searchParams.get('token');
+  check(Boolean(token) && !success.output.includes(token) && !success.output.includes('/set-password?'), 'CLI must not emit activation credential.');
+  check((statSync(file).mode & 0o777) === 0o600 && statSync(file).uid === process.getuid() &&
+    (statSync(directory).mode & 0o777) === 0o700, 'Real file and directory permissions.');
+  const issued = await database.passwordResetToken.findUnique({ where: { tokenHash: hashToken(token) } });
+  check(issued && issued.expiresAt.getTime() >= begin + PASSWORD_RESET_TTL_MS &&
+    issued.expiresAt.getTime() <= Date.now() + PASSWORD_RESET_TTL_MS, 'Shared digest and expiry.');
+  check((await database.passwordResetToken.findUnique({ where: { id: old.id } })).expiresAt.getTime() === 0, 'Prior token revoked.');
+  check(JSON.stringify(beforeUser) === JSON.stringify(await database.user.findUnique({ where: { id: userId } })) &&
+    beforeMembers === JSON.stringify(await database.membership.findMany({ where: { organizationId } })) &&
+    beforeCounts[0] === await database.user.count() && beforeCounts[1] === await database.organization.count(),
+  'No password, identity, organization or role mutation.');
+  const audit = await database.identityAuditEvent.findFirst({ where: { action: 'auth.password_reset_requested' } });
+  check(audit?.actorUserId === userId && audit.metadata?.source === 'operator_qa_viewer_recovery' && audit.metadata.targetUserId === userId &&
+    audit.metadata.actorKind === 'local_operator' && audit.metadata.actorAuthentication === 'operating_system' &&
+    audit.metadata.operatorUid === process.getuid() &&
+    !JSON.stringify(audit).includes(token), 'Safe recovery audit committed.');
+  pass('plain Node CLI, 0700/0600, prior-token revocation, audit and unchanged identities/roles');
+
+  const snapshot = async () => JSON.stringify(await database.passwordResetToken.findMany({ orderBy: { id: 'asc' } }));
+  const baseline = await snapshot();
+  const filesBefore = readdirSync(directory).length;
+  await database.$executeRawUnsafe("CREATE FUNCTION qa_viewer_recovery_fail_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'disposable recovery commit failure'; END $$");
+  await database.$executeRawUnsafe("CREATE CONSTRAINT TRIGGER qa_viewer_recovery_fail_commit AFTER INSERT ON identity_audit_events DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION qa_viewer_recovery_fail_commit()");
+  const failed = await run(args, env);
+  check(failed.code !== 0 && await snapshot() === baseline && readdirSync(directory).length === filesBefore, 'Commit failure rolls back token revocation/issuance and removes created file.');
+  check(!failed.output.includes(target.toString()) && !failed.output.includes('/set-password?'), 'Failure diagnostics stay private.');
+  await database.$executeRawUnsafe('DROP TRIGGER qa_viewer_recovery_fail_commit ON identity_audit_events');
+  await database.$executeRawUnsafe('DROP FUNCTION qa_viewer_recovery_fail_commit()');
+  const link = join(directory, 'symlink');
+  symlinkSync(directory, link);
+  check((await run([args[0], '--confirm-production', '--activation-directory', link], env)).code !== 0, 'Symlink directory refused.');
+  chmodSync(directory, 0o750);
+  check((await run(args, env)).code !== 0, 'Group-accessible directory refused.');
+  chmodSync(directory, 0o700);
+  check((await run(args, env)).code === 0, 'Retry succeeds after failure correction.');
+  pass('deferred commit rollback/file cleanup, unsafe-directory refusal and retry');
+
+  await import('reflect-metadata');
+  const { AuthService } = await import('../../apps/api/dist/auth/auth.service.js');
+  const { PrismaAuthStore, PrismaAuditStore, PrismaSecurityTransaction } = await import('../../apps/api/dist/auth/prisma-stores.js');
+  const auth = new AuthService(new PrismaAuthStore(database), new PrismaAuditStore(database),
+    { consume: async () => ({ allowed: true }) }, { send: async () => { throw new Error('Email must not be used.') } },
+    env.WEB_PUBLIC_URL, 5, 60000, 60000, new PrismaSecurityTransaction(database));
+  const active = await database.passwordResetToken.findFirst({ where: { userId, usedAt: null, expiresAt: { gt: new Date() } } });
+  const raw = readdirSync(directory).filter((name) => name.endsWith('.txt')).map((name) =>
+    new URL(readFileSync(join(directory, name), 'utf8').split('\n')[0]).searchParams.get('token')).find((value) => hashToken(value) === active.tokenHash);
+  check(Boolean(raw), 'Active delivery file found without exposing token.');
+  const password = randomBytes(32).toString('base64url');
+  const oldRaw2 = generateToken();
+  const oldToken = await database.passwordResetToken.create({ data: { userId, tokenHash: hashToken(oldRaw2), expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS) } });
+  await auth.completePasswordReset(raw, password);
+  check(await verifyPassword((await database.user.findUnique({ where: { id: userId } })).passwordHash, password), 'Custodian-selected password is consumed by existing flow.');
+  check((await database.session.findUnique({ where: { id: (await database.session.create({ data: { userId, tokenHash: hashToken(generateToken()), expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS) } })).id } })).revokedAt !== null, 'Completion revokes previous sessions.');
+  let replayRefused = false;
+  try { await auth.completePasswordReset(raw, randomBytes(32).toString('base64url')); } catch { replayRefused = true; }
+  check(replayRefused, 'Consumption is single-use.');
+  pass('existing reset consumption, custodian-selected password and replay refusal without email');
+} catch (error) {
+  process.stderr.write('FAIL QA Viewer recovery Linux rehearsal; credential-bearing diagnostics withheld.\n');
+  if (error instanceof RehearsalAssertion) process.stderr.write(`${error.message}\n`);
+  process.exitCode = 1;
+} finally {
+  try {
+    await database?.$disconnect();
+    if (created) {
+      check(/^qa_viewer_recovery_[a-f0-9]{32}$/.test(name), 'Refusing unowned database cleanup.');
+      await admin.$executeRawUnsafe(`DROP DATABASE "${name}"`);
+    }
+    if (directory) { chmodSync(directory, 0o700); rmSync(directory, { recursive: true }); }
+    await admin?.$disconnect();
+  } catch {
+    process.stderr.write('FAIL QA Viewer recovery rehearsal cleanup; operator review required.\n');
+    process.exitCode = 1;
+  }
+}
