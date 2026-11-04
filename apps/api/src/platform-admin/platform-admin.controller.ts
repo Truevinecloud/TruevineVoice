@@ -35,6 +35,7 @@ export class PlatformAdminController {
   searchUsers(@Query('query') query: string | undefined, @CurrentPrincipal() principal: Principal) {
     return this.admin.searchUsers(principal.userId, query);
   }
+  @Get('roles')
   @UseGuards(SessionGuard, PlatformGuard)
   @RequirePlatformPermission('platform:admin:manage')
   listRoles(@CurrentPrincipal() principal: Principal) {
