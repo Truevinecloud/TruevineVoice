@@ -1,0 +1,25 @@
+[Unit]
+Description=Truevine Voice nightly encrypted PostgreSQL backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=truevine-backup
+Group=truevine-backup
+EnvironmentFile=/etc/truevine/backup.env
+ExecStart=/usr/bin/flock -n /run/lock/truevine-backup.lock /usr/bin/bash /opt/truevine-qa/infrastructure/backup/backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/truevine-backup /run/lock
+StandardOutput=journal
+StandardError=journal
+# A failure leaves a non-zero exit code and status file for monitoring.
+ExecStopPost=/usr/bin/bash -c 'test "${EXIT_STATUS:-0}" -eq 0 || logger -t truevine-backup "backup failed with status ${EXIT_STATUS}"'
+
+[Install]
+WantedBy=multi-user.target

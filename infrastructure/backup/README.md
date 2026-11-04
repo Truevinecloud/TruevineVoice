@@ -130,7 +130,25 @@ which is deleted on exit. That path is for debugging a live run, not monitoring.
 
 ---
 
-## The restore command
+## Activation — not done
+
+1. Create the `truevine-backup` system user and `/var/lib/truevine-backup`.
+2. Install the age key at `/etc/truevine/backup.key` with mode `0600`.
+3. Create `/etc/truevine/backup.env` from `backup.env.example` with mode `0640`.
+4. Install scripts under `/opt/truevine-qa/infrastructure/backup` with mode `0750` and root:backup ownership.
+5. Install the systemd units and enable the timer.
+6. Run one manual backup and inspect the status file.
+7. Run `restore.sh --latest` in verify-only mode.
+8. Configure backup freshness monitoring using `monitor-backup.sh`.
+
+## Permission requirements
+
+- Scripts: `0750`, owner `root`, group `truevine-backup`.
+- Environment file: `0640`, owner `root`, group `truevine-backup`.
+- Age key: `0600`, owner `root`.
+- Backup staging directory: `0700`, owner `truevine-backup`.
+- No backup file or status file may be world-readable.
+
 
 This is the documented, tested procedure.
 
