@@ -6,7 +6,6 @@ vi.mock('next/navigation', () => ({
 }));
 
 import AdminHomePage from './page';
-import { ADMIN_APP_INFO } from '../lib/app-info';
 
 describe('Operations Admin page', () => {
   it('renders the operations console', () => {
