@@ -16,6 +16,7 @@ const store: AudioStore = {
 const objects: AudioObjectStore = {
   putObject: vi.fn(),
   deleteObject: vi.fn(),
+  getObject: vi.fn(),
   createPlaybackUrl: vi.fn(),
 };
 const tts: TextToSpeechProvider = {

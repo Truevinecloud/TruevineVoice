@@ -106,6 +106,7 @@ export class AudioController {
     response.setHeader('Cache-Control', 'private, no-store');
     response.send(Buffer.from(result.body));
   }
+  @Post(':assetId/playback-link')
   @UseGuards(...Protected)
   @RequireAcceptedTerms()
   @RequireOrganizationPermission('audio:read')

@@ -725,6 +725,7 @@ describe('RBAC-003 contacts and audio permission declarations', () => {
         recording: 'audio:create',
         synthesize: 'audio:create',
         playback: 'audio:read',
+        content: 'audio:read',
       },
     ],
   ] as const;
