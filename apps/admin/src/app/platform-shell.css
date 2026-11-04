@@ -107,6 +107,8 @@
 .platform-main {
   flex: 1 1 auto;
   min-width: 0;
+  max-width: none;
+  width: 100%;
   padding: clamp(1rem, 3vw, 2rem);
 }
 
