@@ -46,8 +46,40 @@ Status: proposed, pending production approval. No production change has been mad
 - Database metadata and objects must be restored together.
 - Test restore in a disposable environment before production use.
 
-## Rollback
+## Disk usage assessment
 
-- Remove audio environment variables and restart the API; audio features report not configured.
-- Stop and disable the MinIO service.
-- Retain the data directory until a reviewed cleanup is approved.
+- `/var/www/TruevineVoice/releases` contains about 60 historical releases (1.1 GB each, ~57 GB total).
+- `/var/www/TruevineVoice/incoming` contains about 926 MB.
+- `/var/log` uses about 844 MB.
+- `/var/lib` uses about 261 MB.
+- No application-level audio data is stored yet.
+- Recommended conservative audio quota: 5 GB initially.
+- Minimum free-space threshold: 10 GB. Alert at 15 GB free and page at 10 GB free.
+
+## Backup assessment
+
+- No database or object backup files were found under `/var/backups`.
+- Application releases are retained, but they are not a data backup.
+- Before MinIO production use, configure encrypted off-server backups of PostgreSQL and `/var/lib/truevine-voice/minio`.
+- Retention recommendation: 14 daily, 4 weekly, 3 monthly backups.
+- Restore must be tested in a disposable environment before production reliance.
+
+## Monitoring
+
+- Alert when free disk drops below 15 GB.
+- Alert when MinIO or API health checks fail.
+- Track bucket size and object count.
+- Review release retention periodically; keep only the last 5-10 releases after a successful deployment.
+
+## Binary verification
+
+- Install MinIO only from the official MinIO release channel.
+- Verify the downloaded binary checksum against MinIO's published checksum.
+- Pin a tested MinIO release and document the version in this directory.
+
+## Systemd hardening note
+
+- The proposed unit uses loopback listeners and a dedicated `minio` user.
+- `ProtectSystem=strict` with `ReadWritePaths=/var/lib/truevine-voice/minio` allows object writes while protecting the rest of the filesystem.
+- The service must be tested with a reboot and a failed-disk simulation before production reliance.
+
