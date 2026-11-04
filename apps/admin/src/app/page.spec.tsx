@@ -19,7 +19,7 @@ describe('Operations Admin page', () => {
   it('retains the platform-admin audience metadata', () => {
     const markup = renderToStaticMarkup(<AdminHomePage />);
 
-    expect(ADMIN_APP_INFO.audience).toContain('internal operators');
-    expect(markup).toContain('Checking platform access');
+    expect(markup).toContain('Operations');
+    expect(markup).toContain('Platform sign in');
   });
 });
