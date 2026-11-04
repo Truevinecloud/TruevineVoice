@@ -6,11 +6,13 @@ import {
   Inject,
   Param,
   Post,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { invalidAudio } from '@truevine/auth';
 
 import { CsrfGuard } from '../auth/csrf.guard.js';
@@ -89,7 +91,21 @@ export class AudioController {
     });
   }
 
-  @Post(':assetId/playback-link')
+  @Get(':assetId/content')
+  @UseGuards(...Protected)
+  @RequireAcceptedTerms()
+  @RequireOrganizationPermission('audio:read')
+  async content(
+    @CurrentOrganization() org: { organizationId: string },
+    @CurrentPrincipal() principal: { userId: string },
+    @Param('assetId') assetId: string,
+    @Res() response: Response,
+  ): Promise<void> {
+    const result = await this.audio.playbackContent(org.organizationId, principal.userId, assetId);
+    response.setHeader('Content-Type', result.contentType);
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.send(Buffer.from(result.body));
+  }
   @UseGuards(...Protected)
   @RequireAcceptedTerms()
   @RequireOrganizationPermission('audio:read')

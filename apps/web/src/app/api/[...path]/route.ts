@@ -75,6 +75,7 @@ const ALLOWED_ROUTES: ReadonlyArray<{ readonly method: string; readonly pattern:
   { method: 'POST', pattern: /^\/organizations\/[^/]+\/audio-assets\/recordings$/ },
   { method: 'POST', pattern: /^\/organizations\/[^/]+\/audio-assets\/tts$/ },
   { method: 'POST', pattern: /^\/organizations\/[^/]+\/audio-assets\/[^/]+\/playback-link$/ },
+  { method: 'GET', pattern: /^\/organizations\/[^/]+\/audio-assets\/[^/]+\/content$/ },
   { method: 'GET', pattern: /^\/organizations\/[^/]+\/campaigns$/ },
   { method: 'POST', pattern: /^\/organizations\/[^/]+\/campaigns$/ },
   { method: 'GET', pattern: /^\/organizations\/[^/]+\/campaigns\/[^/]+$/ },
