@@ -37,6 +37,25 @@ export class PlatformAdminService {
     }));
   }
 
+  async searchUsers(actorUserId: string, rawQuery: unknown) {
+    if (typeof rawQuery !== 'string') invalid('invalid_query', 'A search query is required.');
+    const query = rawQuery.trim();
+    if (query.length < 3 || query.length > 200) {
+      invalid('invalid_query', 'Enter between 3 and 200 characters to search users.');
+    }
+    if (/[\\%_]/.test(query)) {
+      invalid('invalid_query', 'Wildcards are not supported.');
+    }
+    const users = await this.store.searchEligibleUsers(query);
+    await this.recordIdentity(actorUserId, 'platform.admin.users_searched', { count: users.length });
+    return users.map((user) => ({
+      id: user.id,
+      email: user.email,
+      status: user.status,
+      platformRole: user.platformRole,
+    }));
+  }
+
   async grantRole(actorUserId: string, rawUserId: unknown, rawRole: unknown) {
     if (typeof rawUserId !== 'string' || !UUID.test(rawUserId)) {
       invalid('invalid_user_id', 'A valid user id is required.');
@@ -88,7 +107,7 @@ export class PlatformAdminService {
 
   private async recordIdentity(
     actorUserId: string,
-    action: 'platform.admin.roles_viewed' | 'platform.admin.role_granted' | 'platform.admin.role_revoked',
+    action: 'platform.admin.roles_viewed' | 'platform.admin.role_granted' | 'platform.admin.role_revoked' | 'platform.admin.users_searched',
     metadata: Readonly<Record<string, unknown>>,
   ): Promise<void> {
     assertKnownAuditAction(action);

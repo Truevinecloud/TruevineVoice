@@ -7,6 +7,7 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 
@@ -28,7 +29,12 @@ export class PlatformAdminController {
     return this.admin.operatorContext(principal.platformRole);
   }
 
-  @Get('roles')
+  @Get('users')
+  @UseGuards(SessionGuard, PlatformGuard)
+  @RequirePlatformPermission('platform:admin:manage')
+  searchUsers(@Query('query') query: string | undefined, @CurrentPrincipal() principal: Principal) {
+    return this.admin.searchUsers(principal.userId, query);
+  }
   @UseGuards(SessionGuard, PlatformGuard)
   @RequirePlatformPermission('platform:admin:manage')
   listRoles(@CurrentPrincipal() principal: Principal) {
