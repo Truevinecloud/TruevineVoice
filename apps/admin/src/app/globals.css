@@ -45,7 +45,9 @@ main {
 .topbar { margin-bottom: 1.5rem; }
 .eyebrow, .health-card > span { color: var(--muted-fg); font-size: .75rem; font-weight: 700; letter-spacing: .08em; }
 .notice { border: 1px solid var(--card-border); border-radius: .6rem; padding: .8rem 1rem; }
-.health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .8rem; margin: 1rem 0; }
+.health-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
+@media (max-width: 1100px) { .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .health-grid { grid-template-columns: 1fr; } }
 .health-card { display: grid; gap: .35rem; min-height: 6rem; padding: 1rem; border: 1px solid var(--card-border); border-radius: .75rem; background: var(--card-bg); }
 .health-card strong { font-size: 1.2rem; text-transform: uppercase; }
 .health-card small, td small { display: block; color: var(--muted-fg); font-size: .8rem; }
