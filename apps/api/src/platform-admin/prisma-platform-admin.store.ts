@@ -34,6 +34,25 @@ export class PrismaPlatformAdminStore implements PlatformAdminStore {
     return { id: user.id, email: user.email, status: user.status as 'ACTIVE' | 'SUSPENDED' };
   }
 
+  async searchEligibleUsers(query: string) {
+    const rows = await this.prisma.user.findMany({
+      where: {
+        status: 'ACTIVE',
+        email: { contains: query, mode: 'insensitive' },
+        platformRoleAssignment: null,
+      },
+      select: { id: true, email: true, status: true },
+      orderBy: { email: 'asc' },
+      take: 20,
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      status: row.status as 'ACTIVE' | 'SUSPENDED',
+      platformRole: null,
+    }));
+  }
+
   async grantRole(input: {
     readonly userId: string;
     readonly role: PlatformRole;

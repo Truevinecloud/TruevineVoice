@@ -11,7 +11,7 @@ const ALLOWED = [
   /^platform\/support\/users\/[0-9a-f-]+(\/audit)?$/i,
   /^platform\/technical\/(me|overview|providers|queues|logs|audit)$/,
   /^platform\/audit\/(me|overview|organizations|audit)$/,
-  /^platform\/admin\/(me|roles)$/,
+  /^platform\/admin\/(me|roles|users)$/,
   /^platform\/admin\/roles\/[0-9a-f-]+\/revoke$/i,
   /^platform\/payments\/providers\/(MTN_MOMO|AIRTEL_MONEY)\/environments\/(SANDBOX|PRODUCTION)(\/activation)?$/i,
 ];

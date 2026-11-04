@@ -17,6 +17,7 @@ function service(storeOverrides: Partial<PlatformAdminStore> = {}) {
   const store: PlatformAdminStore = {
     listAssignments: vi.fn(async () => [assignment]),
     findUser: vi.fn(async () => ({ id: '11111111-2222-4333-8444-555555555555', email: 'target@example.invalid', status: 'ACTIVE' as const })),
+    searchEligibleUsers: vi.fn(async () => []),
     grantRole: vi.fn(async () => ({ ...assignment, userId: '11111111-2222-4333-8444-555555555555', email: 'target@example.invalid', role: 'AUDITOR' as const })),
     revokeRole: vi.fn(async () => 'revoked' as const),
     countActiveOwners: vi.fn(async () => 1),
