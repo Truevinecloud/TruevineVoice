@@ -150,3 +150,24 @@ h1 {
   padding: 0.15rem 0.7rem;
   text-transform: uppercase;
 }
+
+.platform-admin-shell { max-width: 78rem; margin: 0 auto; padding: 3rem 1.5rem; }
+.platform-admin-shell h1 { font-size: 2rem; }
+.platform-admin-shell .subtitle { font-size: 1rem; max-width: 60rem; }
+.platform-admin-table { table-layout: fixed; width: 100%; }
+.platform-admin-table th, .platform-admin-table td { padding: .85rem .75rem; font-size: .92rem; vertical-align: top; }
+.platform-admin-table th:nth-child(1), .platform-admin-table td:nth-child(1) { width: 34%; }
+.platform-admin-table th:nth-child(2), .platform-admin-table td:nth-child(2) { width: 18%; }
+.platform-admin-table th:nth-child(3), .platform-admin-table td:nth-child(3) { width: 14%; }
+.platform-admin-table th:nth-child(4), .platform-admin-table td:nth-child(4) { width: 22%; }
+.platform-admin-table th:nth-child(5), .platform-admin-table td:nth-child(5) { width: 12%; }
+.platform-admin-table td { overflow-wrap: anywhere; }
+.platform-admin-table .email-cell { font-size: .95rem; font-weight: 600; }
+.platform-admin-table small { font-size: .78rem; }
+@media (max-width: 900px) {
+  .platform-admin-table { table-layout: auto; }
+  .platform-admin-table thead { display: none; }
+  .platform-admin-table tr { display: block; margin-bottom: 1rem; border: 1px solid var(--card-border); border-radius: .6rem; padding: .75rem; }
+  .platform-admin-table td { display: block; border: 0; padding: .35rem 0; }
+  .platform-admin-table td::before { content: attr(data-label); display: block; color: var(--muted-fg); font-size: .72rem; text-transform: uppercase; }
+}

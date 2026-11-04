@@ -83,8 +83,9 @@ export default function PlatformAdminPage() {
     try {
       const rows = await api<UserOption[]>(`/platform/admin/users?query=${encodeURIComponent(value.trim())}`);
       setResults(rows);
-    } catch {
-      setError('User search failed.');
+    } catch (caught) {
+      const status = caught instanceof ApiError ? caught.status : 0;
+      setError(status ? `User search failed (${status}).` : 'User search failed.');
       setResults([]);
     } finally {
       setSearching(false);
@@ -135,7 +136,7 @@ export default function PlatformAdminPage() {
   }
 
   return (
-    <main className="operations-shell">
+    <main className="operations-shell platform-admin-shell">
       <header className="topbar">
         <div>
           <span className="eyebrow">TRUEVINE VOICE · PLATFORM ADMINISTRATION</span>
@@ -217,7 +218,7 @@ export default function PlatformAdminPage() {
               <p>No platform role assignments.</p>
             ) : (
               <div className="table-wrap">
-                <table>
+                <table className="platform-admin-table">
                   <thead>
                     <tr>
                       <th>User</th>
@@ -230,22 +231,22 @@ export default function PlatformAdminPage() {
                   <tbody>
                     {assignments.map((assignment) => (
                       <tr key={assignment.userId}>
-                        <td>
-                          <strong>{assignment.email}</strong>
+                        <td data-label="User" className="email-cell">
+                          {assignment.email}
                           <small>{assignment.userId}</small>
                         </td>
-                        <td>{PLATFORM_ROLES.find((item) => item.value === assignment.role)?.label ?? assignment.role}</td>
-                        <td>
+                        <td data-label="Role">{PLATFORM_ROLES.find((item) => item.value === assignment.role)?.label ?? assignment.role}</td>
+                        <td data-label="Status">
                           <span className={`status ${assignment.revokedAt ? 'status-suspended' : 'status-active'}`}>
                             {assignment.revokedAt ? 'Revoked' : 'Active'}
                           </span>
                           <small>{assignment.status}</small>
                         </td>
-                        <td>
+                        <td data-label="Assignment">
                           <small>Granted {formatDate(assignment.grantedAt)}</small>
                           {assignment.revokedAt && <small>Revoked {formatDate(assignment.revokedAt)}</small>}
                         </td>
-                        <td>
+                        <td data-label="Actions">
                           {assignment.revokedAt === null && (
                             <button
                               type="button"

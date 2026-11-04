@@ -39,7 +39,7 @@ export class PrismaPlatformAdminStore implements PlatformAdminStore {
       where: {
         status: 'ACTIVE',
         email: { contains: query, mode: 'insensitive' },
-        platformRoleAssignment: null,
+        platformRoleAssignment: { is: null },
       },
       select: { id: true, email: true, status: true },
       orderBy: { email: 'asc' },
