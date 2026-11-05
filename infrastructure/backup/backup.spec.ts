@@ -197,8 +197,8 @@ describe('backup preconditions', () => {
 });
 
 describe('backup retention policy', () => {
-  it('keeps 7 daily, 4 weekly and 3 monthly backups', () => {
-    expect(common).toMatch(/KEEP_DAILY=7/);
+  it('keeps 14 daily, 4 weekly and 3 monthly backups', () => {
+    expect(common).toMatch(/KEEP_DAILY=14/);
     expect(common).toMatch(/KEEP_WEEKLY=4/);
     expect(common).toMatch(/KEEP_MONTHLY=3/);
   });

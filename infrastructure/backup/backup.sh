@@ -66,7 +66,9 @@ main() {
     docker|host) : ;;
     *) die "$EXIT_PRECONDITION" "BACKUP_PG_MODE must be 'docker' or 'host' (got '$PG_MODE')" ;;
   esac
-  # A single EXIT handler...
+  # A single EXIT handler: bash keeps only the last trap set for a signal, so
+  # staging cleanup and failure reporting have to live in one function.
+  trap on_exit EXIT
   log "store=$BACKUP_STORE recipient=$(redact "$BACKUP_RECIPIENT")"
 
   # ------------------------------------------------------------ 1. dump
