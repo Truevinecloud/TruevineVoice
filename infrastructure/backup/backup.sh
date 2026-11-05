@@ -26,7 +26,11 @@
 #   BACKUP_WORK_DIR       staging directory (a mktemp dir by default). A
 #                         directory created here is removed on exit; one you
 #                         supply yourself is left alone.
-#   BACKUP_PG_CONTAINER   container running PostgreSQL (default truevine-postgres)
+#   BACKUP_PG_MODE        postgres access mode: docker (default) or host
+#   BACKUP_PG_HOST        PostgreSQL host when BACKUP_PG_MODE=host
+#   BACKUP_PG_PORT        PostgreSQL port when BACKUP_PG_MODE=host
+#   BACKUP_PG_PASSWORD    PostgreSQL password when BACKUP_PG_MODE=host (secret)
+#   BACKUP_PG_CONTAINER   container running PostgreSQL (BACKUP_PG_MODE=docker)
 #   BACKUP_CONFIG_SOURCE   directory holding configuration to capture
 #   BACKUP_APP_ROOT        application root (default /var/www/TruevineVoice)
 #
@@ -47,14 +51,21 @@ main() {
   [ $# -eq 0 ] || usage
 
   APP_ROOT="${BACKUP_APP_ROOT:-/var/www/TruevineVoice}"
-  PG_CONTAINER="${BACKUP_PG_CONTAINER:-truevine-postgres}"
+  PG_MODE="${BACKUP_PG_MODE:-docker}"
+  PG_HOST="${BACKUP_PG_HOST:-127.0.0.1}"
+  PG_PORT="${BACKUP_PG_PORT:-5432}"
   PG_DB="${BACKUP_PG_DB:-truevine_voice}"
   PG_ROLE="${BACKUP_PG_ROLE:-truevine}"
+  PG_CONTAINER="${BACKUP_PG_CONTAINER:-truevine-postgres}"
   TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 
   umask 077
   log "backup run starting"
   validate_config
+  case "$PG_MODE" in
+    docker|host) : ;;
+    *) die "$EXIT_PRECONDITION" "BACKUP_PG_MODE must be 'docker' or 'host' (got '$PG_MODE')" ;;
+  esac
   # A single EXIT handler: bash keeps only the last trap set for a signal, so
   # staging cleanup and failure reporting have to live in one function.
   trap on_exit EXIT
@@ -62,12 +73,22 @@ main() {
 
   # ------------------------------------------------------------ 1. dump
   local dump="$BACKUP_WORK_DIR/$TIMESTAMP.dump"
-  log "creating pg_dump of $PG_DB in $PG_CONTAINER"
-  require_cmd docker
-  if ! docker exec "$PG_CONTAINER" \
-        pg_dump -U "$PG_ROLE" -d "$PG_DB" -Fc > "$dump"; then
-    rm -f "$dump"
-    die "$EXIT_DUMP" "pg_dump failed; no partial file left behind"
+  if [ "$PG_MODE" = "host" ]; then
+    log "creating pg_dump of $PG_DB on host $PG_HOST:$PG_PORT"
+    require_cmd pg_dump
+    if ! PGPASSWORD="${BACKUP_PG_PASSWORD:-}" pg_dump \
+          -h "$PG_HOST" -p "$PG_PORT" -U "$PG_ROLE" -d "$PG_DB" -Fc > "$dump"; then
+      rm -f "$dump"
+      die "$EXIT_DUMP" "pg_dump failed; no partial file left behind"
+    fi
+  else
+    log "creating pg_dump of $PG_DB in $PG_CONTAINER"
+    require_cmd docker
+    if ! docker exec "$PG_CONTAINER" \
+          pg_dump -U "$PG_ROLE" -d "$PG_DB" -Fc > "$dump"; then
+      rm -f "$dump"
+      die "$EXIT_DUMP" "pg_dump failed; no partial file left behind"
+    fi
   fi
   [ -s "$dump" ] || { rm -f "$dump"; die "$EXIT_DUMP" "pg_dump produced an empty file"; }
   # A custom-format archive always starts with this magic. Catching it here
@@ -102,7 +123,7 @@ main() {
 {
   "timestamp": "$TIMESTAMP",
   "database": "$PG_DB",
-  "container": "$PG_CONTAINER",
+  "source": "$([ "$PG_MODE" = "host" ] && printf 'host:%s:%s' "$PG_HOST" "$PG_PORT" || printf 'docker:%s' "$PG_CONTAINER")",
   "dump_bytes": $dump_size,
   "dump_sha256": "$dump_sha",
   "cipher_bytes": $cipher_size,

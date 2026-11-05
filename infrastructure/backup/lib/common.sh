@@ -26,7 +26,7 @@ readonly EXIT_UPLOAD=5
 readonly EXIT_VERIFY=6
 
 # Retention: 7 daily, 4 weekly, 3 monthly.
-readonly KEEP_DAILY=7
+readonly KEEP_DAILY=14
 readonly KEEP_WEEKLY=4
 readonly KEEP_MONTHLY=3
 
