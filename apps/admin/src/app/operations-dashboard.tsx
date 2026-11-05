@@ -56,6 +56,7 @@ export default function OperationsDashboard() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
+  const [lastUpdated, setLastUpdated] = useState('');
   const [busy, setBusy] = useState(false);
   const [orgSearch, setOrgSearch] = useState('');
   const [orgStatus, setOrgStatus] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED'>('ALL');
@@ -78,6 +79,7 @@ export default function OperationsDashboard() {
       setOrganizations(orgRows);
       setCampaigns(campaignRows);
       setHealth(healthReport);
+      setLastUpdated(new Date().toLocaleString());
       setMessage('');
     } catch (caught) {
       const status = (caught as Error & { status?: number }).status;
@@ -215,6 +217,36 @@ export default function OperationsDashboard() {
             <HealthCard label="PostgreSQL" value={health?.application.dependencies.postgres?.status ?? 'unknown'} />
             <HealthCard label="Redis" value={health?.application.dependencies.redis?.status ?? 'unknown'} />
             <HealthCard label="Voice provider" value={health?.voiceProvider.status ?? 'unknown'} detail="No provider integration is configured." />
+          </section>
+
+          <section className="card">
+            <div className="section-heading">
+              <h2>Operational summary</h2>
+              <span>Updated {lastUpdated || 'not yet loaded'}</span>
+            </div>
+            <div className="health-grid">
+              <div className="health-card">
+                <span>Organizations</span>
+                <strong>{organizations.length}</strong>
+              </div>
+              <div className="health-card">
+                <span>Campaigns</span>
+                <strong>{campaigns.length}</strong>
+              </div>
+              <div className="health-card">
+                <span>Active campaigns</span>
+                <strong>{campaigns.filter((campaign) => campaign.status === 'ACTIVE').length}</strong>
+              </div>
+              <div className="health-card">
+                <span>Emergency stopped</span>
+                <strong>{campaigns.filter((campaign) => campaign.emergencyStoppedAt).length}</strong>
+              </div>
+            </div>
+            {health && (health.application.status.toLowerCase() !== 'ok' || health.voiceProvider.status.toLowerCase() !== 'up') && (
+              <p className="notice form-error" role="alert">
+                One or more operational dependencies are degraded. Review provider and service status before taking action.
+              </p>
+            )}
           </section>
 
           <section className="card">
