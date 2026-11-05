@@ -342,3 +342,22 @@ describe('integrity verification is real', () => {
     expect(restore).toMatch(/--network none/);
   });
 });
+
+describe('host PostgreSQL mode', () => {
+  it('supports host mode while preserving Docker mode', () => {
+    expect(backup).toContain('BACKUP_PG_MODE:-docker');
+    expect(backup).toContain('PG_MODE="${BACKUP_PG_MODE:-docker}"');
+    expect(backup).toContain('pg_dump');
+    expect(backup).toContain('-Fc');
+  });
+
+  it('uses PGPASSWORD only for the host-mode dump command', () => {
+    expect(backup).toContain('PGPASSWORD="${BACKUP_PG_PASSWORD:-}" pg_dump');
+    expect(backup).not.toMatch(/echo.*BACKUP_PG_PASSWORD/);
+  });
+
+  it('retains exactly one EXIT trap', () => {
+    const traps = [...backup.matchAll(/trap\s+\S+\s+EXIT/g)];
+    expect(traps.length).toBe(1);
+  });
+});
