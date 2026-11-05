@@ -45,6 +45,39 @@ function statusClass(value: string) {
   return 'status-suspended';
 }
 
+export function filterOrganizations(
+  organizations: Organization[],
+  search: string,
+  status: 'ALL' | 'ACTIVE' | 'SUSPENDED',
+): Organization[] {
+  const normalizedSearch = search.trim().toLowerCase();
+  return organizations.filter((org) => {
+    const matchesSearch =
+      normalizedSearch === '' ||
+      org.name.toLowerCase().includes(normalizedSearch) ||
+      org.slug.toLowerCase().includes(normalizedSearch);
+    const matchesStatus = status === 'ALL' || org.status === status;
+    return matchesSearch && matchesStatus;
+  });
+}
+
+export function filterCampaigns(
+  campaigns: Campaign[],
+  search: string,
+  status: 'ALL' | Campaign['status'],
+): Campaign[] {
+  const normalizedSearch = search.trim().toLowerCase();
+  return campaigns.filter((campaign) => {
+    const matchesSearch =
+      normalizedSearch === '' ||
+      campaign.name.toLowerCase().includes(normalizedSearch) ||
+      campaign.organizationName.toLowerCase().includes(normalizedSearch) ||
+      campaign.organizationSlug.toLowerCase().includes(normalizedSearch);
+    const matchesStatus = status === 'ALL' || campaign.status === status;
+    return matchesSearch && matchesStatus;
+  });
+}
+
 export default function OperationsDashboard() {
   const router = useRouter();
   const [operator, setOperator] = useState<Operator | null>(null);
@@ -157,22 +190,8 @@ export default function OperationsDashboard() {
     }
   }
 
-  const filteredOrganizations = organizations.filter((org) => {
-    const matchesSearch =
-      org.name.toLowerCase().includes(orgSearch.toLowerCase()) ||
-      org.slug.toLowerCase().includes(orgSearch.toLowerCase());
-    const matchesStatus = orgStatus === 'ALL' || org.status === orgStatus;
-    return matchesSearch && matchesStatus;
-  });
-
-  const filteredCampaigns = campaigns.filter((campaign) => {
-    const matchesSearch =
-      campaign.name.toLowerCase().includes(campaignSearch.toLowerCase()) ||
-      campaign.organizationName.toLowerCase().includes(campaignSearch.toLowerCase()) ||
-      campaign.organizationSlug.toLowerCase().includes(campaignSearch.toLowerCase());
-    const matchesStatus = campaignStatus === 'ALL' || campaign.status === campaignStatus;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredOrganizations = filterOrganizations(organizations, orgSearch, orgStatus);
+  const filteredCampaigns = filterCampaigns(campaigns, campaignSearch, campaignStatus);
 
   const canStop =
     operator?.platformRole === 'OPERATIONS_ADMIN' || operator?.platformRole === 'PLATFORM_OWNER';
