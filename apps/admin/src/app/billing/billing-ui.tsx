@@ -99,9 +99,9 @@ export function BillingNav({ current }: { current: 'overview' | 'wallets' | 'pay
   return (
     <nav className="technical-nav" aria-label="Billing sections">
       {sections.map((section) => (
-        <a key={section.key} href={section.href} aria-current={current === section.key ? 'page' : undefined}>
+        <Link key={section.key} href={section.href} aria-current={current === section.key ? 'page' : undefined}>
           {section.label}
-        </a>
+        </Link>
       ))}
     </nav>
   );
