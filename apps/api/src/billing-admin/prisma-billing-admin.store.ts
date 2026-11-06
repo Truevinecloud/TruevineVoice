@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@truevine/database';
 
 import { DATABASE_CLIENT } from '../tokens.js';
@@ -196,5 +196,67 @@ export class PrismaBillingAdminStore implements BillingAdminStore {
       createdById: request.createdById,
       createdAt: request.createdAt,
     }));
+  }
+
+  async adjustWallet(input: {
+    organizationId: string;
+    actorUserId: string;
+    amountMinor: bigint;
+    currency: string;
+    reason: string;
+    idempotencyKey: string;
+  }): Promise<{
+    entry: {
+      id: string;
+      amountMinor: bigint;
+      currency: string;
+      reference: string;
+      description: string;
+      createdAt: Date;
+    };
+    created: boolean;
+  }> {
+    const reference = `billing-adjustment:${input.idempotencyKey}`;
+    const existing = await this.prisma.walletEntry.findUnique({
+      where: { organizationId_reference: { organizationId: input.organizationId, reference } },
+      select: {
+        id: true,
+        amountMinor: true,
+        currency: true,
+        reference: true,
+        description: true,
+        createdAt: true,
+      },
+    });
+    if (existing) {
+      if (existing.amountMinor !== input.amountMinor || existing.currency !== input.currency) {
+        throw new ConflictException({
+          error: { code: 'idempotency_conflict', message: 'This request identifier was already used for a different adjustment.' },
+        });
+      }
+      return {
+        entry: existing,
+        created: false,
+      };
+    }
+
+    const createdEntry = await this.prisma.walletEntry.create({
+      data: {
+        organizationId: input.organizationId,
+        amountMinor: input.amountMinor,
+        currency: input.currency,
+        reference,
+        description: input.reason,
+      },
+      select: {
+        id: true,
+        amountMinor: true,
+        currency: true,
+        reference: true,
+        description: true,
+        createdAt: true,
+      },
+    });
+    return { entry: createdEntry, created: true };
   }
 }

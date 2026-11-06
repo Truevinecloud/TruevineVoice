@@ -238,6 +238,74 @@ export class BillingAdminService {
     };
   }
 
+  async adjustWallet(
+    actorUserId: string,
+    rawOrganizationId: unknown,
+    rawBody: unknown,
+  ) {
+    const organizationId = this.requireUuid(rawOrganizationId, 'organization');
+    const organization = await this.store.findOrganization(organizationId);
+    if (!organization) throw new NotFoundException();
+
+    if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
+      invalid('invalid_request', 'Adjustment details are required.');
+    }
+    const body = rawBody as Record<string, unknown>;
+    const idempotencyKey = this.requireUuid(body.idempotencyKey, 'idempotency key');
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (reason.length < 3 || reason.length > 500) {
+      invalid('invalid_reason', 'Enter a reason between 3 and 500 characters.');
+    }
+    if (typeof body.currency !== 'string' || !/^[A-Z]{3}$/.test(body.currency)) {
+      invalid('invalid_currency', 'Currency must be a three-letter code.');
+    }
+    const currency = body.currency;
+    if (typeof body.amountMinor !== 'string' || !/^-?[1-9][0-9]{0,18}$/.test(body.amountMinor)) {
+      invalid('invalid_amount', 'Enter a nonzero whole amount as text.');
+    }
+    const amountMinor = BigInt(body.amountMinor);
+    if (amountMinor === 0n) invalid('invalid_amount', 'Adjustment amount cannot be zero.');
+
+    const result = await this.store.adjustWallet({
+      organizationId,
+      actorUserId,
+      amountMinor,
+      currency,
+      reason,
+      idempotencyKey,
+    });
+
+    await this.recordIdentity(actorUserId, 'platform.billing.wallet_adjusted', {
+      organizationId,
+      amountMinor: amountMinor.toString(),
+      currency,
+    });
+
+    // Also record org-scoped security audit event for financial action.
+    await this.audit.record({
+      organizationId,
+      actorUserId,
+      action: 'platform.billing.wallet_adjusted',
+      scope: 'PLATFORM',
+      outcome: 'SUCCESS',
+      targetType: 'wallet',
+      targetId: result.entry.id,
+      metadata: { amountMinor: amountMinor.toString(), currency, reason },
+    });
+
+    return {
+      entry: {
+        id: result.entry.id,
+        amountMinor: result.entry.amountMinor.toString(),
+        currency: result.entry.currency,
+        reference: result.entry.reference,
+        description: result.entry.description,
+        createdAt: result.entry.createdAt.toISOString(),
+      },
+      created: result.created,
+    };
+  }
+
   private toOrganizationView(organization: {
     id: string;
     name: string;
@@ -302,7 +370,8 @@ export class BillingAdminService {
       | 'platform.billing.transactions_viewed'
       | 'platform.billing.payments_viewed'
       | 'platform.billing.reconciliation_viewed'
-      | 'platform.billing.audit_viewed',
+      | 'platform.billing.audit_viewed'
+      | 'platform.billing.wallet_adjusted',
     metadata: Readonly<Record<string, unknown>> = {},
   ): Promise<void> {
     assertKnownAuditAction(action);

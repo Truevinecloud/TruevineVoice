@@ -1,5 +1,6 @@
-import { Controller, Get, Inject, Param, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Param, Post, Query, UseGuards } from '@nestjs/common';
 
+import { CsrfGuard } from '../auth/csrf.guard.js';
 import { PlatformGuard } from '../auth/organization.guard.js';
 import { CurrentPrincipal, RequirePlatformPermission } from '../auth/permission.decorators.js';
 import type { Principal } from '../auth/principal.js';
@@ -69,7 +70,15 @@ export class BillingAdminController {
   @Get('audit')
   @UseGuards(SessionGuard, PlatformGuard)
   @RequirePlatformPermission('platform:billing:read')
-  audit(@Query() query: Record<string, string | undefined>, @CurrentPrincipal() principal: Principal) {
-    return this.billing.auditTrail(principal.userId, query ?? {});
+  @Post('organizations/:organizationId/wallet/adjustments')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionGuard, PlatformGuard, CsrfGuard)
+  @RequirePlatformPermission('platform:billing:refund')
+  adjustWallet(
+    @Param('organizationId') organizationId: string,
+    @Body() body: unknown,
+    @CurrentPrincipal() principal: Principal,
+  ) {
+    return this.billing.adjustWallet(principal.userId, organizationId, body);
   }
 }
