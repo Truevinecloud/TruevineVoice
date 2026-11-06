@@ -42,6 +42,13 @@ export default function BillingAdminPage() {
   const [walletCursor, setWalletCursor] = useState<string | null>(null);
   const [walletOrganizationId, setWalletOrganizationId] = useState('');
   const [walletLoading, setWalletLoading] = useState(false);
+  const [adjustmentOrganizationId, setAdjustmentOrganizationId] = useState('');
+  const [adjustmentAmount, setAdjustmentAmount] = useState('');
+  const [adjustmentCurrency, setAdjustmentCurrency] = useState('UGX');
+  const [adjustmentReason, setAdjustmentReason] = useState('');
+  const [adjustmentBusy, setAdjustmentBusy] = useState(false);
+  const [adjustmentStatus, setAdjustmentStatus] = useState('');
+  const [adjustmentError, setAdjustmentError] = useState('');
   const [reconciliation, setReconciliation] = useState<ReconciliationView | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEventRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,6 +139,35 @@ export default function BillingAdminPage() {
       setSectionErrors((current) => ({ ...current, wallets: messageFor(caught, 'Wallet ledger unavailable.') }));
     } finally {
       setWalletLoading(false);
+    }
+  }
+
+  async function submitAdjustment(event: FormEvent) {
+    event.preventDefault();
+    if (!adjustmentOrganizationId) return;
+    setAdjustmentBusy(true);
+    setAdjustmentError('');
+    setAdjustmentStatus('');
+    try {
+      await api(`/platform/billing/organizations/${adjustmentOrganizationId}/wallet/adjustments`, {
+        method: 'POST',
+        body: JSON.stringify({
+          amountMinor: adjustmentAmount,
+          currency: adjustmentCurrency,
+          reason: adjustmentReason,
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      });
+      setAdjustmentStatus('Adjustment recorded.');
+      setAdjustmentAmount('');
+      setAdjustmentReason('');
+      if (adjustmentOrganizationId === walletOrganizationId) {
+        void loadWalletEntries(adjustmentOrganizationId);
+      }
+    } catch (caught) {
+      setAdjustmentError(messageFor(caught, 'Adjustment failed.'));
+    } finally {
+      setAdjustmentBusy(false);
     }
   }
 
@@ -241,7 +277,57 @@ export default function BillingAdminPage() {
                   </button>
                 )}
               </section>
-              <section className="card" id="payments">
+               <section className="card" id="wallet-adjustment">
+                 <div className="section-heading">
+                   <h2>Wallet adjustment</h2>
+                 </div>
+                 <form className="search-bar" onSubmit={(event) => void submitAdjustment(event)}>
+                   <label>
+                     Organization
+                     <select
+                       value={adjustmentOrganizationId}
+                       onChange={(event) => setAdjustmentOrganizationId(event.target.value)}
+                     >
+                       <option value="">Select an organization</option>
+                       {organizations.map((organization) => (
+                         <option key={organization.id} value={organization.id}>
+                           {organization.name}
+                         </option>
+                       ))}
+                     </select>
+                   </label>
+                   <label>
+                     Amount (minor units)
+                     <input
+                       value={adjustmentAmount}
+                       onChange={(event) => setAdjustmentAmount(event.target.value)}
+                       placeholder="-5000 or 5000"
+                     />
+                   </label>
+                   <label>
+                     Currency
+                     <input
+                       value={adjustmentCurrency}
+                       onChange={(event) => setAdjustmentCurrency(event.target.value.toUpperCase())}
+                       maxLength={3}
+                     />
+                   </label>
+                   <label>
+                     Reason
+                     <input
+                       value={adjustmentReason}
+                       onChange={(event) => setAdjustmentReason(event.target.value)}
+                       placeholder="Required audit reason"
+                     />
+                   </label>
+                   <button disabled={adjustmentBusy || !adjustmentOrganizationId} type="submit">
+                     {adjustmentBusy ? 'Recording…' : 'Record adjustment'}
+                   </button>
+                 </form>
+                 {adjustmentError && <p className="notice form-error" role="alert">{adjustmentError}</p>}
+                 {adjustmentStatus && <p className="notice" role="status">{adjustmentStatus}</p>}
+               </section>
+               <section className="card" id="payments">
                 <div className="section-heading">
                   <h2>Payments and top-up requests</h2>
                   <span>{payments.length} shown</span>
