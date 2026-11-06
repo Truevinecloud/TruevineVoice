@@ -6,7 +6,7 @@ import { Test } from '@nestjs/testing';
 import { hashToken, type PlatformRole } from '@truevine/auth';
 import { ConflictException } from '@nestjs/common';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { AuthExceptionFilter } from '../src/auth/auth-exception.filter.js';
 import { CsrfGuard } from '../src/auth/csrf.guard.js';
