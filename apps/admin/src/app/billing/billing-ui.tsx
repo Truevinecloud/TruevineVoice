@@ -122,7 +122,7 @@ export function AccessNotice({ status }: { status: number | null }) {
   if (status === 403) {
     return (
       <p className="notice" role="status">
-        This account does not have Billing Admin access.
+        This account does not have Billing Admin access. A Platform Owner can assign the BILLING_ADMIN role from Platform Admins.
       </p>
     );
   }
