@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 
-import { api } from '../../lib/api';
+import { ApiError, api } from '../../lib/api';
 import {
   AccessNotice,
   BillingAuditTable,
@@ -21,6 +21,16 @@ import {
 
 type OrganizationSearch = { organizations: OrganizationBilling[]; nextCursor: string | null };
 
+function messageFor(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return 'Your session has expired. Sign in again.';
+    if (error.status === 403) return 'This account does not have Billing Admin access.';
+    if (error.status === 404) return 'Billing endpoint not found. Contact support if this persists.';
+    if (error.status >= 500) return 'Billing service is temporarily unavailable. Try again.';
+  }
+  return fallback;
+}
+
 export default function BillingAdminPage() {
   const [access, setAccess] = useState<number | null | 'checking'>('checking');
   const [overview, setOverview] = useState<OverviewView | null>(null);
@@ -30,6 +40,7 @@ export default function BillingAdminPage() {
   const [auditEvents, setAuditEvents] = useState<AuditEventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [sectionErrors, setSectionErrors] = useState<Record<string, string>>({});
   const [orgSearch, setOrgSearch] = useState('');
   const [orgStatus, setOrgStatus] = useState('');
   const [busy, setBusy] = useState(false);
@@ -37,28 +48,49 @@ export default function BillingAdminPage() {
   const load = async () => {
     setLoading(true);
     setError('');
+    setSectionErrors({});
     try {
       await api('/platform/billing/me');
       setAccess(null);
-      const [overviewResult, orgResult, paymentResult, reconciliationResult, auditResult] = await Promise.all([
-        api<OverviewView>('/platform/billing/overview'),
-        api<OrganizationSearch>('/platform/billing/organizations'),
-        api<{ payments: PaymentRow[] }>('/platform/billing/payments'),
-        api<ReconciliationView>('/platform/billing/reconciliation'),
-        api<{ events: AuditEventRow[] }>('/platform/billing/audit'),
-      ]);
-      setOverview(overviewResult);
-      setOrganizations(orgResult.organizations);
-      setPayments(paymentResult.payments);
-      setReconciliation(reconciliationResult);
-      setAuditEvents(auditResult.events);
     } catch (caught) {
-      const status = (caught as Error & { status?: number }).status;
-      setAccess(typeof status === 'number' ? status : 500);
-      setError(status === 401 ? 'Sign in with an approved billing account.' : status === 403 ? 'This account does not have Billing Admin access.' : 'Billing data is temporarily unavailable.');
-    } finally {
+      const status = caught instanceof ApiError ? caught.status : 500;
+      setAccess(status);
+      setError(messageFor(caught, 'Billing data is temporarily unavailable.'));
       setLoading(false);
+      return;
     }
+
+    const results = await Promise.allSettled([
+      api<OverviewView>('/platform/billing/overview'),
+      api<OrganizationSearch>('/platform/billing/organizations'),
+      api<{ payments: PaymentRow[] }>('/platform/billing/payments'),
+      api<ReconciliationView>('/platform/billing/reconciliation'),
+      api<{ events: AuditEventRow[] }>('/platform/billing/audit'),
+    ]);
+
+    const [overviewResult, orgResult, paymentResult, reconciliationResult, auditResult] = results;
+    const nextErrors: Record<string, string> = {};
+
+    if (overviewResult.status === 'fulfilled') setOverview(overviewResult.value);
+    else nextErrors.overview = messageFor(overviewResult.reason, 'Overview unavailable.');
+
+    if (orgResult.status === 'fulfilled') setOrganizations(orgResult.value.organizations);
+    else nextErrors.organizations = messageFor(orgResult.reason, 'Organizations unavailable.');
+
+    if (paymentResult.status === 'fulfilled') setPayments(paymentResult.value.payments);
+    else nextErrors.payments = messageFor(paymentResult.reason, 'Payments unavailable.');
+
+    if (reconciliationResult.status === 'fulfilled') setReconciliation(reconciliationResult.value);
+    else nextErrors.reconciliation = messageFor(reconciliationResult.reason, 'Reconciliation unavailable.');
+
+    if (auditResult.status === 'fulfilled') setAuditEvents(auditResult.value.events);
+    else nextErrors.audit = messageFor(auditResult.reason, 'Audit history unavailable.');
+
+    setSectionErrors(nextErrors);
+    if (Object.keys(nextErrors).length === results.length) {
+      setError('Billing data is temporarily unavailable.');
+    }
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -77,8 +109,13 @@ export default function BillingAdminPage() {
       if (orgStatus) parameters.set('status', orgStatus);
       const result = await api<OrganizationSearch>(`/platform/billing/organizations${parameters.size > 0 ? `?${parameters.toString()}` : ''}`);
       setOrganizations(result.organizations);
-    } catch {
-      setError('Organization search failed.');
+      setSectionErrors((current) => {
+        const next = { ...current };
+        delete next.organizations;
+        return next;
+      });
+    } catch (caught) {
+      setSectionErrors((current) => ({ ...current, organizations: messageFor(caught, 'Organization search failed.') }));
     } finally {
       setBusy(false);
     }
@@ -91,17 +128,27 @@ export default function BillingAdminPage() {
       <AccessNotice status={typeof access === 'number' ? access : null} />
       {access === null && (
         <>
+          <div className="button-row">
+            <button type="button" className="quiet-button" disabled={loading} onClick={() => void load()}>
+              {loading ? 'Refreshing…' : 'Retry'}
+            </button>
+          </div>
           {error && <p className="notice form-error" role="alert">{error}</p>}
           {loading ? (
             <p>Loading billing data…</p>
           ) : (
             <>
-              {overview && <OverviewPanels overview={overview} />}
+              {sectionErrors.overview ? (
+                <p className="notice form-error" role="alert">{sectionErrors.overview}</p>
+              ) : (
+                overview && <OverviewPanels overview={overview} />
+              )}
               <section className="card" id="wallets">
                 <div className="section-heading">
                   <h2>Wallets by organization</h2>
                   <span>{organizations.length} shown</span>
                 </div>
+                {sectionErrors.organizations && <p className="notice form-error" role="alert">{sectionErrors.organizations}</p>}
                 <form className="search-bar" onSubmit={(event) => void searchOrganizations(event)}>
                   <label>
                     Search
@@ -126,16 +173,22 @@ export default function BillingAdminPage() {
                   <h2>Payments and top-up requests</h2>
                   <span>{payments.length} shown</span>
                 </div>
+                {sectionErrors.payments && <p className="notice form-error" role="alert">{sectionErrors.payments}</p>}
                 <PaymentsTable payments={payments} />
               </section>
               <section id="reconciliation">
-                {reconciliation && <ReconciliationPanel reconciliation={reconciliation} />}
+                {sectionErrors.reconciliation ? (
+                  <p className="notice form-error" role="alert">{sectionErrors.reconciliation}</p>
+                ) : (
+                  reconciliation && <ReconciliationPanel reconciliation={reconciliation} />
+                )}
               </section>
               <section className="card" id="audit">
                 <div className="section-heading">
                   <h2>Financial audit history</h2>
                   <span>{auditEvents.length} shown</span>
                 </div>
+                {sectionErrors.audit && <p className="notice form-error" role="alert">{sectionErrors.audit}</p>}
                 <BillingAuditTable events={auditEvents} />
               </section>
             </>
