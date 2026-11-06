@@ -52,9 +52,23 @@ export interface BillingAdminOrganizationQuery {
   readonly limit: number;
 }
 
+export interface BillingAdminWalletAdjustmentInput {
+  readonly organizationId: string;
+  readonly actorUserId: string;
+  readonly amountMinor: bigint;
+  readonly currency: string;
+  readonly reason: string;
+  readonly idempotencyKey: string;
+}
+
+export interface BillingAdminWalletAdjustmentResult {
+  readonly entry: BillingAdminWalletEntry;
+  readonly created: boolean;
+}
 export interface BillingAdminStore {
   listOrganizations(input: BillingAdminOrganizationQuery): Promise<readonly BillingAdminOrganizationSummary[]>;
   findOrganization(id: string): Promise<BillingAdminOrganizationSummary | undefined>;
   walletEntries(organizationId: string, cursor: string | undefined, limit: number): Promise<readonly BillingAdminWalletEntry[]>;
   topUpRequests(input: { organizationId?: string; limit: number }): Promise<readonly BillingAdminTopUpRequest[]>;
+  adjustWallet(input: BillingAdminWalletAdjustmentInput): Promise<BillingAdminWalletAdjustmentResult>;
 }

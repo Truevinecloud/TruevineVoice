@@ -145,6 +145,7 @@ export const AUDIT_ACTIONS = [
   'platform.billing.payments_viewed',
   'platform.billing.reconciliation_viewed',
   'platform.billing.audit_viewed',
+  'platform.billing.wallet_adjusted',
 
   // Authorization denials. A trail of successes alone cannot answer "was this an
   // attack?", so refusals are recorded too.
