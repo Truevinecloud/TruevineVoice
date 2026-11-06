@@ -200,7 +200,7 @@ export function OrganizationsTable({ organizations }: { organizations: Organizat
               <td>{organization.billingProfilePresent ? 'On file' : 'None'}</td>
               <td>
                 {organization.walletBalances.length === 0
-                  ? '—'
+                  ? 'No wallet entries'
                   : organization.walletBalances.map((balance) => (
                       <div key={balance.currency}>
                         {balance.currency} {balance.amountMinor} ({balance.entryCount})

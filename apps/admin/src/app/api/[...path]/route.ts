@@ -15,6 +15,7 @@ const ALLOWED = [
   /^platform\/admin\/roles\/[0-9a-f-]+\/revoke$/i,
   /^platform\/billing\/(me|overview|organizations|payments|reconciliation|audit)$/,
   /^platform\/billing\/organizations\/[0-9a-f-]+$/i,
+  /^platform\/billing\/organizations\/[0-9a-f-]+\/wallet\/transactions$/i,
   /^platform\/billing\/organizations\/[0-9a-f-]+\/wallet\/adjustments$/i,
   /^platform\/payments\/(me|providers)$/,
   /^platform\/payments\/providers\/(MTN_MOMO|AIRTEL_MONEY)\/environments\/(SANDBOX|PRODUCTION)(\/activation)?$/i,

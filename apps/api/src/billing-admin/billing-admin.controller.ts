@@ -70,6 +70,13 @@ export class BillingAdminController {
   @Get('audit')
   @UseGuards(SessionGuard, PlatformGuard)
   @RequirePlatformPermission('platform:billing:read')
+  audit(
+    @Query() query: Record<string, string | undefined>,
+    @CurrentPrincipal() principal: Principal,
+  ) {
+    return this.billing.auditTrail(principal.userId, query ?? {});
+  }
+
   @Post('organizations/:organizationId/wallet/adjustments')
   @HttpCode(HttpStatus.OK)
   @UseGuards(SessionGuard, PlatformGuard, CsrfGuard)
