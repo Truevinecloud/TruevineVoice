@@ -235,7 +235,10 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     expect(identityEvents.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('does not leave a partial ledger entry when the database write fails', async () => {
+  it('does not leave a ledger entry when the database write fails', async () => {
+    // PrismaBillingAdminStore.adjustWallet performs a read followed by a single
+    // INSERT. There is no multi-write transaction to roll back; this test proves
+    // a failed INSERT leaves no entry and the same key can be retried.
     const key = randomUUID();
     const missingOrganization = randomUUID();
     const beforeCount = await database.walletEntry.count({ where: { reference: `billing-adjustment:${key}` } });
