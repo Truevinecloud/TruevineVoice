@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from './audit/audit.module.js';
 import { AudioModule } from './audio/audio.module.js';
-import { BillingModule } from './billing/billing.module.js';
-
+import { BillingAdminModule } from './billing-admin/billing-admin.module.js';
 import { AppConfigModule } from './config/app-config.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { BillingModule } from './billing/billing.module.js';
 import { CampaignsModule } from './campaigns/campaigns.module.js';
 import { ContactsModule } from './contacts/contacts.module.js';
 import { HealthModule } from './health/health.module.js';
@@ -33,6 +33,7 @@ import { TechnicalModule } from './technical/technical.module.js';
     OrganizationsModule,
     CampaignsModule,
     BillingModule,
+    BillingAdminModule,
     ContactsModule,
     OperationsModule,
     PaymentProvidersModule,

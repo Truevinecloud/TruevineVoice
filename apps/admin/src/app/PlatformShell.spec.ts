@@ -20,7 +20,7 @@ describe('platform navigation entitlements', () => {
       'Support',
       'Audit',
     ]);
-    expect(platformNavigationItems('BILLING_ADMIN')).toEqual([]);
+    expect(platformNavigationItems('BILLING_ADMIN').map((item) => item.label)).toEqual(['Billing']);
     expect(platformNavigationItems(null)).toEqual([]);
     expect(platformNavigationItems('PLATFORM_OWNER').map((item) => item.label)).toEqual([
       'Operations',
@@ -28,6 +28,7 @@ describe('platform navigation entitlements', () => {
       'Technical',
       'Audit',
       'Settings',
+      'Billing',
       'Platform Admins',
     ]);
   });
