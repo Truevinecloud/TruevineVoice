@@ -15,7 +15,9 @@ import {
   type AuditEventRow,
   type OrganizationBilling,
   type OverviewView,
+  WalletEntriesTable,
   type PaymentRow,
+  type WalletEntryRow,
   type ReconciliationView,
 } from './billing-ui';
 
@@ -36,6 +38,10 @@ export default function BillingAdminPage() {
   const [overview, setOverview] = useState<OverviewView | null>(null);
   const [organizations, setOrganizations] = useState<OrganizationBilling[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [walletEntries, setWalletEntries] = useState<WalletEntryRow[]>([]);
+  const [walletCursor, setWalletCursor] = useState<string | null>(null);
+  const [walletOrganizationId, setWalletOrganizationId] = useState('');
+  const [walletLoading, setWalletLoading] = useState(false);
   const [reconciliation, setReconciliation] = useState<ReconciliationView | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEventRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,7 +80,16 @@ export default function BillingAdminPage() {
     if (overviewResult.status === 'fulfilled') setOverview(overviewResult.value);
     else nextErrors.overview = messageFor(overviewResult.reason, 'Overview unavailable.');
 
-    if (orgResult.status === 'fulfilled') setOrganizations(orgResult.value.organizations);
+    if (orgResult.status === 'fulfilled') {
+      setOrganizations(orgResult.value.organizations);
+      if (orgResult.value.organizations.length > 0 && !walletOrganizationId) {
+        const first = orgResult.value.organizations[0]?.id;
+        if (first) {
+          setWalletOrganizationId(first);
+          void loadWalletEntries(first);
+        }
+      }
+    }
     else nextErrors.organizations = messageFor(orgResult.reason, 'Organizations unavailable.');
 
     if (paymentResult.status === 'fulfilled') setPayments(paymentResult.value.payments);
@@ -99,6 +114,21 @@ export default function BillingAdminPage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  async function loadWalletEntries(organizationId: string, cursor?: string) {
+    setWalletLoading(true);
+    try {
+      const result = await api<{ entries: WalletEntryRow[]; nextCursor: string | null }>(
+        `/platform/billing/organizations/${organizationId}/wallet/transactions${cursor ? `?cursor=${cursor}` : ''}`,
+      );
+      setWalletEntries((current) => (cursor ? [...current, ...result.entries] : result.entries));
+      setWalletCursor(result.nextCursor);
+    } catch (caught) {
+      setSectionErrors((current) => ({ ...current, wallets: messageFor(caught, 'Wallet ledger unavailable.') }));
+    } finally {
+      setWalletLoading(false);
+    }
+  }
 
   async function searchOrganizations(event?: FormEvent) {
     event?.preventDefault();
@@ -167,6 +197,39 @@ export default function BillingAdminPage() {
                   </button>
                 </form>
                 <OrganizationsTable organizations={organizations} />
+              </section>
+              <section className="card" id="wallet-ledger">
+                <div className="section-heading">
+                  <h2>Wallet ledger</h2>
+                  <span>{walletEntries.length} shown</span>
+                </div>
+                <label>
+                  Organization
+                  <select
+                    value={walletOrganizationId}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setWalletOrganizationId(value);
+                      setWalletEntries([]);
+                      setWalletCursor(null);
+                      if (value) void loadWalletEntries(value);
+                    }}
+                  >
+                    <option value="">Select an organization</option>
+                    {organizations.map((organization) => (
+                      <option key={organization.id} value={organization.id}>
+                        {organization.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {sectionErrors.wallets && <p className="notice form-error" role="alert">{sectionErrors.wallets}</p>}
+                {walletLoading ? <p>Loading ledger…</p> : <WalletEntriesTable entries={walletEntries} />}
+                {walletCursor && (
+                  <button className="quiet-button" disabled={walletLoading} onClick={() => void loadWalletEntries(walletOrganizationId, walletCursor)}>
+                    Load more
+                  </button>
+                )}
               </section>
               <section className="card" id="payments">
                 <div className="section-heading">

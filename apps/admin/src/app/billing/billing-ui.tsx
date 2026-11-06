@@ -55,6 +55,14 @@ export type ReconciliationAlert = {
   reason: string;
 };
 
+export type WalletEntryRow = {
+  id: string;
+  amountMinor: string;
+  currency: string;
+  reference: string;
+  description: string;
+  createdAt: string;
+};
 export type ReconciliationView = {
   alerts: ReconciliationAlert[];
   unmatchedTransactions: unknown[];
@@ -291,6 +299,37 @@ export function ReconciliationPanel({ reconciliation }: { reconciliation: Reconc
   );
 }
 
+export function WalletEntriesTable({ entries }: { entries: WalletEntryRow[] }) {
+  if (entries.length === 0) {
+    return <p className="footnote">No ledger entries for this organization.</p>;
+  }
+  return (
+    <div className="table-wrap">
+      <table className="platform-admin-table">
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Amount</th>
+            <th>Currency</th>
+            <th>Reference</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => (
+            <tr key={entry.id}>
+              <td>{entry.createdAt}</td>
+              <td>{entry.amountMinor}</td>
+              <td>{entry.currency}</td>
+              <td>{entry.reference}</td>
+              <td>{entry.description}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 export function BillingAuditTable({ events }: { events: AuditEventRow[] }) {
   if (events.length === 0) {
     return <p className="footnote">No platform audit events on this trail.</p>;
