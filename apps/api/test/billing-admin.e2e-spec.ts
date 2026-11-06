@@ -13,6 +13,7 @@ import { PrismaAuditStore } from '../src/auth/prisma-stores.js';
 
 const ORG_A = randomUUID();
 const ORG_B = randomUUID();
+const ACTOR = randomUUID();
 const RUN = randomUUID().replace(/-/g, '').slice(0, 8);
 
 describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
@@ -33,6 +34,14 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
       async () => (await database.$queryRawUnsafe<{ current_database: string }[]>('select current_database()'))[0]?.current_database,
       expected,
     );
+    await database.user.create({
+      data: {
+        id: ACTOR,
+        email: `billing-admin-${RUN}@example.invalid`,
+        passwordHash: 'not-a-real-password-hash',
+        status: 'ACTIVE',
+      },
+    });
     await database.organization.createMany({
       data: [
         { id: ORG_A, slug: `billing-admin-a-${RUN}`, name: 'Billing admin test A' },
@@ -47,6 +56,7 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
   afterAll(async () => {
     await database?.walletEntry.deleteMany({ where: { organizationId: { in: [ORG_A, ORG_B] } } });
     await database?.organization.deleteMany({ where: { id: { in: [ORG_A, ORG_B] } } });
+    await database?.user.deleteMany({ where: { id: ACTOR } });
     await database?.$disconnect();
   });
 
@@ -171,12 +181,13 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     expect(groups.reduce((sum, group) => sum + (group._sum.amountMinor ?? 0n), 0n)).toBe(total);
   });
 
-  it('records audit evidence for success, replay, validation failure, and conflict', async () => {
+  it('records exact audit evidence for success, replay, validation failure, and conflict', async () => {
     const key = randomUUID();
-    const beforeIdentity = (await auditRecordCount(database, 'identity')) ?? 0;
-    const beforeSecurity = (await auditRecordCount(database, 'security')) ?? 0;
+    const beforeSecurity = await database.securityAuditEvent.count({
+      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted' },
+    });
 
-    const first = await service.adjustWallet(randomUUID(), ORG_A, {
+    const first = await service.adjustWallet(ACTOR, ORG_A, {
       amountMinor: '1000',
       currency: 'UGX',
       reason: 'Audit success',
@@ -184,7 +195,7 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     });
     expect(first.created).toBe(true);
 
-    const replay = await service.adjustWallet(randomUUID(), ORG_A, {
+    const replay = await service.adjustWallet(ACTOR, ORG_A, {
       amountMinor: '1000',
       currency: 'UGX',
       reason: 'Audit success',
@@ -193,7 +204,7 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     expect(replay.created).toBe(false);
 
     await expect(
-      service.adjustWallet(randomUUID(), ORG_A, {
+      service.adjustWallet(ACTOR, ORG_A, {
         amountMinor: '0',
         currency: 'UGX',
         reason: 'Bad amount',
@@ -202,7 +213,7 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     ).rejects.toBeDefined();
 
     await expect(
-      service.adjustWallet(randomUUID(), ORG_A, {
+      service.adjustWallet(ACTOR, ORG_A, {
         amountMinor: '2000',
         currency: 'UGX',
         reason: 'Conflict',
@@ -210,10 +221,58 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
       }),
     ).rejects.toBeDefined();
 
-    const afterIdentity = await auditRecordCount(database, 'identity');
-    const afterSecurity = await auditRecordCount(database, 'security');
-    expect(afterIdentity).toBeGreaterThan(beforeIdentity);
-    expect(afterSecurity).toBeGreaterThan(beforeSecurity);
+    const successEvents = await database.securityAuditEvent.findMany({
+      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', actorUserId: ACTOR, outcome: 'SUCCESS' },
+      orderBy: { occurredAt: 'asc' },
+    });
+    expect(successEvents.length).toBeGreaterThanOrEqual(beforeSecurity + 2);
+    expect(successEvents.at(-2)?.targetId).toBe(first.entry.id);
+    expect(successEvents.at(-1)?.targetId).toBe(replay.entry.id);
+
+    const identityEvents = await database.identityAuditEvent.findMany({
+      where: { actorUserId: ACTOR, action: 'platform.billing.wallet_adjusted', outcome: 'SUCCESS' },
+    });
+    expect(identityEvents.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does not leave a partial ledger entry when the database write fails', async () => {
+    const key = randomUUID();
+    const missingOrganization = randomUUID();
+    const beforeCount = await database.walletEntry.count({ where: { reference: `billing-adjustment:${key}` } });
+    const beforeAudit = await database.securityAuditEvent.count({
+      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted' },
+    });
+
+    await expect(
+      store.adjustWallet({
+        organizationId: missingOrganization,
+        actorUserId: ACTOR,
+        amountMinor: 1234n,
+        currency: 'UGX',
+        reason: 'Injected database failure',
+        idempotencyKey: key,
+      }),
+    ).rejects.toBeDefined();
+
+    const afterCount = await database.walletEntry.count({ where: { reference: `billing-adjustment:${key}` } });
+    const afterAudit = await database.securityAuditEvent.count({
+      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted' },
+    });
+    expect(afterCount).toBe(beforeCount);
+    expect(afterAudit).toBe(beforeAudit);
+
+    await expect(
+      store.adjustWallet({
+        organizationId: ORG_A,
+        actorUserId: ACTOR,
+        amountMinor: 1234n,
+        currency: 'UGX',
+        reason: 'Retry after failure',
+        idempotencyKey: key,
+      }),
+    ).resolves.toBeDefined();
+    const retryEntries = await database.walletEntry.findMany({ where: { reference: `billing-adjustment:${key}` } });
+    expect(retryEntries).toHaveLength(1);
   });
 
   it('surfaces a negative balance in reconciliation alerts', async () => {
@@ -230,10 +289,3 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     expect(result.alerts.some((alert) => alert.organizationId === ORG_A && alert.currency === 'UGX')).toBe(true);
   });
 });
-
-async function auditRecordCount(database: PrismaClient, trail: 'identity' | 'security'): Promise<number> {
-  if (trail === 'identity') {
-    return database.identityAuditEvent.count();
-  }
-  return database.securityAuditEvent.count();
-}
