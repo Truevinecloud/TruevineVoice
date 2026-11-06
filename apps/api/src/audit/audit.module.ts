@@ -16,5 +16,6 @@ import { AUDITOR_STORE } from './tokens.js';
     AuditRateLimitGuard,
     { provide: AUDITOR_STORE, useClass: PrismaAuditorStore },
   ],
+  exports: [AUDITOR_STORE],
 })
 export class AuditModule {}

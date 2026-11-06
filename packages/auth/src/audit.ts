@@ -136,6 +136,16 @@ export const AUDIT_ACTIONS = [
   'platform.admin.role_revoked',
   'platform.admin.users_searched',
 
+  // Platform billing administration (RBAC-008).
+  'platform.billing.overview_viewed',
+  'platform.billing.organizations_viewed',
+  'platform.billing.organization_viewed',
+  'platform.billing.wallets_viewed',
+  'platform.billing.transactions_viewed',
+  'platform.billing.payments_viewed',
+  'platform.billing.reconciliation_viewed',
+  'platform.billing.audit_viewed',
+
   // Authorization denials. A trail of successes alone cannot answer "was this an
   // attack?", so refusals are recorded too.
   'authorization.denied',
