@@ -13,7 +13,7 @@ import type {
 
 type BillingAdminClient = Pick<
   PrismaClient,
-  'organization' | 'membership' | 'campaign' | 'billingProfile' | 'walletEntry' | 'topUpRequest'
+  'organization' | 'membership' | 'campaign' | 'billingProfile' | 'walletEntry' | 'topUpRequest' | '$transaction' | '$executeRaw'
 >;
 
 const INSENSITIVE = { mode: 'insensitive' } as const;
@@ -217,31 +217,40 @@ export class PrismaBillingAdminStore implements BillingAdminStore {
     created: boolean;
   }> {
     const reference = `billing-adjustment:${input.idempotencyKey}`;
-    const existing = await this.prisma.walletEntry.findUnique({
-      where: { organizationId_reference: { organizationId: input.organizationId, reference } },
-      select: {
-        id: true,
-        amountMinor: true,
-        currency: true,
-        reference: true,
-        description: true,
-        createdAt: true,
-      },
-    });
-    if (existing) {
-      if (existing.amountMinor !== input.amountMinor || existing.currency !== input.currency) {
-        throw new ConflictException({
-          error: { code: 'idempotency_conflict', message: 'This request identifier was already used for a different adjustment.' },
-        });
-      }
-      return {
-        entry: existing,
-        created: false,
-      };
-    }
 
-    try {
-      const createdEntry = await this.prisma.walletEntry.create({
+    return this.prisma.$transaction(async (tx) => {
+      // Serialize all adjustments that reuse an idempotency key, including
+      // across organizations, so the read below cannot race with another writer.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${reference}))`;
+
+      const existing = await tx.walletEntry.findFirst({
+        where: { reference },
+        select: {
+          id: true,
+          organizationId: true,
+          amountMinor: true,
+          currency: true,
+          reference: true,
+          description: true,
+          createdAt: true,
+        },
+      });
+
+      if (existing) {
+        if (
+          existing.organizationId !== input.organizationId ||
+          existing.amountMinor !== input.amountMinor ||
+          existing.currency !== input.currency ||
+          existing.description !== input.reason
+        ) {
+          throw new ConflictException({
+            error: { code: 'idempotency_conflict', message: 'This request identifier was already used for a different adjustment.' },
+          });
+        }
+        return { entry: existing, created: false };
+      }
+
+      const createdEntry = await tx.walletEntry.create({
         data: {
           organizationId: input.organizationId,
           amountMinor: input.amountMinor,
@@ -258,28 +267,8 @@ export class PrismaBillingAdminStore implements BillingAdminStore {
           createdAt: true,
         },
       });
+
       return { entry: createdEntry, created: true };
-    } catch (error) {
-      const concurrent = await this.prisma.walletEntry.findUnique({
-        where: { organizationId_reference: { organizationId: input.organizationId, reference } },
-        select: {
-          id: true,
-          amountMinor: true,
-          currency: true,
-          reference: true,
-          description: true,
-          createdAt: true,
-        },
-      });
-      if (concurrent) {
-        if (concurrent.amountMinor !== input.amountMinor || concurrent.currency !== input.currency) {
-          throw new ConflictException({
-            error: { code: 'idempotency_conflict', message: 'This request identifier was already used for a different adjustment.' },
-          });
-        }
-        return { entry: concurrent, created: false };
-      }
-      throw error;
-    }
+    });
   }
 }

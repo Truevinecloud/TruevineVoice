@@ -55,6 +55,7 @@ class FakeBillingAdminStore implements BillingAdminStore {
     },
   ];
   entries = new Map<string, BillingAdminWalletEntry>();
+  entryOrganizations = new Map<string, string>();
 
   async listOrganizations() {
     return this.organizations;
@@ -79,7 +80,12 @@ class FakeBillingAdminStore implements BillingAdminStore {
     const reference = `billing-adjustment:${input.idempotencyKey}`;
     const existing = [...this.entries.values()].find((entry) => entry.reference === reference);
     if (existing) {
-      if (existing.amountMinor !== input.amountMinor || existing.currency !== input.currency) {
+      if (
+        this.entryOrganizations.get(existing.id) !== input.organizationId ||
+        existing.amountMinor !== input.amountMinor ||
+        existing.currency !== input.currency ||
+        existing.description !== input.reason
+      ) {
         throw new ConflictException({ error: { code: 'idempotency_conflict', message: 'Conflict' } });
       }
       return { entry: existing, created: false };
@@ -93,6 +99,7 @@ class FakeBillingAdminStore implements BillingAdminStore {
       createdAt: new Date(),
     };
     this.entries.set(entry.id, entry);
+    this.entryOrganizations.set(entry.id, input.organizationId);
     return { entry, created: true };
   }
 }
