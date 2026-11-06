@@ -240,23 +240,46 @@ export class PrismaBillingAdminStore implements BillingAdminStore {
       };
     }
 
-    const createdEntry = await this.prisma.walletEntry.create({
-      data: {
-        organizationId: input.organizationId,
-        amountMinor: input.amountMinor,
-        currency: input.currency,
-        reference,
-        description: input.reason,
-      },
-      select: {
-        id: true,
-        amountMinor: true,
-        currency: true,
-        reference: true,
-        description: true,
-        createdAt: true,
-      },
-    });
-    return { entry: createdEntry, created: true };
+    try {
+      const createdEntry = await this.prisma.walletEntry.create({
+        data: {
+          organizationId: input.organizationId,
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          reference,
+          description: input.reason,
+        },
+        select: {
+          id: true,
+          amountMinor: true,
+          currency: true,
+          reference: true,
+          description: true,
+          createdAt: true,
+        },
+      });
+      return { entry: createdEntry, created: true };
+    } catch (error) {
+      const concurrent = await this.prisma.walletEntry.findUnique({
+        where: { organizationId_reference: { organizationId: input.organizationId, reference } },
+        select: {
+          id: true,
+          amountMinor: true,
+          currency: true,
+          reference: true,
+          description: true,
+          createdAt: true,
+        },
+      });
+      if (concurrent) {
+        if (concurrent.amountMinor !== input.amountMinor || concurrent.currency !== input.currency) {
+          throw new ConflictException({
+            error: { code: 'idempotency_conflict', message: 'This request identifier was already used for a different adjustment.' },
+          });
+        }
+        return { entry: concurrent, created: false };
+      }
+      throw error;
+    }
   }
 }
