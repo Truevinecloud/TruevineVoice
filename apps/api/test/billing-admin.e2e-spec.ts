@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { createDatabaseClient, type PrismaClient } from '@truevine/database';
 import { loadEnvFiles, requireEnv } from '@truevine/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  assertConnectedToDisposableDatabase,
+  assertDisposableDatabase,
+} from './disposable-database.js';
 
 import { PrismaBillingAdminStore } from '../src/billing-admin/prisma-billing-admin.store.js';
 
@@ -15,14 +19,15 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
   beforeAll(async () => {
     loadEnvFiles();
     const url = requireEnv('DATABASE_URL');
-    if (
-      process.env['NODE_ENV'] !== 'test' ||
-      !['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname) ||
-      (process.env['CI'] !== 'true' && process.env['BILLING_ADMIN_E2E_DISPOSABLE'] !== '1')
-    ) {
-      throw new Error('Billing admin E2E requires a disposable loopback test database.');
+    const expected = assertDisposableDatabase(url, process.env['NODE_ENV']);
+    if (process.env['CI'] !== 'true' && process.env['BILLING_ADMIN_E2E_DISPOSABLE'] !== '1') {
+      throw new Error('Billing admin E2E requires BILLING_ADMIN_E2E_DISPOSABLE=1 outside CI.');
     }
     database = createDatabaseClient(url);
+    await assertConnectedToDisposableDatabase(
+      async () => (await database.$queryRawUnsafe<{ current_database: string }[]>('select current_database()'))[0]?.current_database,
+      expected,
+    );
     await database.organization.create({ data: { id: ORG, slug: `billing-admin-${RUN}`, name: 'Billing admin test' } });
     store = new PrismaBillingAdminStore(database as never);
   });
