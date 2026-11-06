@@ -123,6 +123,11 @@ export default function BillingAdminPage() {
       );
       setWalletEntries((current) => (cursor ? [...current, ...result.entries] : result.entries));
       setWalletCursor(result.nextCursor);
+      setSectionErrors((current) => {
+        const next = { ...current };
+        delete next.wallets;
+        return next;
+      });
     } catch (caught) {
       setSectionErrors((current) => ({ ...current, wallets: messageFor(caught, 'Wallet ledger unavailable.') }));
     } finally {
@@ -208,11 +213,16 @@ export default function BillingAdminPage() {
                   <select
                     value={walletOrganizationId}
                     onChange={(event) => {
-                      const value = event.target.value;
-                      setWalletOrganizationId(value);
-                      setWalletEntries([]);
-                      setWalletCursor(null);
-                      if (value) void loadWalletEntries(value);
+                       const value = event.target.value;
+                       setWalletOrganizationId(value);
+                       setWalletEntries([]);
+                       setWalletCursor(null);
+                       setSectionErrors((current) => {
+                         const next = { ...current };
+                         delete next.wallets;
+                         return next;
+                       });
+                       if (value) void loadWalletEntries(value);
                     }}
                   >
                     <option value="">Select an organization</option>
@@ -223,8 +233,8 @@ export default function BillingAdminPage() {
                     ))}
                   </select>
                 </label>
-                {sectionErrors.wallets && <p className="notice form-error" role="alert">{sectionErrors.wallets}</p>}
-                {walletLoading ? <p>Loading ledger…</p> : <WalletEntriesTable entries={walletEntries} />}
+                 {sectionErrors.wallets && <p className="notice form-error" role="alert">{sectionErrors.wallets}</p>}
+                 {!sectionErrors.wallets && (walletLoading ? <p>Loading ledger…</p> : <WalletEntriesTable entries={walletEntries} />)}
                 {walletCursor && (
                   <button className="quiet-button" disabled={walletLoading} onClick={() => void loadWalletEntries(walletOrganizationId, walletCursor)}>
                     Load more
