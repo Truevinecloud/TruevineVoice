@@ -141,11 +141,42 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     expect(entries).toHaveLength(1);
   });
 
+  it('rejects simultaneous cross-organization reuse of one idempotency key', async () => {
+    const key = randomUUID();
+    const results = await Promise.allSettled([
+      store.adjustWallet({
+        organizationId: ORG_A,
+        actorUserId: ACTOR,
+        amountMinor: 1000n,
+        currency: 'UGX',
+        reason: 'Cross-org original',
+        idempotencyKey: key,
+      }),
+      store.adjustWallet({
+        organizationId: ORG_B,
+        actorUserId: ACTOR,
+        amountMinor: 1000n,
+        currency: 'UGX',
+        reason: 'Cross-org original',
+        idempotencyKey: key,
+      }),
+    ]);
+
+    const fulfilled = results.filter((result) => result.status === 'fulfilled');
+    const rejected = results.filter((result) => result.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((fulfilled[0] as PromiseFulfilledResult<{ created: boolean }>).value.created).toBe(true);
+
+    const entries = await database.walletEntry.findMany({ where: { reference: `billing-adjustment:${key}` } });
+    expect(entries).toHaveLength(1);
+  });
+
   it('does not leak an adjustment from one organization to another', async () => {
     const key = randomUUID();
     await store.adjustWallet({
       organizationId: ORG_A,
-      actorUserId: randomUUID(),
+      actorUserId: ACTOR,
       amountMinor: 500n,
       currency: 'UGX',
       reason: 'Org A only',
@@ -155,7 +186,6 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     const orgBEntries = await database.walletEntry.findMany({ where: { organizationId: ORG_B, reference: `billing-adjustment:${key}` } });
     expect(orgBEntries).toHaveLength(0);
   });
-
   it('keeps ledger totals equal to the sum of committed entries after concurrent adjustments', async () => {
     const keys = Array.from({ length: 10 }, () => randomUUID());
     await Promise.all(
