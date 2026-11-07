@@ -1,0 +1,1 @@
+export const PAYMENT_INTENT_STORE = Symbol('PAYMENT_INTENT_STORE');

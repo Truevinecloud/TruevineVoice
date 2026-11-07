@@ -22,7 +22,7 @@ describe('isolated RBAC database CI', () => {
   });
 
   it('runs both candidate suites on fresh service databases without suppressing failure', () => {
-    expect(workflow).toContain('suite: [billing, campaigns]');
+    expect(workflow).toContain('suite: [billing, campaigns, payment-intents]');
     expect(workflow).toContain('POSTGRES_DB: truevine_voice');
     expect(workflow).toContain('postgres:18-alpine');
     expect(workflow).toContain('redis:8-alpine');
@@ -30,6 +30,7 @@ describe('isolated RBAC database CI', () => {
     expect(workflow).toContain("BILLING_E2E_DISPOSABLE: '1'");
     expect(workflow).toContain('localhost:%s/truevine_voice?schema=public');
     expect(workflow).toContain('test -f apps/api/test/billing.e2e-spec.ts');
+    expect(workflow).toContain('test -f apps/api/test/payment-intents.e2e-spec.ts');
     expect(workflow).toContain('test ! -f .env');
     expect(workflow).toContain('npm run prisma:migrate:deploy');
     expect(workflow).toContain(
