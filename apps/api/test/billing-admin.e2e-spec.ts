@@ -50,13 +50,12 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     });
     store = new PrismaBillingAdminStore(database as never);
     audit = new PrismaAuditStore(database as never);
-    service = new BillingAdminService(store as never, audit as never, { platformAuditEvents: async () => [] });
+    service = new BillingAdminService(store as never, audit as never, { platformAuditEvents: async () => [] } as never);
   });
 
   afterAll(async () => {
     await database?.walletEntry.deleteMany({ where: { organizationId: { in: [ORG_A, ORG_B] } } });
     await database?.organization.deleteMany({ where: { id: { in: [ORG_A, ORG_B] } } });
-    await database?.user.deleteMany({ where: { id: ACTOR } });
     await database?.$disconnect();
   });
 
