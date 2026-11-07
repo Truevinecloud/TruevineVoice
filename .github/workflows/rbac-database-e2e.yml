@@ -11,6 +11,7 @@ on:
       - 'apps/api/src/billing/**'
       - 'apps/api/test/billing.e2e-spec.ts'
       - 'apps/api/test/campaigns.e2e-spec.ts'
+      - 'apps/api/test/payment-intents.e2e-spec.ts'
       - 'packages/database/prisma/**'
 
 permissions:
@@ -46,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [billing, campaigns]
+        suite: [billing, campaigns, payment-intents]
     services:
       postgres:
         image: postgres:18-alpine
@@ -92,6 +93,7 @@ jobs:
         run: |
           test -f apps/api/test/billing.e2e-spec.ts
           test -f apps/api/test/campaigns.e2e-spec.ts
+          test -f apps/api/test/payment-intents.e2e-spec.ts
           test ! -f .env
       - run: npm run prisma:generate
       - run: npm run prisma:validate
