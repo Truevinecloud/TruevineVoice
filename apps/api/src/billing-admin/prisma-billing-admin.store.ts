@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@truevine/database';
 
 import { DATABASE_CLIENT } from '../tokens.js';
@@ -13,7 +13,7 @@ import type {
 
 type BillingAdminClient = Pick<
   PrismaClient,
-  'organization' | 'membership' | 'campaign' | 'billingProfile' | 'walletEntry' | 'topUpRequest'
+  'organization' | 'membership' | 'campaign' | 'billingProfile' | 'walletEntry' | 'topUpRequest' | '$transaction' | '$executeRaw'
 >;
 
 const INSENSITIVE = { mode: 'insensitive' } as const;
@@ -217,31 +217,61 @@ export class PrismaBillingAdminStore implements BillingAdminStore {
     created: boolean;
   }> {
     const reference = `billing-adjustment:${input.idempotencyKey}`;
-    const existing = await this.prisma.walletEntry.findUnique({
-      where: { organizationId_reference: { organizationId: input.organizationId, reference } },
-      select: {
-        id: true,
-        amountMinor: true,
-        currency: true,
-        reference: true,
-        description: true,
-        createdAt: true,
-      },
-    });
-    if (existing) {
-      if (existing.amountMinor !== input.amountMinor || existing.currency !== input.currency) {
-        throw new ConflictException({
-          error: { code: 'idempotency_conflict', message: 'This request identifier was already used for a different adjustment.' },
-        });
-      }
-      return {
-        entry: existing,
-        created: false,
-      };
-    }
 
-    try {
-      const createdEntry = await this.prisma.walletEntry.create({
+    return this.prisma.$transaction(async (tx) => {
+      // Serialize every adjustment that reuses an idempotency key, including
+      // across organizations, before checking or changing any ledger state.
+      await tx.$queryRaw`SELECT 1::int FROM (SELECT pg_advisory_xact_lock(hashtext(${reference})) AS lock) AS advisory_lock`;
+
+      // Serialize balance-affecting debits for one organization and currency.
+      // This is acquired after the idempotency lock in a consistent order to
+      // prevent deadlocks while preventing concurrent debits from overdrawing.
+      await tx.$queryRaw`SELECT 1::int FROM (SELECT pg_advisory_xact_lock(hashtext(${input.organizationId} || ':' || ${input.currency})) AS lock) AS advisory_lock`;
+
+      const existing = await tx.walletEntry.findFirst({
+        where: { reference },
+        select: {
+          id: true,
+          organizationId: true,
+          amountMinor: true,
+          currency: true,
+          reference: true,
+          description: true,
+          createdAt: true,
+        },
+      });
+
+      if (existing) {
+        if (
+          existing.organizationId !== input.organizationId ||
+          existing.amountMinor !== input.amountMinor ||
+          existing.currency !== input.currency ||
+          existing.description !== input.reason
+        ) {
+          throw new ConflictException({
+            error: { code: 'idempotency_conflict', message: 'This request identifier was already used for a different adjustment.' },
+          });
+        }
+        return { entry: existing, created: false };
+      }
+
+      if (input.amountMinor < 0n) {
+        const aggregate = await tx.walletEntry.aggregate({
+          where: { organizationId: input.organizationId, currency: input.currency },
+          _sum: { amountMinor: true },
+        });
+        const currentBalance = aggregate._sum.amountMinor ?? 0n;
+        if (currentBalance + input.amountMinor < 0n) {
+          throw new BadRequestException({
+            error: {
+              code: 'insufficient_wallet_balance',
+              message: 'This adjustment would make the wallet balance negative.',
+            },
+          });
+        }
+      }
+
+      const createdEntry = await tx.walletEntry.create({
         data: {
           organizationId: input.organizationId,
           amountMinor: input.amountMinor,
@@ -258,28 +288,8 @@ export class PrismaBillingAdminStore implements BillingAdminStore {
           createdAt: true,
         },
       });
+
       return { entry: createdEntry, created: true };
-    } catch (error) {
-      const concurrent = await this.prisma.walletEntry.findUnique({
-        where: { organizationId_reference: { organizationId: input.organizationId, reference } },
-        select: {
-          id: true,
-          amountMinor: true,
-          currency: true,
-          reference: true,
-          description: true,
-          createdAt: true,
-        },
-      });
-      if (concurrent) {
-        if (concurrent.amountMinor !== input.amountMinor || concurrent.currency !== input.currency) {
-          throw new ConflictException({
-            error: { code: 'idempotency_conflict', message: 'This request identifier was already used for a different adjustment.' },
-          });
-        }
-        return { entry: concurrent, created: false };
-      }
-      throw error;
-    }
+    });
   }
 }

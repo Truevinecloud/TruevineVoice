@@ -52,7 +52,8 @@ describe('AesPaymentCredentialCipher', () => {
       clientSecret: 'secret',
     });
     const parts = envelope.split('.');
-    parts[3] = `${parts[3]?.slice(0, -2)}AA`;
+    const original = parts[3] ?? '';
+    parts[3] = `${original.slice(0, -1)}${original.endsWith('A') ? 'B' : 'A'}`;
 
     expect(() => cipher.decrypt('AIRTEL_MONEY', 'PRODUCTION', parts.join('.'))).toThrow(
       PaymentCredentialDecryptionError,

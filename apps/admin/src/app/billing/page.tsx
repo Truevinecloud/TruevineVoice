@@ -46,6 +46,7 @@ export default function BillingAdminPage() {
   const [adjustmentAmount, setAdjustmentAmount] = useState('');
   const [adjustmentCurrency, setAdjustmentCurrency] = useState('UGX');
   const [adjustmentReason, setAdjustmentReason] = useState('');
+  const [adjustmentIdempotencyKey, setAdjustmentIdempotencyKey] = useState(() => crypto.randomUUID());
   const [adjustmentBusy, setAdjustmentBusy] = useState(false);
   const [adjustmentStatus, setAdjustmentStatus] = useState('');
   const [adjustmentError, setAdjustmentError] = useState('');
@@ -145,6 +146,11 @@ export default function BillingAdminPage() {
   async function submitAdjustment(event: FormEvent) {
     event.preventDefault();
     if (!adjustmentOrganizationId) return;
+    const organization = organizations.find((item) => item.id === adjustmentOrganizationId);
+    const confirmed = window.confirm(
+      `Record wallet adjustment?\nOrganization: ${organization?.name ?? adjustmentOrganizationId}\nAmount: ${adjustmentAmount} ${adjustmentCurrency}\nReason: ${adjustmentReason}`,
+    );
+    if (!confirmed) return;
     setAdjustmentBusy(true);
     setAdjustmentError('');
     setAdjustmentStatus('');
@@ -155,17 +161,22 @@ export default function BillingAdminPage() {
           amountMinor: adjustmentAmount,
           currency: adjustmentCurrency,
           reason: adjustmentReason,
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: adjustmentIdempotencyKey,
         }),
       });
       setAdjustmentStatus('Adjustment recorded.');
       setAdjustmentAmount('');
       setAdjustmentReason('');
+      setAdjustmentIdempotencyKey(crypto.randomUUID());
       if (adjustmentOrganizationId === walletOrganizationId) {
         void loadWalletEntries(adjustmentOrganizationId);
       }
     } catch (caught) {
-      setAdjustmentError(messageFor(caught, 'Adjustment failed.'));
+      setAdjustmentError(
+        caught instanceof ApiError && caught.detail
+          ? caught.detail
+          : messageFor(caught, 'Adjustment failed.'),
+      );
     } finally {
       setAdjustmentBusy(false);
     }
@@ -286,7 +297,10 @@ export default function BillingAdminPage() {
                      Organization
                      <select
                        value={adjustmentOrganizationId}
-                       onChange={(event) => setAdjustmentOrganizationId(event.target.value)}
+                       onChange={(event) => {
+                         setAdjustmentOrganizationId(event.target.value);
+                         setAdjustmentIdempotencyKey(crypto.randomUUID());
+                       }}
                      >
                        <option value="">Select an organization</option>
                        {organizations.map((organization) => (
@@ -300,7 +314,10 @@ export default function BillingAdminPage() {
                      Amount (minor units)
                      <input
                        value={adjustmentAmount}
-                       onChange={(event) => setAdjustmentAmount(event.target.value)}
+                       onChange={(event) => {
+                         setAdjustmentAmount(event.target.value);
+                         setAdjustmentIdempotencyKey(crypto.randomUUID());
+                       }}
                        placeholder="-5000 or 5000"
                      />
                    </label>
@@ -308,7 +325,10 @@ export default function BillingAdminPage() {
                      Currency
                      <input
                        value={adjustmentCurrency}
-                       onChange={(event) => setAdjustmentCurrency(event.target.value.toUpperCase())}
+                       onChange={(event) => {
+                         setAdjustmentCurrency(event.target.value.toUpperCase());
+                         setAdjustmentIdempotencyKey(crypto.randomUUID());
+                       }}
                        maxLength={3}
                      />
                    </label>
@@ -316,7 +336,10 @@ export default function BillingAdminPage() {
                      Reason
                      <input
                        value={adjustmentReason}
-                       onChange={(event) => setAdjustmentReason(event.target.value)}
+                       onChange={(event) => {
+                         setAdjustmentReason(event.target.value);
+                         setAdjustmentIdempotencyKey(crypto.randomUUID());
+                       }}
                        placeholder="Required audit reason"
                      />
                    </label>
