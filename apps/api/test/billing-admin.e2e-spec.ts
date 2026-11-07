@@ -62,8 +62,6 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
   });
 
   afterAll(async () => {
-    await database?.walletEntry.deleteMany({ where: { organizationId: { in: [ORG_A, ORG_B] } } });
-    await database?.organization.deleteMany({ where: { id: { in: [ORG_A, ORG_B] } } });
     await database?.$disconnect();
   });
 
@@ -325,7 +323,7 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
       idempotencyKey: randomUUID(),
     });
 
-    const result = await service.reconciliation(randomUUID());
+    const result = await service.reconciliation(ACTOR);
     expect(result.alerts.some((alert) => alert.organizationId === ORG_A && alert.currency === 'UGX')).toBe(true);
   });
 });
