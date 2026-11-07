@@ -183,19 +183,23 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
   });
 
   it('prevents concurrent different-key debits from overdrawing one wallet', async () => {
+    const concurrentOrg = randomUUID();
+    await database.organization.create({
+      data: { id: concurrentOrg, slug: `billing-concurrent-${RUN}`, name: 'Billing concurrent test' },
+    });
     await store.adjustWallet({
-      organizationId: ORG_A,
+      organizationId: concurrentOrg,
       actorUserId: ACTOR,
-      amountMinor: 100n,
+      amountMinor: 60n,
       currency: 'UGX',
       reason: 'Seed concurrent',
       idempotencyKey: randomUUID(),
     });
-    const before = await balance(database, ORG_A, 'UGX');
+    const before = await balance(database, concurrentOrg, 'UGX');
 
     const results = await Promise.allSettled([
       store.adjustWallet({
-        organizationId: ORG_A,
+        organizationId: concurrentOrg,
         actorUserId: ACTOR,
         amountMinor: -60n,
         currency: 'UGX',
@@ -203,7 +207,7 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
         idempotencyKey: randomUUID(),
       }),
       store.adjustWallet({
-        organizationId: ORG_A,
+        organizationId: concurrentOrg,
         actorUserId: ACTOR,
         amountMinor: -60n,
         currency: 'UGX',
@@ -216,7 +220,7 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     const rejected = results.filter((result) => result.status === 'rejected');
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
-    expect(await balance(database, ORG_A, 'UGX')).toBe(before - 60n);
+    expect(await balance(database, concurrentOrg, 'UGX')).toBe(before - 60n);
   });
 
   it('keeps concurrent debits in different organizations isolated', async () => {
@@ -490,14 +494,14 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     await database.walletEntry.create({
       data: {
         organizationId: ORG_A,
-        amountMinor: -1n,
-        currency: 'ZZZ',
+        amountMinor: -999999999n,
+        currency: 'UGX',
         reference: `legacy-negative-${randomUUID()}`,
         description: 'Legacy negative balance',
       },
     });
 
     const result = await service.reconciliation(ACTOR);
-    expect(result.alerts.some((alert) => alert.organizationId === ORG_A && alert.currency === 'ZZZ')).toBe(true);
+    expect(result.alerts.some((alert) => alert.organizationId === ORG_A && alert.currency === 'UGX')).toBe(true);
   });
 });
