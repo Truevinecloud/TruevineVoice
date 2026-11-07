@@ -491,13 +491,13 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
       data: {
         organizationId: ORG_A,
         amountMinor: -1n,
-        currency: 'LEG',
+        currency: 'ZZZ',
         reference: `legacy-negative-${randomUUID()}`,
         description: 'Legacy negative balance',
       },
     });
 
     const result = await service.reconciliation(ACTOR);
-    expect(result.alerts.some((alert) => alert.organizationId === ORG_A && alert.currency === 'LEG')).toBe(true);
+    expect(result.alerts.some((alert) => alert.organizationId === ORG_A && alert.currency === 'ZZZ')).toBe(true);
   });
 });

@@ -221,12 +221,12 @@ export class PrismaBillingAdminStore implements BillingAdminStore {
     return this.prisma.$transaction(async (tx) => {
       // Serialize every adjustment that reuses an idempotency key, including
       // across organizations, before checking or changing any ledger state.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${reference}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${reference}))`;
 
       // Serialize balance-affecting debits for one organization and currency.
       // This is acquired after the idempotency lock in a consistent order to
       // prevent deadlocks while preventing concurrent debits from overdrawing.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${input.organizationId}), hashtext(${input.currency}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.organizationId} || ':' || ${input.currency}))`;
 
       const existing = await tx.walletEntry.findFirst({
         where: { reference },
