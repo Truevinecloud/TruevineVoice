@@ -584,6 +584,9 @@ model Organization {
   contacts           Contact[]
   campaigns          Campaign[]
   walletEntries      WalletEntry[]
+  paymentIntents     PaymentIntent[]
+  paymentAttempts    PaymentAttempt[]
+  paymentProviderEvents PaymentProviderEvent[]
   topUpRequests      TopUpRequest[]
   billingProfile     BillingProfile?
   contactGroups      ContactGroup[]
@@ -676,9 +679,12 @@ model WalletEntry {
   reference String @db.VarChar(200)
   description String @db.VarChar(500)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  paymentIntentId String? @map("payment_intent_id") @db.Uuid
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  paymentIntent PaymentIntent? @relation(fields: [organizationId, paymentIntentId], references: [organizationId, id], onDelete: Restrict)
   @@id([organizationId, id])
   @@unique([organizationId, reference])
+  @@unique([organizationId, paymentIntentId])
   @@index([organizationId, createdAt, id])
   @@map("wallet_entries")
 }
@@ -698,6 +704,70 @@ model TopUpRequest {
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, createdAt, id])
   @@map("top_up_requests")
+}
+
+model PaymentIntent {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  purpose String @db.VarChar(32)
+  amountMinor BigInt @map("amount_minor")
+  currency String @db.VarChar(3)
+  status String @db.VarChar(32)
+  idempotencyKey String @map("idempotency_key") @db.Uuid
+  provider String? @db.VarChar(32)
+  environment String? @db.VarChar(16)
+  providerReference String? @map("provider_reference") @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  walletEntries WalletEntry[]
+  attempts PaymentAttempt[]
+  providerEvents PaymentProviderEvent[]
+  @@id([id])
+  @@unique([organizationId, id])
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, createdAt, id])
+  @@map("payment_intents")
+}
+
+model PaymentAttempt {
+  id String @default(uuid()) @db.Uuid
+  paymentIntentId String @map("payment_intent_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  attemptNo Int @map("attempt_no")
+  provider String @db.VarChar(32)
+  environment String @db.VarChar(16)
+  providerReference String? @map("provider_reference") @db.VarChar(200)
+  status String @db.VarChar(32)
+  requestFingerprint String @map("request_fingerprint") @db.VarChar(128)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  paymentIntent PaymentIntent @relation(fields: [paymentIntentId], references: [id], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  @@id([id])
+  @@unique([paymentIntentId, attemptNo])
+  @@unique([provider, environment, providerReference])
+  @@index([organizationId, createdAt])
+  @@map("payment_attempts")
+}
+
+model PaymentProviderEvent {
+  id String @default(uuid()) @db.Uuid
+  paymentIntentId String? @map("payment_intent_id") @db.Uuid
+  organizationId String? @map("organization_id") @db.Uuid
+  provider String @db.VarChar(32)
+  environment String @db.VarChar(16)
+  providerEventId String @map("provider_event_id") @db.VarChar(200)
+  status String @db.VarChar(32)
+  verified Boolean @default(false)
+  payloadRedacted Json? @map("payload_redacted")
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+  paymentIntent PaymentIntent? @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  @@id([id])
+  @@unique([provider, environment, providerEventId])
+  @@index([organizationId, receivedAt])
+  @@map("payment_provider_events")
 }
 
 model BillingProfile {
