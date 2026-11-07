@@ -184,8 +184,13 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
 
   it('prevents concurrent different-key debits from overdrawing one wallet', async () => {
     const concurrentOrg = randomUUID();
-    await database.organization.create({
-      data: { id: concurrentOrg, slug: `billing-concurrent-${RUN}`, name: 'Billing concurrent test' },
+    await database.$transaction(async (tx) => {
+      await tx.organization.create({
+        data: { id: concurrentOrg, slug: `billing-concurrent-${RUN}`, name: 'Billing concurrent test' },
+      });
+      await tx.membership.create({
+        data: { organizationId: concurrentOrg, userId: ACTOR, role: 'OWNER' },
+      });
     });
     await store.adjustWallet({
       organizationId: concurrentOrg,
