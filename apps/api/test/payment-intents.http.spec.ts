@@ -108,8 +108,9 @@ describe('Payment intents HTTP', () => {
     expect((await call('post', '/organizations/org-1/payments/intents').send({ purpose: 'SUBSCRIPTION_RENEWAL', amountMinor: '5000', currency: 'UGX', idempotencyKey: randomUUID() })).status).toBe(400);
   });
 
-  it('denies cross-organization access', async () => {
-    const res = await call('post', '/organizations/org-2/payments/intents').send({ purpose: 'WALLET_TOP_UP', amountMinor: '5000', currency: 'UGX', idempotencyKey: randomUUID() });
+  it('denies creation for roles without billing:update', async () => {
+    organizations.memberships[0]!.role = 'VIEWER';
+    const res = await call('post', '/organizations/org-1/payments/intents').send({ purpose: 'WALLET_TOP_UP', amountMinor: '5000', currency: 'UGX', idempotencyKey: randomUUID() });
     expect(res.status).toBe(403);
   });
 });

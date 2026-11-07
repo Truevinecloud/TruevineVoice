@@ -40,7 +40,7 @@ CREATE TABLE "payment_attempts" (
   CONSTRAINT "payment_attempts_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "payment_attempts_payment_intent_id_attempt_no_key" UNIQUE ("payment_intent_id", "attempt_no"),
   CONSTRAINT "payment_attempts_provider_environment_provider_reference_key" UNIQUE ("provider", "environment", "provider_reference"),
-  CONSTRAINT "payment_attempts_payment_intent_id_fkey" FOREIGN KEY ("payment_intent_id") REFERENCES "payment_intents"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT "payment_attempts_payment_intent_id_fkey" FOREIGN KEY ("organization_id", "payment_intent_id") REFERENCES "payment_intents"("organization_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT "payment_attempts_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 CREATE INDEX "payment_attempts_organization_id_created_at_idx" ON "payment_attempts"("organization_id", "created_at");
@@ -59,7 +59,8 @@ CREATE TABLE "payment_provider_events" (
   CONSTRAINT "payment_provider_events_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "payment_provider_events_provider_environment_provider_event_id_key" UNIQUE ("provider", "environment", "provider_event_id"),
   CONSTRAINT "payment_provider_events_payment_intent_id_fkey" FOREIGN KEY ("payment_intent_id") REFERENCES "payment_intents"("id") ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT "payment_provider_events_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE SET NULL ON UPDATE CASCADE
+  CONSTRAINT "payment_provider_events_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT "payment_provider_events_organization_id_payment_intent_id_fkey" FOREIGN KEY ("organization_id", "payment_intent_id") REFERENCES "payment_intents"("organization_id", "id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 CREATE INDEX "payment_provider_events_organization_id_received_at_idx" ON "payment_provider_events"("organization_id", "received_at");
 
@@ -72,7 +73,6 @@ ALTER TABLE "wallet_entries"
 
 -- One credit per payment intent.
 CREATE UNIQUE INDEX "wallet_entries_organization_id_payment_intent_id_key"
-  ON "wallet_entries"("organization_id", "payment_intent_id")
-  WHERE "payment_intent_id" IS NOT NULL;
+  ON "wallet_entries"("organization_id", "payment_intent_id");
 
 COMMIT;
