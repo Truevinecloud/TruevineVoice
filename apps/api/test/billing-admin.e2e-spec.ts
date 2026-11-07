@@ -42,17 +42,19 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
         status: 'ACTIVE',
       },
     });
-    await database.organization.createMany({
-      data: [
-        { id: ORG_A, slug: `billing-admin-a-${RUN}`, name: 'Billing admin test A' },
-        { id: ORG_B, slug: `billing-admin-b-${RUN}`, name: 'Billing admin test B' },
-      ],
-    });
-    await database.membership.createMany({
-      data: [
-        { organizationId: ORG_A, userId: ACTOR, role: 'OWNER' },
-        { organizationId: ORG_B, userId: ACTOR, role: 'OWNER' },
-      ],
+    await database.$transaction(async (tx) => {
+      await tx.organization.createMany({
+        data: [
+          { id: ORG_A, slug: `billing-admin-a-${RUN}`, name: 'Billing admin test A' },
+          { id: ORG_B, slug: `billing-admin-b-${RUN}`, name: 'Billing admin test B' },
+        ],
+      });
+      await tx.membership.createMany({
+        data: [
+          { organizationId: ORG_A, userId: ACTOR, role: 'OWNER' },
+          { organizationId: ORG_B, userId: ACTOR, role: 'OWNER' },
+        ],
+      });
     });
     store = new PrismaBillingAdminStore(database as never);
     audit = new PrismaAuditStore(database as never);
