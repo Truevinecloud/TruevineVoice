@@ -53,8 +53,8 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     await database.$transaction(async (tx) => {
       await tx.organization.createMany({
         data: [
-          { id: ORG_A, slug: `billing-admin-a-${RUN}`, name: 'Billing admin test A' },
-          { id: ORG_B, slug: `billing-admin-b-${RUN}`, name: 'Billing admin test B' },
+          { id: ORG_A, slug: `ledger-a-${RUN}`, name: 'Ledger test A' },
+          { id: ORG_B, slug: `ledger-b-${RUN}`, name: 'Ledger test B' },
         ],
       });
       await tx.membership.createMany({
@@ -186,7 +186,7 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     const concurrentOrg = randomUUID();
     await database.$transaction(async (tx) => {
       await tx.organization.create({
-        data: { id: concurrentOrg, slug: `billing-concurrent-${RUN}`, name: 'Billing concurrent test' },
+        data: { id: concurrentOrg, slug: `ledger-concurrent-${RUN}`, name: 'Ledger concurrent test' },
       });
       await tx.membership.create({
         data: { organizationId: concurrentOrg, userId: ACTOR, role: 'OWNER' },
