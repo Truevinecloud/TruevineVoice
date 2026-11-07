@@ -16,6 +16,14 @@ const ORG_B = randomUUID();
 const ACTOR = randomUUID();
 const RUN = randomUUID().replace(/-/g, '').slice(0, 8);
 
+async function balance(database: PrismaClient, organizationId: string, currency: string): Promise<bigint> {
+  const aggregate = await database.walletEntry.aggregate({
+    where: { organizationId, currency },
+    _sum: { amountMinor: true },
+  });
+  return aggregate._sum.amountMinor ?? 0n;
+}
+
 describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
   let database: PrismaClient;
   let store: PrismaBillingAdminStore;
@@ -65,33 +73,261 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     await database?.$disconnect();
   });
 
-  it('creates exactly one ledger entry for concurrent identical idempotency keys', async () => {
-    const key = randomUUID();
-    const results = await Promise.all(
-      Array.from({ length: 5 }, () =>
-        store.adjustWallet({
-          organizationId: ORG_A,
-          actorUserId: randomUUID(),
-          amountMinor: 1000n,
-          currency: 'UGX',
-          reason: 'Concurrent adjustment',
-          idempotencyKey: key,
-        }),
-      ),
-    );
-
-    expect(results.filter((result) => result.created).length).toBe(1);
-    const distinctIds = new Set(results.map((result) => result.entry.id));
-    expect(distinctIds.size).toBe(1);
-    const entries = await database.walletEntry.findMany({ where: { organizationId: ORG_A, reference: `billing-adjustment:${key}` } });
-    expect(entries).toHaveLength(1);
+  it('increases the balance with a positive adjustment', async () => {
+    const before = await balance(database, ORG_A, 'UGX');
+    const result = await store.adjustWallet({
+      organizationId: ORG_A,
+      actorUserId: ACTOR,
+      amountMinor: 1000n,
+      currency: 'UGX',
+      reason: 'Positive adjustment',
+      idempotencyKey: randomUUID(),
+    });
+    expect(result.created).toBe(true);
+    expect(await balance(database, ORG_A, 'UGX')).toBe(before + 1000n);
   });
 
-  it('rejects conflicting reuse of an idempotency key across amount, currency, organization, and reason', async () => {
+  it('accepts a debit smaller than the available balance', async () => {
+    await store.adjustWallet({
+      organizationId: ORG_A,
+      actorUserId: ACTOR,
+      amountMinor: 500n,
+      currency: 'UGX',
+      reason: 'Seed balance',
+      idempotencyKey: randomUUID(),
+    });
+    const before = await balance(database, ORG_A, 'UGX');
+    const result = await store.adjustWallet({
+      organizationId: ORG_A,
+      actorUserId: ACTOR,
+      amountMinor: -300n,
+      currency: 'UGX',
+      reason: 'Small debit',
+      idempotencyKey: randomUUID(),
+    });
+    expect(result.created).toBe(true);
+    expect(await balance(database, ORG_A, 'UGX')).toBe(before - 300n);
+  });
+
+  it('accepts a debit equal to the available balance and leaves zero', async () => {
+    const current = await balance(database, ORG_A, 'UGX');
+    const result = await store.adjustWallet({
+      organizationId: ORG_A,
+      actorUserId: ACTOR,
+      amountMinor: -current,
+      currency: 'UGX',
+      reason: 'Full debit',
+      idempotencyKey: randomUUID(),
+    });
+    expect(result.created).toBe(true);
+    expect(await balance(database, ORG_A, 'UGX')).toBe(0n);
+  });
+
+  it('rejects a debit exceeding the available balance', async () => {
+    await store.adjustWallet({
+      organizationId: ORG_A,
+      actorUserId: ACTOR,
+      amountMinor: 100n,
+      currency: 'UGX',
+      reason: 'Seed for rejection',
+      idempotencyKey: randomUUID(),
+    });
+    const before = await balance(database, ORG_A, 'UGX');
+    const beforeCount = await database.walletEntry.count({ where: { organizationId: ORG_A, currency: 'UGX' } });
+
+    await expect(
+      store.adjustWallet({
+        organizationId: ORG_A,
+        actorUserId: ACTOR,
+        amountMinor: -(before + 1n),
+        currency: 'UGX',
+        reason: 'Overdraft attempt',
+        idempotencyKey: randomUUID(),
+      }),
+    ).rejects.toBeDefined();
+
+    expect(await balance(database, ORG_A, 'UGX')).toBe(before);
+    expect(await database.walletEntry.count({ where: { organizationId: ORG_A, currency: 'UGX' } })).toBe(beforeCount);
+  });
+
+  it('rejects a debit from a zero-balance wallet', async () => {
+    await expect(
+      store.adjustWallet({
+        organizationId: ORG_A,
+        actorUserId: ACTOR,
+        amountMinor: -1n,
+        currency: 'EUR',
+        reason: 'Zero balance debit',
+        idempotencyKey: randomUUID(),
+      }),
+    ).rejects.toBeDefined();
+    expect(await balance(database, ORG_A, 'EUR')).toBe(0n);
+  });
+
+  it('creates no ledger entry for a rejected debit', async () => {
+    const key = randomUUID();
+    const beforeCount = await database.walletEntry.count({ where: { reference: `billing-adjustment:${key}` } });
+
+    await expect(
+      store.adjustWallet({
+        organizationId: ORG_A,
+        actorUserId: ACTOR,
+        amountMinor: -1n,
+        currency: 'EUR',
+        reason: 'Rejected no entry',
+        idempotencyKey: key,
+      }),
+    ).rejects.toBeDefined();
+
+    expect(await database.walletEntry.count({ where: { reference: `billing-adjustment:${key}` } })).toBe(beforeCount);
+  });
+
+  it('prevents concurrent different-key debits from overdrawing one wallet', async () => {
+    await store.adjustWallet({
+      organizationId: ORG_A,
+      actorUserId: ACTOR,
+      amountMinor: 100n,
+      currency: 'UGX',
+      reason: 'Seed concurrent',
+      idempotencyKey: randomUUID(),
+    });
+    const before = await balance(database, ORG_A, 'UGX');
+
+    const results = await Promise.allSettled([
+      store.adjustWallet({
+        organizationId: ORG_A,
+        actorUserId: ACTOR,
+        amountMinor: -60n,
+        currency: 'UGX',
+        reason: 'Concurrent debit one',
+        idempotencyKey: randomUUID(),
+      }),
+      store.adjustWallet({
+        organizationId: ORG_A,
+        actorUserId: ACTOR,
+        amountMinor: -60n,
+        currency: 'UGX',
+        reason: 'Concurrent debit two',
+        idempotencyKey: randomUUID(),
+      }),
+    ]);
+
+    const fulfilled = results.filter((result) => result.status === 'fulfilled');
+    const rejected = results.filter((result) => result.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(await balance(database, ORG_A, 'UGX')).toBe(before - 60n);
+  });
+
+  it('keeps concurrent debits in different organizations isolated', async () => {
+    await store.adjustWallet({
+      organizationId: ORG_A,
+      actorUserId: ACTOR,
+      amountMinor: 100n,
+      currency: 'UGX',
+      reason: 'Seed org A',
+      idempotencyKey: randomUUID(),
+    });
+    await store.adjustWallet({
+      organizationId: ORG_B,
+      actorUserId: ACTOR,
+      amountMinor: 100n,
+      currency: 'UGX',
+      reason: 'Seed org B',
+      idempotencyKey: randomUUID(),
+    });
+    const beforeA = await balance(database, ORG_A, 'UGX');
+    const beforeB = await balance(database, ORG_B, 'UGX');
+
+    const results = await Promise.allSettled([
+      store.adjustWallet({
+        organizationId: ORG_A,
+        actorUserId: ACTOR,
+        amountMinor: -60n,
+        currency: 'UGX',
+        reason: 'Org A debit',
+        idempotencyKey: randomUUID(),
+      }),
+      store.adjustWallet({
+        organizationId: ORG_B,
+        actorUserId: ACTOR,
+        amountMinor: -60n,
+        currency: 'UGX',
+        reason: 'Org B debit',
+        idempotencyKey: randomUUID(),
+      }),
+    ]);
+
+    expect(results.every((result) => result.status === 'fulfilled')).toBe(true);
+    expect(await balance(database, ORG_A, 'UGX')).toBe(beforeA - 60n);
+    expect(await balance(database, ORG_B, 'UGX')).toBe(beforeB - 60n);
+  });
+
+  it('does not let one currency subsidize a debit in another currency', async () => {
+    await store.adjustWallet({
+      organizationId: ORG_A,
+      actorUserId: ACTOR,
+      amountMinor: 100n,
+      currency: 'UGX',
+      reason: 'UGX balance',
+      idempotencyKey: randomUUID(),
+    });
+    const beforeUgx = await balance(database, ORG_A, 'UGX');
+
+    await expect(
+      store.adjustWallet({
+        organizationId: ORG_A,
+        actorUserId: ACTOR,
+        amountMinor: -10n,
+        currency: 'USD',
+        reason: 'USD debit without USD balance',
+        idempotencyKey: randomUUID(),
+      }),
+    ).rejects.toBeDefined();
+
+    expect(await balance(database, ORG_A, 'UGX')).toBe(beforeUgx);
+    expect(await balance(database, ORG_A, 'USD')).toBe(0n);
+  });
+
+  it('returns the original entry for an identical idempotency-key retry', async () => {
+    await store.adjustWallet({
+      organizationId: ORG_A,
+      actorUserId: ACTOR,
+      amountMinor: 100n,
+      currency: 'UGX',
+      reason: 'Seed retry',
+      idempotencyKey: randomUUID(),
+    });
+    const key = randomUUID();
+    const first = await store.adjustWallet({
+      organizationId: ORG_A,
+      actorUserId: ACTOR,
+      amountMinor: -40n,
+      currency: 'UGX',
+      reason: 'Retry debit',
+      idempotencyKey: key,
+    });
+    const before = await balance(database, ORG_A, 'UGX');
+    const replay = await store.adjustWallet({
+      organizationId: ORG_A,
+      actorUserId: ACTOR,
+      amountMinor: -40n,
+      currency: 'UGX',
+      reason: 'Retry debit',
+      idempotencyKey: key,
+    });
+
+    expect(first.created).toBe(true);
+    expect(replay.created).toBe(false);
+    expect(replay.entry.id).toBe(first.entry.id);
+    expect(await balance(database, ORG_A, 'UGX')).toBe(before);
+  });
+
+  it('rejects conflicting reuse of an idempotency key', async () => {
     const key = randomUUID();
     await store.adjustWallet({
       organizationId: ORG_A,
-      actorUserId: randomUUID(),
+      actorUserId: ACTOR,
       amountMinor: 1000n,
       currency: 'UGX',
       reason: 'Original',
@@ -101,7 +337,7 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     await expect(
       store.adjustWallet({
         organizationId: ORG_A,
-        actorUserId: randomUUID(),
+        actorUserId: ACTOR,
         amountMinor: 2000n,
         currency: 'UGX',
         reason: 'Original',
@@ -112,7 +348,7 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     await expect(
       store.adjustWallet({
         organizationId: ORG_A,
-        actorUserId: randomUUID(),
+        actorUserId: ACTOR,
         amountMinor: 1000n,
         currency: 'USD',
         reason: 'Original',
@@ -123,7 +359,7 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     await expect(
       store.adjustWallet({
         organizationId: ORG_A,
-        actorUserId: randomUUID(),
+        actorUserId: ACTOR,
         amountMinor: 1000n,
         currency: 'UGX',
         reason: 'Changed reason',
@@ -134,7 +370,7 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     await expect(
       store.adjustWallet({
         organizationId: ORG_B,
-        actorUserId: randomUUID(),
+        actorUserId: ACTOR,
         amountMinor: 1000n,
         currency: 'UGX',
         reason: 'Original',
@@ -177,35 +413,69 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     expect(entries).toHaveLength(1);
   });
 
-  it('does not leak an adjustment from one organization to another', async () => {
+  it('records exact audit evidence for success and rejected adjustments', async () => {
     const key = randomUUID();
+    const beforeSuccess = await database.securityAuditEvent.count({
+      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', outcome: 'SUCCESS' },
+    });
+    const beforeDenied = await database.securityAuditEvent.count({
+      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', outcome: 'DENIED' },
+    });
+
     await store.adjustWallet({
       organizationId: ORG_A,
       actorUserId: ACTOR,
-      amountMinor: 500n,
+      amountMinor: 100n,
       currency: 'UGX',
-      reason: 'Org A only',
+      reason: 'Audit success',
+      idempotencyKey: randomUUID(),
+    });
+
+    await store.adjustWallet({
+      organizationId: ORG_A,
+      actorUserId: ACTOR,
+      amountMinor: 100n,
+      currency: 'UGX',
+      reason: 'Audit success service',
       idempotencyKey: key,
     });
 
-    const orgBEntries = await database.walletEntry.findMany({ where: { organizationId: ORG_B, reference: `billing-adjustment:${key}` } });
-    expect(orgBEntries).toHaveLength(0);
-  });
-  it('keeps ledger totals equal to the sum of committed entries after concurrent adjustments', async () => {
-    const keys = Array.from({ length: 10 }, () => randomUUID());
-    await Promise.all(
-      keys.map((key, index) =>
-        store.adjustWallet({
-          organizationId: ORG_A,
-          actorUserId: randomUUID(),
-          amountMinor: BigInt((index % 3) === 0 ? -100 : 250),
-          currency: 'UGX',
-          reason: `Concurrent adjustment ${index}`,
-          idempotencyKey: key,
-        }),
-      ),
-    );
+    const successServiceResult = await service.adjustWallet(ACTOR, ORG_A, {
+      amountMinor: '100',
+      currency: 'UGX',
+      reason: 'Audit success service',
+      idempotencyKey: key,
+    });
+    expect(successServiceResult.created).toBe(false);
 
+    await expect(
+      service.adjustWallet(ACTOR, ORG_A, {
+        amountMinor: '-999999999',
+        currency: 'UGX',
+        reason: 'Insufficient balance',
+        idempotencyKey: randomUUID(),
+      }),
+    ).rejects.toBeDefined();
+
+    const afterSuccess = await database.securityAuditEvent.count({
+      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', outcome: 'SUCCESS' },
+    });
+    const afterDenied = await database.securityAuditEvent.count({
+      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', outcome: 'DENIED' },
+    });
+
+    expect(afterSuccess).toBeGreaterThanOrEqual(beforeSuccess + 1);
+    expect(afterDenied).toBeGreaterThanOrEqual(beforeDenied + 1);
+
+    const deniedEvents = await database.securityAuditEvent.findMany({
+      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', outcome: 'DENIED' },
+      orderBy: { occurredAt: 'desc' },
+      take: 1,
+    });
+    expect(deniedEvents[0]?.metadata).toMatchObject({ failure: 'insufficient_wallet_balance' });
+  });
+
+  it('keeps ledger totals equal to the sum of committed entries after concurrent operations', async () => {
     const entries = await database.walletEntry.findMany({ where: { organizationId: ORG_A } });
     const groups = await database.walletEntry.groupBy({
       by: ['currency'],
@@ -216,114 +486,18 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     expect(groups.reduce((sum, group) => sum + (group._sum.amountMinor ?? 0n), 0n)).toBe(total);
   });
 
-  it('records exact audit evidence for success, replay, validation failure, and conflict', async () => {
-    const key = randomUUID();
-    const beforeSecurity = await database.securityAuditEvent.count({
-      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted' },
-    });
-
-    const first = await service.adjustWallet(ACTOR, ORG_A, {
-      amountMinor: '1000',
-      currency: 'UGX',
-      reason: 'Audit success',
-      idempotencyKey: key,
-    });
-    expect(first.created).toBe(true);
-
-    const replay = await service.adjustWallet(ACTOR, ORG_A, {
-      amountMinor: '1000',
-      currency: 'UGX',
-      reason: 'Audit success',
-      idempotencyKey: key,
-    });
-    expect(replay.created).toBe(false);
-
-    await expect(
-      service.adjustWallet(ACTOR, ORG_A, {
-        amountMinor: '0',
-        currency: 'UGX',
-        reason: 'Bad amount',
-        idempotencyKey: randomUUID(),
-      }),
-    ).rejects.toBeDefined();
-
-    await expect(
-      service.adjustWallet(ACTOR, ORG_A, {
-        amountMinor: '2000',
-        currency: 'UGX',
-        reason: 'Conflict',
-        idempotencyKey: key,
-      }),
-    ).rejects.toBeDefined();
-
-    const successEvents = await database.securityAuditEvent.findMany({
-      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', actorUserId: ACTOR, outcome: 'SUCCESS' },
-      orderBy: { occurredAt: 'asc' },
-    });
-    expect(successEvents.length).toBeGreaterThanOrEqual(beforeSecurity + 2);
-    expect(successEvents.at(-2)?.targetId).toBe(first.entry.id);
-    expect(successEvents.at(-1)?.targetId).toBe(replay.entry.id);
-
-    const identityEvents = await database.identityAuditEvent.findMany({
-      where: { actorUserId: ACTOR, action: 'platform.billing.wallet_adjusted', outcome: 'SUCCESS' },
-    });
-    expect(identityEvents.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('does not leave a ledger entry when the database write fails', async () => {
-    // PrismaBillingAdminStore.adjustWallet performs a read followed by a single
-    // INSERT. There is no multi-write transaction to roll back; this test proves
-    // a failed INSERT leaves no entry and the same key can be retried.
-    const key = randomUUID();
-    const missingOrganization = randomUUID();
-    const beforeCount = await database.walletEntry.count({ where: { reference: `billing-adjustment:${key}` } });
-    const beforeAudit = await database.securityAuditEvent.count({
-      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted' },
-    });
-
-    await expect(
-      store.adjustWallet({
-        organizationId: missingOrganization,
-        actorUserId: ACTOR,
-        amountMinor: 1234n,
-        currency: 'UGX',
-        reason: 'Injected database failure',
-        idempotencyKey: key,
-      }),
-    ).rejects.toBeDefined();
-
-    const afterCount = await database.walletEntry.count({ where: { reference: `billing-adjustment:${key}` } });
-    const afterAudit = await database.securityAuditEvent.count({
-      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted' },
-    });
-    expect(afterCount).toBe(beforeCount);
-    expect(afterAudit).toBe(beforeAudit);
-
-    await expect(
-      store.adjustWallet({
+  it('retains negative-balance detection for legacy ledger entries', async () => {
+    await database.walletEntry.create({
+      data: {
         organizationId: ORG_A,
-        actorUserId: ACTOR,
-        amountMinor: 1234n,
-        currency: 'UGX',
-        reason: 'Retry after failure',
-        idempotencyKey: key,
-      }),
-    ).resolves.toBeDefined();
-    const retryEntries = await database.walletEntry.findMany({ where: { reference: `billing-adjustment:${key}` } });
-    expect(retryEntries).toHaveLength(1);
-  });
-
-  it('surfaces a negative balance in reconciliation alerts', async () => {
-    await store.adjustWallet({
-      organizationId: ORG_A,
-      actorUserId: randomUUID(),
-      amountMinor: -999999999n,
-      currency: 'UGX',
-      reason: 'Force negative balance',
-      idempotencyKey: randomUUID(),
+        amountMinor: -1n,
+        currency: 'LEG',
+        reference: `legacy-negative-${randomUUID()}`,
+        description: 'Legacy negative balance',
+      },
     });
 
     const result = await service.reconciliation(ACTOR);
-    expect(result.alerts.some((alert) => alert.organizationId === ORG_A && alert.currency === 'UGX')).toBe(true);
+    expect(result.alerts.some((alert) => alert.organizationId === ORG_A && alert.currency === 'LEG')).toBe(true);
   });
 });

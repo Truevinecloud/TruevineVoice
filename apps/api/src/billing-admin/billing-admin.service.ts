@@ -266,14 +266,50 @@ export class BillingAdminService {
     const amountMinor = BigInt(body.amountMinor);
     if (amountMinor === 0n) invalid('invalid_amount', 'Adjustment amount cannot be zero.');
 
-    const result = await this.store.adjustWallet({
-      organizationId,
-      actorUserId,
-      amountMinor,
-      currency,
-      reason,
-      idempotencyKey,
-    });
+    let result: Awaited<ReturnType<BillingAdminStore['adjustWallet']>>;
+    try {
+      result = await this.store.adjustWallet({
+        organizationId,
+        actorUserId,
+        amountMinor,
+        currency,
+        reason,
+        idempotencyKey,
+      });
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        const response = error.getResponse();
+        const code =
+          typeof response === 'object' && response !== null && 'error' in response
+            ? (response as { error?: { code?: string } }).error?.code
+            : undefined;
+        if (code === 'insufficient_wallet_balance') {
+          await this.audit.recordIdentity({
+            actorUserId,
+            action: 'platform.billing.wallet_adjusted',
+            outcome: 'DENIED',
+            metadata: {
+              organizationId,
+              amountMinor: amountMinor.toString(),
+              currency,
+              reason,
+              failure: 'insufficient_wallet_balance',
+            },
+          });
+          await this.audit.record({
+            organizationId,
+            actorUserId,
+            action: 'platform.billing.wallet_adjusted',
+            scope: 'PLATFORM',
+            outcome: 'DENIED',
+            targetType: 'wallet',
+            targetId: organizationId,
+            metadata: { amountMinor: amountMinor.toString(), currency, reason, failure: 'insufficient_wallet_balance' },
+          });
+        }
+      }
+      throw error;
+    }
 
     await this.recordIdentity(actorUserId, 'platform.billing.wallet_adjusted', {
       organizationId,

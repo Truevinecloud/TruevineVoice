@@ -172,7 +172,11 @@ export default function BillingAdminPage() {
         void loadWalletEntries(adjustmentOrganizationId);
       }
     } catch (caught) {
-      setAdjustmentError(messageFor(caught, 'Adjustment failed.'));
+      setAdjustmentError(
+        caught instanceof ApiError && caught.detail
+          ? caught.detail
+          : messageFor(caught, 'Adjustment failed.'),
+      );
     } finally {
       setAdjustmentBusy(false);
     }

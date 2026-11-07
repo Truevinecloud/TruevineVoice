@@ -180,14 +180,14 @@ describe('platform billing admin HTTP adjustments', () => {
   it('allows a platform owner to record a valid adjustment', async () => {
     await setup('PLATFORM_OWNER');
     const response = await call('post', `/platform/billing/organizations/${ORG_ID}/wallet/adjustments`).send({
-      amountMinor: '-2500',
+      amountMinor: '2500',
       currency: 'UGX',
       reason: 'Reversal',
       idempotencyKey: randomUUID(),
     });
 
     expect(response.status).toBe(200);
-    expect(response.body.entry.amountMinor).toBe('-2500');
+    expect(response.body.entry.amountMinor).toBe('2500');
   });
 
   it('denies unrelated platform roles', async () => {

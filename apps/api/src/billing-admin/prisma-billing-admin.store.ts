@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@truevine/database';
 
 import { DATABASE_CLIENT } from '../tokens.js';
@@ -219,9 +219,14 @@ export class PrismaBillingAdminStore implements BillingAdminStore {
     const reference = `billing-adjustment:${input.idempotencyKey}`;
 
     return this.prisma.$transaction(async (tx) => {
-      // Serialize all adjustments that reuse an idempotency key, including
-      // across organizations, so the read below cannot race with another writer.
+      // Serialize every adjustment that reuses an idempotency key, including
+      // across organizations, before checking or changing any ledger state.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${reference}))`;
+
+      // Serialize balance-affecting debits for one organization and currency.
+      // This is acquired after the idempotency lock in a consistent order to
+      // prevent deadlocks while preventing concurrent debits from overdrawing.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${input.organizationId}), hashtext(${input.currency}))`;
 
       const existing = await tx.walletEntry.findFirst({
         where: { reference },
@@ -248,6 +253,22 @@ export class PrismaBillingAdminStore implements BillingAdminStore {
           });
         }
         return { entry: existing, created: false };
+      }
+
+      if (input.amountMinor < 0n) {
+        const aggregate = await tx.walletEntry.aggregate({
+          where: { organizationId: input.organizationId, currency: input.currency },
+          _sum: { amountMinor: true },
+        });
+        const currentBalance = aggregate._sum.amountMinor ?? 0n;
+        if (currentBalance + input.amountMinor < 0n) {
+          throw new BadRequestException({
+            error: {
+              code: 'insufficient_wallet_balance',
+              message: 'This adjustment would make the wallet balance negative.',
+            },
+          });
+        }
       }
 
       const createdEntry = await tx.walletEntry.create({
