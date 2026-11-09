@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 
 import { api } from '../../../../lib/api';
 import {
@@ -53,31 +53,111 @@ export default function UserDetail({ userId }: { userId: string }) {
   const [access, setAccess] = useState<number | null | 'checking'>('checking');
   const [detail, setDetail] = useState<UserDetail | null>(null);
   const [audit, setAudit] = useState<AuditEventRow[] | null>(null);
-  const [message, setMessage] = useState('');
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(true);
+  const [loadingAudit, setLoadingAudit] = useState(false);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        try {
-          await api('/platform/support/me');
-          const result = await api<UserDetail>(`/platform/support/users/${userId}`);
-          setDetail(result);
-          setAccess(null);
-        } catch (error) {
-          setAccess((error as { status?: number }).status ?? 500);
-        }
-      })();
-    }, 0);
-    return () => window.clearTimeout(timer);
+  const detailRequestIdRef = useRef(0);
+  const auditRequestIdRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  const loadDetail = useCallback(async () => {
+    setLoadingDetail(true);
+    const currentRequestId = ++detailRequestIdRef.current;
+    try {
+      await api('/platform/support/me');
+      const result = await api<UserDetail>(`/platform/support/users/${userId}`);
+      if (!mountedRef.current || currentRequestId !== detailRequestIdRef.current) {
+        return;
+      }
+      setDetail(result);
+      setAccess(null);
+    } catch (error) {
+      if (!mountedRef.current || currentRequestId !== detailRequestIdRef.current) {
+        return;
+      }
+      const statusCode = (error as { status?: number }).status;
+      if (statusCode === 401) setAccess(401);
+      else if (statusCode === 403) setAccess(403);
+      else if (statusCode === 404) setAccess(404);
+      else setAccess(statusCode ?? 500);
+    } finally {
+      if (mountedRef.current && currentRequestId === detailRequestIdRef.current) {
+        setLoadingDetail(false);
+      }
+    }
   }, [userId]);
 
-  async function loadAudit() {
+  const loadAudit = useCallback(async () => {
+    setLoadingAudit(true);
+    setAuditError(null);
+    const currentRequestId = ++auditRequestIdRef.current;
     try {
       const result = await api<AuditTrail>(`/platform/support/users/${userId}/audit`);
+      if (!mountedRef.current || currentRequestId !== auditRequestIdRef.current) {
+        return;
+      }
       setAudit(result.events);
-    } catch {
-      setMessage('Audit trail is unavailable.');
+    } catch (error) {
+      if (!mountedRef.current || currentRequestId !== auditRequestIdRef.current) {
+        return;
+      }
+      const statusCode = (error as { status?: number }).status;
+      if (statusCode === 404) {
+        setAuditError('User not found.');
+      } else {
+        setAuditError('Audit trail is unavailable. Please try again.');
+      }
+    } finally {
+      if (mountedRef.current && currentRequestId === auditRequestIdRef.current) {
+        setLoadingAudit(false);
+      }
     }
+  }, [userId]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    window.setTimeout(() => loadDetail(), 0);
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [loadDetail]);
+
+  function retryAudit() {
+    setAudit(null);
+    loadAudit();
+  }
+
+  if (access === 'checking' || loadingDetail) {
+    return (
+      <main className="operations-shell">
+        <SupportHeader title="User" />
+        <SupportNav current="users" />
+        <section className="card" aria-busy="true" aria-label="Loading user details">
+          <div className="skeleton-kv-grid" style={{ marginBottom: '1rem' }}>
+            <div className="skeleton-kv" />
+            <div className="skeleton-kv" />
+            <div className="skeleton-kv" />
+            <div className="skeleton-kv" />
+            <div className="skeleton-kv" />
+            <div className="skeleton-kv" />
+            <div className="skeleton-kv" />
+            <div className="skeleton-kv" />
+          </div>
+          <div className="skeleton-table" style={{ minHeight: '150px' }} />
+        </section>
+      </main>
+    );
+  }
+
+  if (access === 404) {
+    return (
+      <main className="operations-shell">
+        <SupportHeader title="User not found" />
+        <SupportNav current="users" />
+        <AccessNotice status={404} />
+      </main>
+    );
   }
 
   return (
@@ -85,7 +165,6 @@ export default function UserDetail({ userId }: { userId: string }) {
       <SupportHeader title={detail?.user.email ?? 'User'} />
       <SupportNav current="users" />
       <AccessNotice status={typeof access === 'number' ? access : null} />
-      {message && <p className="notice">{message}</p>}
       {access === null && detail && (
         <>
           <div className="kv-grid" aria-label="User summary">
@@ -143,9 +222,7 @@ export default function UserDetail({ userId }: { userId: string }) {
                     {detail.memberships.map((membership) => (
                       <tr key={membership.organizationId}>
                         <td>
-                          <Link
-                            href={`/support/customers/${membership.organizationId}`}
-                          >
+                          <Link href={`/support/customers/${membership.organizationId}`}>
                             <strong>{membership.organizationName}</strong>
                             <small>{membership.organizationSlug}</small>
                           </Link>
@@ -166,11 +243,24 @@ export default function UserDetail({ userId }: { userId: string }) {
                 <button className="quiet-button" onClick={() => void loadAudit()}>
                   Load trail
                 </button>
+              ) : loadingAudit ? (
+                <span>Loading…</span>
+              ) : auditError ? (
+                <span>Error loading audit trail</span>
               ) : (
                 <span>Newest first</span>
               )}
             </div>
-            {audit !== null && <AuditTable events={audit} />}
+            {audit !== null && !loadingAudit && <AuditTable events={audit} />}
+            {loadingAudit && <div className="skeleton-table" style={{ minHeight: '200px' }} aria-busy="true" />}
+            {auditError && (
+              <div className="notice" role="alert" style={{ marginTop: '1rem' }}>
+                {auditError}
+                <button type="button" className="quiet-button" style={{ marginLeft: '0.75rem' }} onClick={retryAudit}>
+                  Retry
+                </button>
+              </div>
+            )}
           </section>
         </>
       )}

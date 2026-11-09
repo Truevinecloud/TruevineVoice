@@ -27,6 +27,8 @@ type SupportClient = Pick<
   | 'topUpRequest'
   | 'user'
   | 'session'
+  | 'supportAccessSession'
+  | 'billingProfile'
   | 'securityAuditEvent'
   | 'identityAuditEvent'
 >;
@@ -455,5 +457,121 @@ export class PrismaSupportStore implements SupportStore {
       actorUserId: event.actorUserId,
       actorEmail: event.actor.email,
     }));
+  }
+
+  async countOrganizations(): Promise<number> {
+    return this.prisma.organization.count();
+  }
+
+  async countUsers(): Promise<number> {
+    return this.prisma.user.count();
+  }
+
+  async countActiveSupportSessions(): Promise<number> {
+    const now = new Date();
+    return this.prisma.supportAccessSession.count({
+      where: { expiresAt: { gt: now }, revokedAt: null },
+    });
+  }
+
+  async recentSupportActivity(limit: number): Promise<readonly SupportAuditEventRecord[]> {
+    const events = await this.prisma.securityAuditEvent.findMany({
+      where: {
+        action: { startsWith: 'platform.support.' },
+      },
+      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+      take: limit,
+      select: {
+        id: true,
+        action: true,
+        outcome: true,
+        scope: true,
+        targetType: true,
+        targetId: true,
+        metadata: true,
+        occurredAt: true,
+        actorUserId: true,
+        actor: { select: { email: true } },
+      },
+    });
+
+    return events.map((event) => ({
+      id: event.id,
+      action: event.action,
+      outcome: event.outcome,
+      scope: event.scope,
+      targetType: event.targetType,
+      targetId: event.targetId,
+      metadata: event.metadata,
+      occurredAt: event.occurredAt,
+      actorUserId: event.actorUserId,
+      actorEmail: event.actor.email,
+    }));
+  }
+
+  async recentDiagnosticsSnapshots(limit: number) {
+    const sessions = await this.prisma.supportAccessSession.findMany({
+      where: {
+        reasonCode: 'SERVICE_DIAGNOSTIC',
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        organizationId: true,
+        createdAt: true,
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            suspendedAt: true,
+            _count: { select: { memberships: true, campaigns: true } },
+          },
+        },
+      },
+    });
+
+    const organizationIds = sessions.map((s: { organizationId: string }) => s.organizationId);
+    const [walletBalances, billingProfiles] = await Promise.all([
+      this.prisma.walletEntry.groupBy({
+        by: ['organizationId', 'currency'],
+        where: { organizationId: { in: organizationIds } },
+        _sum: { amountMinor: true },
+      }),
+      this.prisma.billingProfile.findMany({
+        where: { organizationId: { in: organizationIds } },
+        select: { organizationId: true },
+      }),
+    ]);
+
+    const walletMap = new Map<string, { currency: string; amountMinor: string }[]>();
+    for (const group of walletBalances) {
+      const existing = walletMap.get(group.organizationId) ?? [];
+      existing.push({
+        currency: group.currency,
+        amountMinor: (group._sum.amountMinor ?? 0n).toString(),
+      });
+      walletMap.set(group.organizationId, existing);
+    }
+
+    const billingProfileSet = new Set(billingProfiles.map((bp: { organizationId: string }) => bp.organizationId));
+
+    return sessions
+      .filter((s: { organization: { id: string } | null }) => s.organization)
+      .map((session: { organization: { id: string; name: string; slug: string; suspendedAt: Date | null; _count: { memberships: number; campaigns: number } }; createdAt: Date }) => {
+        const org = session.organization!;
+        const status: 'ACTIVE' | 'SUSPENDED' = org.suspendedAt ? 'SUSPENDED' : 'ACTIVE';
+        return {
+          organizationId: org.id,
+          organizationName: org.name,
+          organizationSlug: org.slug,
+          status,
+          memberCount: org._count.memberships,
+          campaignCount: org._count.campaigns,
+          walletBalances: walletMap.get(org.id) ?? [],
+          billingProfilePresent: billingProfileSet.has(org.id),
+          lastChecked: session.createdAt.toISOString(),
+        };
+      });
   }
 }

@@ -177,4 +177,21 @@ export interface SupportStore {
     userId: string,
     input: SupportAuditTrailInput,
   ): Promise<readonly SupportAuditEventRecord[]>;
+  countOrganizations(): Promise<number>;
+  countUsers(): Promise<number>;
+  countActiveSupportSessions(): Promise<number>;
+  recentSupportActivity(limit: number): Promise<readonly SupportAuditEventRecord[]>;
+  recentDiagnosticsSnapshots(limit: number): Promise<
+    readonly {
+      readonly organizationId: string;
+      readonly organizationName: string;
+      readonly organizationSlug: string;
+      readonly status: 'ACTIVE' | 'SUSPENDED';
+      readonly memberCount: number;
+      readonly campaignCount: number;
+      readonly walletBalances: readonly { readonly currency: string; readonly amountMinor: string }[];
+      readonly billingProfilePresent: boolean;
+      readonly lastChecked: string;
+    }[]
+  >;
 }

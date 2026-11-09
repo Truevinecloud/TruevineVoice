@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, useRef, useCallback, type FormEvent, type ChangeEvent } from 'react';
 
 import { api } from '../../../lib/api';
-
 import {
   AccessNotice,
   SupportHeader,
@@ -25,44 +24,122 @@ export default function SupportUsersPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [initialLoad, setInitialLoad] = useState(true);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestIdRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  const debouncedSearch = useCallback((fn: () => void) => {
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+    debounceTimeoutRef.current = setTimeout(fn, 300);
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void api('/platform/support/me')
         .then(() => setAccess(null))
-        .catch((error: { status?: number }) => setAccess(error.status ?? 500));
+        .catch((error: { status?: number }) => setAccess(error.status ?? 500))
+        .finally(() => {
+          if (mountedRef.current) {
+            setInitialLoad(false);
+          }
+        });
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
 
-  async function search(nextCursor?: string) {
-    const search = query.trim();
-    if (search.length < 3) {
+  async function search(nextCursor?: string, isNewSearch = false) {
+    const searchQuery = query.trim();
+    if (isNewSearch && searchQuery.length < 3) {
       setMessage('Enter at least 3 characters to search users.');
       return;
     }
+    if (isNewSearch) {
+      setHasSearched(true);
+      setUsers([]);
+      setCursor(null);
+    }
+    const currentRequestId = ++requestIdRef.current;
     setBusy(true);
     setMessage('');
     try {
-      const parameters = new URLSearchParams({ q: search });
+      const parameters = new URLSearchParams({ q: searchQuery });
       if (nextCursor) parameters.set('cursor', nextCursor);
       const result = await api<UserSearch>(`/platform/support/users?${parameters.toString()}`);
+      if (!mountedRef.current || currentRequestId !== requestIdRef.current) {
+        return;
+      }
       setUsers((current) => (nextCursor ? [...current, ...result.users] : result.users));
       setCursor(result.nextCursor);
     } catch (error) {
-      setMessage(
-        (error as { status?: number }).status === 400
-          ? 'Enter at least 3 characters, without wildcard characters.'
-          : 'Search failed. Try again.',
-      );
+      if (!mountedRef.current || currentRequestId !== requestIdRef.current) {
+        return;
+      }
+      const statusCode = (error as { status?: number }).status;
+      if (statusCode === 400) {
+        setMessage('Enter at least 3 characters, without wildcard characters.');
+      } else if (statusCode === 401) {
+        setAccess(401);
+      } else if (statusCode === 403) {
+        setAccess(403);
+      } else {
+        setMessage('Search failed. Please try again.');
+      }
     } finally {
-      setBusy(false);
+      if (mountedRef.current && currentRequestId === requestIdRef.current) {
+        setBusy(false);
+        setInitialLoad(false);
+      }
     }
+  }
+
+  function onQueryChange(event: ChangeEvent<HTMLInputElement>) {
+    setQuery(event.target.value);
+    debouncedSearch(() => search(undefined, true));
   }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    void search();
+    search(undefined, true);
+  }
+
+  function clearQuery() {
+    setQuery('');
+    setHasSearched(false);
+    setUsers([]);
+    setCursor(null);
+    setMessage('');
+  }
+
+  function retry() {
+    search(undefined, hasSearched);
+  }
+
+  if (access === 'checking' || initialLoad) {
+    return (
+      <main className="operations-shell">
+        <SupportHeader title="Support users" />
+        <SupportNav current="users" />
+        <section className="card" aria-busy="true" aria-label="Loading users">
+          <div className="skeleton-search-bar" style={{ marginBottom: '1.25rem' }} />
+          <div className="skeleton-table" style={{ minHeight: '200px' }} />
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -78,30 +155,52 @@ export default function SupportUsersPage() {
               <input
                 type="email"
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={onQueryChange}
                 placeholder="alice@example.com"
                 maxLength={200}
+                aria-describedby="user-search-hint"
+                disabled={busy}
               />
             </label>
             <button disabled={busy} type="submit">
-              Search
+              {busy ? 'Searching…' : 'Search'}
             </button>
+            {query && (
+              <button type="button" className="quiet-button" onClick={clearQuery} disabled={busy}>
+                Clear
+              </button>
+            )}
           </form>
+          <p id="user-search-hint" className="footnote" style={{ marginBottom: '0.75rem' }}>
+            Search by email address. Minimum 3 characters.
+          </p>
           {message && (
-            <p className="notice" role="status">
+            <div className="notice" role="alert">
               {message}
-            </p>
+              <button type="button" className="quiet-button" style={{ marginLeft: '0.75rem' }} onClick={retry}>
+                Retry
+              </button>
+            </div>
           )}
           <section className="card">
             <div className="section-heading">
               <h2>Users</h2>
-              <span>{users.length} shown</span>
+              <span>{hasSearched ? `${users.length} shown` : 'Enter at least 3 characters to search'}</span>
             </div>
-            <UsersTable users={users} />
-            {cursor && (
-              <button className="quiet-button" disabled={busy} onClick={() => void search(cursor)}>
-                Load more
-              </button>
+            {users.length === 0 && !busy && hasSearched ? (
+              <p className="footnote">No users matched your search.</p>
+            ) : (
+              <>
+                {busy && users.length === 0 && (
+                  <div className="skeleton-table" style={{ minHeight: '150px' }} aria-busy="true" />
+                )}
+                <UsersTable users={users} />
+                {cursor && (
+                  <button className="quiet-button" disabled={busy} onClick={() => void search(cursor)}>
+                    {busy ? 'Loading…' : 'Load more'}
+                  </button>
+                )}
+              </>
             )}
           </section>
         </>
