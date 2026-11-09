@@ -113,6 +113,53 @@ select { min-height: 2.7rem; border: 1px solid var(--card-border); border-radius
 .tab-active { border-color: var(--accent); color: var(--accent); }
 a { color: var(--page-fg); }
 
+.skeleton-search-bar {
+  height: 2.7rem;
+  border-radius: .45rem;
+  background: linear-gradient(90deg, var(--card-bg) 25%, #2a2f3a 50%, var(--card-bg) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite;
+  border: 1px solid var(--card-border);
+}
+.skeleton-table {
+  border-radius: .6rem;
+  background: linear-gradient(90deg, var(--card-bg) 25%, #2a2f3a 50%, var(--card-bg) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite;
+  border: 1px solid var(--card-border);
+}
+@keyframes skeleton-loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeleton-kv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: .8rem;
+  margin: 1rem 0;
+}
+.skeleton-kv {
+  height: 60px;
+  border-radius: .6rem;
+  background: linear-gradient(90deg, var(--card-bg) 25%, #2a2f3a 50%, var(--card-bg) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite;
+  border: 1px solid var(--card-border);
+}
+
+.nav-card {
+  border: 1px solid var(--card-border);
+  border-radius: .75rem;
+  padding: 1.25rem 1.5rem;
+  background: var(--card-bg);
+  transition: border-color 0.2s, background 0.2s;
+}
+.nav-card:hover {
+  border-color: var(--accent);
+  background: #1f232a;
+}
+
 h1 {
   margin: 0 0 0.5rem;
   font-size: 2rem;

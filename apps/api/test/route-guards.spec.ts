@@ -301,8 +301,9 @@ describe('support route declarations (RBAC-009)', () => {
    * added route must be decided here. `PlatformGuard` reads this metadata at
    * runtime; the guard suite asserts the allow/deny matrix for each pair.
    */
-  const EXPECTED: Record<string, string> = {
+const EXPECTED: Record<string, string> = {
     operatorContext: 'platform:support:read',
+    overview: 'platform:support:read',
     searchOrganizations: 'platform:support:read',
     organization: 'platform:support:read',
     diagnostics: 'platform:support:diagnostics',
@@ -312,6 +313,7 @@ describe('support route declarations (RBAC-009)', () => {
     userAudit: 'platform:audit:read',
     startSupportAccess: 'platform:support:access',
     terminateSupportAccess: 'platform:support:access',
+    diagnosticsOverview: 'platform:support:diagnostics',
   };
 
   function supportHandlers(): string[] {
@@ -330,7 +332,7 @@ describe('support route declarations (RBAC-009)', () => {
   }
 
   it('finds handlers, so an empty map cannot pass vacuously', () => {
-    expect(supportHandlers().length).toBe(10);
+    expect(supportHandlers().length).toBe(12);
   });
 
   it('declares the expected permission on every support route', () => {

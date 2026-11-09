@@ -10,6 +10,28 @@ import Link from 'next/link';
 
 export type SupportOperator = { platformRole: string };
 
+export type OverviewStats = {
+  organizationCount: number;
+  userCount: number;
+  activeSupportSessions: number;
+};
+
+export type RecentAuditEvent = {
+  id: string;
+  action: string;
+  outcome: string;
+  occurredAt: string;
+  actor: { userId: string; email: string };
+  targetType: string | null;
+  targetId: string | null;
+};
+
+export type OverviewResponse = {
+  operator: SupportOperator;
+  stats: OverviewStats;
+  recentActivity: RecentAuditEvent[];
+};
+
 export type OrganizationRow = {
   id: string;
   name: string;
@@ -98,14 +120,20 @@ export function SupportHeader({ title }: { title: string }) {
   );
 }
 
-export function SupportNav({ current }: { current: 'customers' | 'users' }) {
+export function SupportNav({ current }: { current: 'overview' | 'customers' | 'users' | 'diagnostics' }) {
   return (
     <nav className="support-nav" aria-label="Support sections">
-      <Link href="/support" aria-current={current === 'customers' ? 'page' : undefined}>
+      <Link href="/support" aria-current={current === 'overview' ? 'page' : undefined}>
+        Overview
+      </Link>
+      <Link href="/support/customers" aria-current={current === 'customers' ? 'page' : undefined}>
         Customers
       </Link>
       <Link href="/support/users" aria-current={current === 'users' ? 'page' : undefined}>
         Users
+      </Link>
+      <Link href="/support/diagnostics" aria-current={current === 'diagnostics' ? 'page' : undefined}>
+        Diagnostics
       </Link>
     </nav>
   );

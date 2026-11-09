@@ -102,6 +102,8 @@ export const AUDIT_ACTIONS = [
   'platform.support.user_searched',
   'platform.support.user_viewed',
   'platform.support.audit_viewed',
+  'platform.support.overview_viewed',
+  'platform.support.diagnostics_overview_viewed',
 
   // Technical diagnostics (RBAC-010). Read-only infrastructure facts - health,
   // provider and queue availability, log-storage availability, the platform

@@ -80,6 +80,45 @@ export class SupportService {
     return { platformRole };
   }
 
+  async overview(actorUserId: string, platformRole: PlatformRole | null) {
+    const [organizationCount, userCount, activeSupportSessions, recentActivity] = await Promise.all([
+      this.store.countOrganizations(),
+      this.store.countUsers(),
+      this.store.countActiveSupportSessions(),
+      this.store.recentSupportActivity(10),
+    ]);
+
+    await this.recordIdentityEvent(actorUserId, 'platform.support.overview_viewed');
+
+    return {
+      operator: { platformRole },
+      stats: {
+        organizationCount,
+        userCount,
+        activeSupportSessions,
+      },
+      recentActivity: recentActivity.map((event) => this.toAuditView(event)),
+    };
+  }
+
+  async diagnosticsOverview(actorUserId: string) {
+    const [organizationCount, userCount, activeSupportSessions, recentDiagnostics] = await Promise.all([
+      this.store.countOrganizations(),
+      this.store.countUsers(),
+      this.store.countActiveSupportSessions(),
+      this.store.recentDiagnosticsSnapshots(10),
+    ]);
+
+    await this.recordIdentityEvent(actorUserId, 'platform.support.diagnostics_overview_viewed');
+
+    return {
+      organizationCount,
+      userCount,
+      activeSupportSessions,
+      recentDiagnostics,
+    };
+  }
+
   async searchOrganizations(actorUserId: string, query: SupportSearchQuery) {
     const search = query.q === undefined ? undefined : this.optionalSearchQuery(query.q, 1, 200);
     const status = this.optionalStatus(query.status);
@@ -469,7 +508,9 @@ export class SupportService {
       | 'platform.support.organization_searched'
       | 'platform.support.user_searched'
       | 'platform.support.user_viewed'
-      | 'platform.support.audit_viewed',
+      | 'platform.support.audit_viewed'
+      | 'platform.support.overview_viewed'
+      | 'platform.support.diagnostics_overview_viewed',
     metadata: Readonly<Record<string, unknown>> = {},
   ): Promise<void> {
     assertKnownAuditAction(action);

@@ -66,6 +66,13 @@ export class SupportController {
     return this.support.operatorContext(principal.platformRole);
   }
 
+  @Get('overview')
+  @UseGuards(SessionGuard, SupportRateLimitGuard, PlatformGuard)
+  @RequirePlatformPermission('platform:support:read')
+  overview(@CurrentPrincipal() principal: Principal) {
+    return this.support.overview(principal.userId, principal.platformRole);
+  }
+
   @Get('organizations')
   @UseGuards(SessionGuard, SupportRateLimitGuard, PlatformGuard)
   @RequirePlatformPermission('platform:support:read')
@@ -141,5 +148,12 @@ export class SupportController {
     @CurrentPrincipal() principal: Principal,
   ) {
     return this.support.userAudit(principal.userId, userId, query);
+  }
+
+  @Get('diagnostics/overview')
+  @UseGuards(SessionGuard, SupportRateLimitGuard, PlatformGuard)
+  @RequirePlatformPermission('platform:support:diagnostics')
+  diagnosticsOverview(@CurrentPrincipal() principal: Principal) {
+    return this.support.diagnosticsOverview(principal.userId);
   }
 }

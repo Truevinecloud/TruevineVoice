@@ -50,6 +50,21 @@ class FakeSupportStore implements SupportStore {
   sessions: SupportSessionSummary = { active: 0, revoked: 0, expired: 0, lastUsedAt: null };
   organizationEvents: SupportAuditEventRecord[] = [];
   userEvents: SupportAuditEventRecord[] = [];
+  organizationCount = 0;
+  userCount = 0;
+  activeSupportSessions = 0;
+  recentActivityEvents: SupportAuditEventRecord[] = [];
+  recentDiagnosticsSnapshotsResult: readonly {
+    readonly organizationId: string;
+    readonly organizationName: string;
+    readonly organizationSlug: string;
+    readonly status: 'ACTIVE' | 'SUSPENDED';
+    readonly memberCount: number;
+    readonly campaignCount: number;
+    readonly walletBalances: readonly { readonly currency: string; readonly amountMinor: string }[];
+    readonly billingProfilePresent: boolean;
+    readonly lastChecked: string;
+  }[] = [];
 
   async searchOrganizations(
     input: SupportOrganizationSearchInput,
@@ -101,6 +116,38 @@ class FakeSupportStore implements SupportStore {
   ): Promise<readonly SupportAuditEventRecord[]> {
     this.lastUserAudit = input;
     return this.userEvents;
+  }
+
+  async countOrganizations(): Promise<number> {
+    return this.organizationCount;
+  }
+
+  async countUsers(): Promise<number> {
+    return this.userCount;
+  }
+
+  async countActiveSupportSessions(): Promise<number> {
+    return this.activeSupportSessions;
+  }
+
+  async recentSupportActivity(limit: number): Promise<readonly SupportAuditEventRecord[]> {
+    return this.recentActivityEvents.slice(0, limit);
+  }
+
+  async recentDiagnosticsSnapshots(): Promise<
+    readonly {
+      readonly organizationId: string;
+      readonly organizationName: string;
+      readonly organizationSlug: string;
+      readonly status: 'ACTIVE' | 'SUSPENDED';
+      readonly memberCount: number;
+      readonly campaignCount: number;
+      readonly walletBalances: readonly { readonly currency: string; readonly amountMinor: string }[];
+      readonly billingProfilePresent: boolean;
+      readonly lastChecked: string;
+    }[]
+  > {
+    return this.recentDiagnosticsSnapshotsResult;
   }
 }
 
@@ -552,5 +599,74 @@ describe('SupportService audit is fail-closed', () => {
     const service = new SupportService(store, audit);
 
     await expect(service.searchOrganizations(ACTOR, {})).rejects.toThrow('audit unavailable');
+  });
+});
+
+describe('SupportService overview', () => {
+  it('returns platform-wide counts and recent activity', async () => {
+    const { service, store, audit } = buildService();
+    store.organizationCount = 42;
+    store.userCount = 128;
+    store.activeSupportSessions = 3;
+    store.recentActivityEvents = [
+      anAuditEvent({ action: 'platform.support.organization_viewed', occurredAt: NOW }),
+      anAuditEvent({ action: 'platform.support.user_viewed', occurredAt: NOW }),
+    ];
+
+    const result = await service.overview(ACTOR, 'SUPPORT_ADMIN');
+
+    expect(result.operator.platformRole).toBe('SUPPORT_ADMIN');
+    expect(result.stats.organizationCount).toBe(42);
+    expect(result.stats.userCount).toBe(128);
+    expect(result.stats.activeSupportSessions).toBe(3);
+    expect(result.recentActivity).toHaveLength(2);
+    expect(audit.identityEvents).toContainEqual(
+      expect.objectContaining({ action: 'platform.support.overview_viewed' }),
+    );
+  });
+
+  it('returns null platformRole when not provided', async () => {
+    const { service, store } = buildService();
+    store.organizationCount = 1;
+    store.userCount = 1;
+    store.activeSupportSessions = 0;
+    store.recentActivityEvents = [];
+
+    const result = await service.overview(ACTOR, null);
+
+    expect(result.operator.platformRole).toBeNull();
+  });
+});
+
+describe('SupportService diagnostics overview', () => {
+  it('returns recent diagnostics snapshots with wallet balances', async () => {
+    const { service, store, audit } = buildService();
+    store.organizationCount = 10;
+    store.userCount = 25;
+    store.activeSupportSessions = 1;
+    store.recentDiagnosticsSnapshotsResult = [
+      {
+        organizationId: ORG_ID,
+        organizationName: 'Acme',
+        organizationSlug: 'acme',
+        status: 'ACTIVE',
+        memberCount: 3,
+        campaignCount: 2,
+        walletBalances: [{ currency: 'UGX', amountMinor: '5000' }],
+        billingProfilePresent: true,
+        lastChecked: NOW.toISOString(),
+      },
+    ];
+
+    const result = await service.diagnosticsOverview(ACTOR);
+
+    expect(result.organizationCount).toBe(10);
+    expect(result.userCount).toBe(25);
+    expect(result.activeSupportSessions).toBe(1);
+    expect(result.recentDiagnostics).toHaveLength(1);
+    expect(result.recentDiagnostics[0]?.walletBalances).toEqual([{ currency: 'UGX', amountMinor: '5000' }]);
+    expect(audit.identityEvents).toContainEqual(
+      expect.objectContaining({ action: 'platform.support.diagnostics_overview_viewed' }),
+    );
   });
 });
