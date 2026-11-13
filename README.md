@@ -39,7 +39,7 @@ Existing `contact:read`, `contact:create` and `contact:update` permissions apply
 (Owner, Admin and Campaign Manager). Viewer/Billing gain no group access.
 Group writes recheck current permissions in the database transaction and audit
 the committed change. Membership retries are idempotent and do not duplicate
-links/audits. Deleting a group removes its links while preserving contacts,
+links/audits. Deleting a group removes its links while preserving contact
 consent/suppression and campaign/call history. Membership grants no consent.
 
 The existing schema's composite tenant keys/foreign keys and normalized-name
