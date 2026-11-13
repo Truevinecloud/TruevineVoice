@@ -51,6 +51,28 @@ none".
 
 ## Consequences
 
+### Approved privacy restriction — 2026-11-12
+
+Technical Admin's audit access is restricted to platform-operation actions
+(`platform.*`). Both identity and security queries enforce that restriction
+before pagination; security events additionally require `scope = PLATFORM`.
+Cursor lookups apply the same restrictions and return 404 for an inaccessible
+anchor. Non-platform action filters return 403.
+
+For `TECHNICAL_ADMIN`, the technical audit response explicitly allowlists only
+`id`, `trail`, `action`, `outcome`, `scope`, and `occurredAt`. Actor identities,
+customer emails, target identifiers and raw audit metadata are omitted.
+The platform guard denies this role access to alternate general and Support
+audit endpoints, even though it retains `platform:audit:read`; only the
+technical audit controller may consume that permission for this role.
+Platform Owner, Support Admin and Auditor retain their existing access and
+response projections. No audit records are changed and no migration is needed.
+
+The workspace exposes overview/dependency diagnostics, declared providers,
+queue availability, log availability and the bounded platform audit trail.
+Logs search, severity/date filters, job retries and live provider connectivity
+remain explicitly unavailable until their underlying integrations exist.
+
 No database migration is required: the feature reads existing audit tables and
 process health only. Because no technical mutation exists, the role is safe to
 grant without a compensating write-path review; adding one later requires its

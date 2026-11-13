@@ -17,16 +17,20 @@
  * stop being applied.
  */
 
-import { Injectable, type NestMiddleware } from '@nestjs/common';
+import { Inject, Injectable, type NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 
-import { CSRF_COOKIE, CSRF_COOKIE_OPTIONS, generateCsrfToken, readCsrfToken } from './cookies.js';
+import { APP_CONFIG } from '../config/app-config.module.js';
+import type { ApiConfig } from '../config/api.config.js';
+import { CSRF_COOKIE, csrfCookieOptions, generateCsrfToken, readCsrfToken } from './cookies.js';
 
 @Injectable()
 export class CsrfTokenMiddleware implements NestMiddleware {
+  constructor(@Inject(APP_CONFIG) private readonly config: ApiConfig) {}
+
   use(request: Request, response: Response, next: NextFunction): void {
     if (!readCsrfToken(request)) {
-      response.cookie(CSRF_COOKIE, generateCsrfToken(), CSRF_COOKIE_OPTIONS);
+      response.cookie(CSRF_COOKIE, generateCsrfToken(), csrfCookieOptions(this.config.environment));
     }
 
     next();

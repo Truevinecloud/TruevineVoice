@@ -32,7 +32,6 @@
  * containing only successes cannot answer "was this an attack?".
  */
 
-import { mutationAudit } from './sensitive-audit.js';
 import {
   ForbiddenException,
   Inject,
@@ -40,6 +39,7 @@ import {
   type CanActivate,
   type ExecutionContext,
 } from '@nestjs/common';
+import { PATH_METADATA } from '@nestjs/common/constants';
 import {
   assertKnownAuditAction,
   can,
@@ -56,6 +56,7 @@ import {
   PLATFORM_PERMISSION,
 } from './permission.decorators.js';
 import { ORGANIZATION_CONTEXT, PRINCIPAL, type AuthenticatedRequest } from './principal.js';
+import { mutationAudit } from './sensitive-audit.js';
 import { AUDIT_STORE, AUTH_STORE, ORGANIZATION_STORE, TERMS_VERSION } from './tokens.js';
 import type { AuditStore, AuthStore, OrganizationStore } from './auth.store.js';
 
@@ -233,6 +234,17 @@ export class PlatformGuard implements CanActivate {
     if (!canActAsPlatform(principal.platformRole, permission)) {
       await this.deny(request, principal.userId, permission);
       throw permissionDenied('This action requires Truevine platform access.');
+    }
+
+    // The shared audit permission must not bypass Technical Admin's privacy
+    // projection through the general or customer-support audit endpoints.
+    if (
+      principal.platformRole === 'TECHNICAL_ADMIN' &&
+      permission === 'platform:audit:read' &&
+      Reflect.getMetadata(PATH_METADATA, context.getClass()) !== 'platform/technical'
+    ) {
+      await this.deny(request, principal.userId, permission);
+      throw permissionDenied('Use the technical platform-operation audit trail.');
     }
 
     return true;

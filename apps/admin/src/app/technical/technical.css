@@ -1,0 +1,149 @@
+.technical-workspace {
+  max-width: 80rem;
+  margin: 0 auto;
+  display: grid;
+  gap: 1.25rem;
+  min-width: 0;
+}
+.technical-workspace .topbar,
+.technical-workspace .section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.technical-workspace .eyebrow {
+  color: var(--muted-fg);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+.technical-workspace .technical-nav {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--card-border);
+  padding-bottom: 0.75rem;
+}
+.technical-workspace .technical-nav a {
+  border-radius: 0.5rem;
+  padding: 0.65rem 1rem;
+  text-decoration: none;
+  color: var(--muted-fg);
+}
+.technical-workspace .technical-nav a[aria-current='page'] {
+  background: var(--card-bg);
+  color: var(--accent);
+  box-shadow: inset 0 -2px var(--accent);
+}
+.technical-workspace .health-grid,
+.technical-workspace .kv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.technical-workspace .health-card,
+.technical-workspace .kv {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 1rem;
+  border: 1px solid var(--card-border);
+  border-radius: 0.6rem;
+  overflow-wrap: anywhere;
+}
+.technical-workspace .health-card > span:first-child,
+.technical-workspace .kv > span,
+.technical-workspace .footnote {
+  color: var(--muted-fg);
+}
+.technical-workspace .status {
+  display: inline-block;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--card-border);
+  border-radius: 1rem;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.technical-workspace .status-success,
+.technical-workspace .status-up {
+  color: #80dfb1;
+}
+.technical-workspace .status-denied,
+.technical-workspace .status-down {
+  color: #ffa7a7;
+}
+.technical-workspace .table-wrap {
+  overflow-x: auto;
+}
+.technical-workspace table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.technical-workspace th,
+.technical-workspace td {
+  padding: 0.85rem;
+  border-bottom: 1px solid var(--card-border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.technical-workspace td small {
+  display: block;
+  color: var(--muted-fg);
+}
+.technical-workspace .search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+.technical-workspace label {
+  display: grid;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: min(100%, 14rem);
+}
+.technical-workspace input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.75rem;
+  color: var(--page-fg);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 0.4rem;
+}
+.technical-workspace button,
+.technical-workspace .quiet-button {
+  padding: 0.65rem 0.9rem;
+  min-height: 2.75rem;
+  cursor: pointer;
+}
+.technical-workspace button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.technical-workspace :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.technical-workspace .footnote {
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+@media (max-width: 600px) {
+  .technical-workspace .card {
+    padding: 1rem;
+    min-width: 0;
+  }
+  .technical-workspace .technical-nav a {
+    padding: 0.6rem;
+  }
+  .technical-workspace th,
+  .technical-workspace td {
+    padding: 0.6rem;
+    font-size: 0.85rem;
+  }
+}

@@ -6,7 +6,7 @@ const ALLOWED = [
   /^me$/,
   /^platform\/operations\/(me|organizations|campaigns|health)$/,
   /^platform\/operations\/organizations\/[0-9a-f-]+\/campaigns\/[0-9a-f-]+\/emergency-stop$/i,
-  /^platform\/support\/(me|organizations|users)$/,
+  /^platform\/support\/(me|overview|organizations|users)$/,
   /^platform\/support\/organizations\/[0-9a-f-]+(\/diagnostics|\/audit)?$/i,
   /^platform\/support\/users\/[0-9a-f-]+(\/audit)?$/i,
   /^platform\/technical\/(me|overview|providers|queues|logs|audit)$/,

@@ -35,7 +35,12 @@ function fixture() {
         continue;
       }
       if (key === 'action') {
-        if (row.action !== value) return false;
+        if (typeof value === 'string' && row.action !== value) return false;
+        if (typeof value === 'object' && value !== null) {
+          const filter = value as { startsWith?: string; equals?: string };
+          if (filter.startsWith && !row.action.startsWith(filter.startsWith)) return false;
+          if (filter.equals && row.action !== filter.equals) return false;
+        }
         continue;
       }
       // Unknown predicates are not exercised by these tests.
@@ -66,14 +71,17 @@ function fixture() {
         async ({ where = {}, take }: { where?: Record<string, unknown>; take?: number }) =>
           identityRows
             .filter((row) => matches(row, where))
-            .sort((a, b) =>
-              b.occurredAt.getTime() - a.occurredAt.getTime() ||
-              (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
+            .sort(
+              (a, b) =>
+                b.occurredAt.getTime() - a.occurredAt.getTime() ||
+                (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
             )
             .slice(0, take ?? identityRows.length),
       ),
-      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
-        const row = identityRows.find((candidate) => candidate.id === where.id);
+      findUnique: vi.fn(async ({ where }: { where: { id: string; action?: unknown } }) => {
+        const row = identityRows.find(
+          (candidate) => candidate.id === where.id && matches(candidate, where),
+        );
         return row ? { id: row.id, occurredAt: row.occurredAt } : null;
       }),
     },
@@ -87,14 +95,17 @@ function fixture() {
             .slice(0, take ?? securityRows.length);
         },
       ),
-      findFirst: vi.fn(async ({ where }: { where: { id: string; scope?: string } }) => {
-        const row = securityRows.find(
-          (candidate) =>
-            candidate.id === where.id &&
-            (where.scope === undefined || candidate.scope === where.scope),
-        );
-        return row ? { id: row.id, occurredAt: row.occurredAt } : null;
-      }),
+      findFirst: vi.fn(
+        async ({ where }: { where: { id: string; scope?: string; action?: unknown } }) => {
+          const row = securityRows.find(
+            (candidate) =>
+              candidate.id === where.id &&
+              matches(candidate, where) &&
+              (where.scope === undefined || candidate.scope === where.scope),
+          );
+          return row ? { id: row.id, occurredAt: row.occurredAt } : null;
+        },
+      ),
     },
   };
 
@@ -140,6 +151,52 @@ describe('PrismaTechnicalStore platform audit trail', () => {
 
   beforeEach(() => {
     state = fixture();
+  });
+
+  it('restricts both trails before pagination and refuses customer identity cursors', async () => {
+    state.identityRows.push(anIdentityRow());
+    state.identityRows.push(
+      anIdentityRow({
+        id: '10000000-0000-4000-8000-000000000002',
+        action: 'platform.technical.overview_viewed',
+      }),
+    );
+    state.securityRows.push(aSecurityRow());
+    state.securityRows.push(
+      aSecurityRow({
+        id: '20000000-0000-4000-8000-000000000002',
+        scope: 'ORGANIZATION',
+        action: 'platform.access.denied',
+      }),
+    );
+    const events = await state.store.platformAuditEvents({
+      limit: 50,
+      platformOperationsOnly: true,
+    });
+    expect(events.map((event) => event.action).sort()).toEqual([
+      'platform.campaign.emergency_stopped',
+      'platform.technical.overview_viewed',
+    ]);
+    await expect(
+      state.store.platformAuditEvents({
+        limit: 50,
+        platformOperationsOnly: true,
+        after: { trail: 'identity', eventId: IDENTITY_ID },
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    const filtered = await state.store.platformAuditEvents({
+      limit: 50,
+      platformOperationsOnly: true,
+      action: 'auth.sign_in.succeeded',
+    });
+    expect(filtered).toEqual([]);
+    await expect(
+      state.store.platformAuditEvents({
+        limit: 50,
+        platformOperationsOnly: true,
+        after: { trail: 'security', eventId: '20000000-0000-4000-8000-000000000002' },
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('merges the two trails newest first and tags each row with its trail', async () => {
@@ -188,7 +245,9 @@ describe('PrismaTechnicalStore platform audit trail', () => {
 
   it('filters both trails by the requested action', async () => {
     state.identityRows.push(anIdentityRow({ action: 'auth.sign_in.succeeded' }));
-    state.identityRows.push(anIdentityRow({ id: '10000000-0000-4000-8000-000000000002', action: 'auth.sign_out' }));
+    state.identityRows.push(
+      anIdentityRow({ id: '10000000-0000-4000-8000-000000000002', action: 'auth.sign_out' }),
+    );
 
     const events = await state.store.platformAuditEvents({
       action: 'auth.sign_out',

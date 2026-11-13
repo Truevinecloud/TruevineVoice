@@ -40,6 +40,8 @@ export interface TechnicalAuditCursor {
 }
 
 export interface TechnicalAuditTrailInput {
+  /** Technical Admin only: enforce platform-operation scope in both queries and cursor lookup. */
+  readonly platformOperationsOnly?: boolean;
   readonly action?: string;
   readonly after?: TechnicalAuditCursor;
   readonly limit: number;
@@ -47,8 +49,10 @@ export interface TechnicalAuditTrailInput {
 
 export interface TechnicalStore {
   /**
-   * Platform operators' actions, newest first: every identity-trail event
-   * plus the `PLATFORM`-scoped rows of `security_audit_events`.
+   * Platform operators' actions, newest first. With platformOperationsOnly,
+   * both trails and cursor anchors require a platform.* action. Other audit
+   * roles preserve the existing identity trail. Security rows always require
+   * PLATFORM scope.
    *
    * Organization-scoped security rows are excluded by the store itself so that
    * cross-tenant content never reaches this trail - a technical view answers

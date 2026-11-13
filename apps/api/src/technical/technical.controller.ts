@@ -60,6 +60,6 @@ export class TechnicalController {
     @Query() query: Record<string, string | undefined>,
     @CurrentPrincipal() principal: Principal,
   ) {
-    return this.technical.auditTrail(principal.userId, query);
+    return this.technical.auditTrail(principal.userId, query, principal.platformRole);
   }
 }

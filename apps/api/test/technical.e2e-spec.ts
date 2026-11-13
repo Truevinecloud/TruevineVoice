@@ -43,6 +43,7 @@ const EMAIL_AUDITOR = `technical-auditor-${RUN}@example.invalid`;
 
 let app: INestApplication;
 let database: PrismaClient;
+let databaseVerified = false;
 let server: ReturnType<INestApplication['getHttpServer']>;
 
 function extractCookie(header: unknown, name: string): string {
@@ -83,6 +84,7 @@ beforeAll(async () => {
     const rows = await database.$queryRaw<{ name: string }[]>`SELECT current_database() AS name`;
     return rows[0]?.name;
   }, disposable);
+  databaseVerified = true;
   const passwordHash = await hashPassword(PASSWORD);
   await database.$transaction(async (tx) => {
     await tx.$executeRaw`
@@ -121,14 +123,23 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!database) return;
-  await database.session.deleteMany({
-    where: { userId: { in: [OWNER_A, TECHNICAL_ADMIN, SUPPORT_ADMIN, AUDITOR] } },
-  });
-  await database.termsAcceptance.deleteMany({
-    where: { userId: { in: [OWNER_A, TECHNICAL_ADMIN, SUPPORT_ADMIN, AUDITOR] } },
-  });
-  await app?.close();
-  await database.$disconnect();
+  try {
+    if (!databaseVerified) return;
+    await database.$transaction(async (tx) => {
+      await tx.session.deleteMany({
+        where: { userId: { in: [OWNER_A, TECHNICAL_ADMIN, SUPPORT_ADMIN, AUDITOR] } },
+      });
+      await tx.termsAcceptance.deleteMany({
+        where: { userId: { in: [OWNER_A, TECHNICAL_ADMIN, SUPPORT_ADMIN, AUDITOR] } },
+      });
+    });
+  } finally {
+    try {
+      await app?.close();
+    } finally {
+      await database.$disconnect();
+    }
+  }
 });
 
 describe('RBAC-010 technical diagnostics over real PostgreSQL and HTTP', () => {
@@ -209,14 +220,35 @@ describe('RBAC-010 technical diagnostics over real PostgreSQL and HTTP', () => {
       expect.arrayContaining([
         expect.objectContaining({
           action: 'platform.technical.overview_viewed',
-          actor: { userId: TECHNICAL_ADMIN, email: EMAIL_TECHNICAL },
         }),
       ]),
     );
-    expect(trail.body.events.some((event: { action: string }) => event.action === 'organization.profile_updated')).toBe(false);
+    expect(
+      trail.body.events.some(
+        (event: { action: string }) => event.action === 'organization.profile_updated',
+      ),
+    ).toBe(false);
     for (const event of trail.body.events) {
       expect(event.scope === null || event.scope === 'PLATFORM').toBe(true);
+      expect(event.action.startsWith('platform.')).toBe(true);
+      expect(Object.keys(event).sort()).toEqual([
+        'action',
+        'id',
+        'occurredAt',
+        'outcome',
+        'scope',
+        'trail',
+      ]);
     }
+    expect(JSON.stringify(trail.body)).not.toContain(EMAIL_OWNER_A);
+    expect((await technical.get('/platform/audit/audit')).status).toBe(403);
+    expect((await technical.get(`/platform/support/users/${OWNER_A}/audit`)).status).toBe(403);
+    expect((await technical.get(`/platform/support/organizations/${ORG_A}/audit`)).status).toBe(
+      403,
+    );
+    expect(
+      (await technical.get('/platform/technical/audit?action=auth.sign_in.succeeded')).status,
+    ).toBe(403);
   });
 
   it('refuses customer owners, support admins without the permission, auditors, and anonymous callers', async () => {
@@ -242,9 +274,9 @@ describe('RBAC-010 technical diagnostics over real PostgreSQL and HTTP', () => {
     const technical = await signIn(EMAIL_TECHNICAL);
 
     expect((await technical.get('/platform/technical/audit?action=nope')).status).toBe(400);
-    expect((await technical.get('/platform/technical/audit?cursor=identity:not-a-uuid')).status).toBe(
-      400,
-    );
+    expect(
+      (await technical.get('/platform/technical/audit?cursor=identity:not-a-uuid')).status,
+    ).toBe(400);
     expect((await technical.get('/platform/technical/audit?cursor=organization:abc')).status).toBe(
       400,
     );

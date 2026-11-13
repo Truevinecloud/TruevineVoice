@@ -16,8 +16,18 @@ import { ORGANIZATION_PERMISSION, PLATFORM_PERMISSION } from '../src/auth/permis
 import { OrganizationGuard, PlatformGuard } from '../src/auth/organization.guard.js';
 import { SessionGuard } from '../src/auth/session.guard.js';
 import { CsrfGuard } from '../src/auth/csrf.guard.js';
+import { TechnicalController } from '../src/technical/technical.controller.js';
+import { SupportController } from '../src/support/support.controller.js';
+import { AuditController } from '../src/audit/audit.controller.js';
 import { ORGANIZATION_CONTEXT, PRINCIPAL } from '../src/auth/principal.js';
-import { ORGANIZATION_PERMISSIONS, ORGANIZATION_ROLE_PERMISSIONS, ORGANIZATION_ROLES, PLATFORM_ROLES, PLATFORM_PERMISSIONS, PLATFORM_ROLE_PERMISSIONS } from '@truevine/auth';
+import {
+  ORGANIZATION_PERMISSIONS,
+  ORGANIZATION_ROLE_PERMISSIONS,
+  ORGANIZATION_ROLES,
+  PLATFORM_ROLES,
+  PLATFORM_PERMISSIONS,
+  PLATFORM_ROLE_PERMISSIONS,
+} from '@truevine/auth';
 import {
   CSRF_COOKIE,
   CSRF_HEADER,
@@ -41,6 +51,7 @@ const RAW_TOKEN = 'raw-session-token-value';
 
 /** Minimal stand-ins for Nest's ExecutionContext and request. */
 function httpContext(options: {
+  controller?: object;
   handler?: object;
   params?: Record<string, string>;
   headers?: Record<string, string>;
@@ -62,7 +73,7 @@ function httpContext(options: {
     context: {
       getType: () => 'http',
       getHandler: () => options.handler ?? {},
-      getClass: () => class {},
+      getClass: () => options.controller ?? class {},
       switchToHttp: () => ({ getRequest: () => request }),
     } as never,
   };
@@ -83,8 +94,11 @@ describe('OrganizationGuard', () => {
         const organizations = new FakeOrganizationStore();
         seedOwner(auth, organizations, { role });
         const guard = new OrganizationGuard(organizations, auth, new FakeAuditStore(), TERMS);
-        const { context } = httpContext({ handler: handlerRequiring(ORGANIZATION_PERMISSION, permission),
-          params: { organizationId: 'org-1' }, principal: { userId: 'user-1' } });
+        const { context } = httpContext({
+          handler: handlerRequiring(ORGANIZATION_PERMISSION, permission),
+          params: { organizationId: 'org-1' },
+          principal: { userId: 'user-1' },
+        });
         if (ORGANIZATION_ROLE_PERMISSIONS[role].includes(permission)) {
           await expect(guard.canActivate(context)).resolves.toBe(true);
         } else {
@@ -711,12 +725,39 @@ describe('OrganizationGuard', () => {
 });
 
 describe('PlatformGuard', () => {
+  it.each([
+    [SupportController, SupportController.prototype.organizationAudit],
+    [SupportController, SupportController.prototype.userAudit],
+    [AuditController, AuditController.prototype.auditTrail],
+  ])(
+    'refuses alternate audit routes to Technical Admin while preserving other audit roles',
+    async (controller, handler) => {
+      for (const role of ['TECHNICAL_ADMIN', 'PLATFORM_OWNER', 'SUPPORT_ADMIN', 'AUDITOR']) {
+        const audit = new FakeAuditStore();
+        const guard = new PlatformGuard(audit);
+        const { context } = httpContext({
+          controller,
+          handler,
+          principal: { userId: 'operator', platformRole: role },
+        });
+        if (role === 'TECHNICAL_ADMIN') {
+          await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 403 });
+          expect(audit.actions()).toContain('platform.access.denied');
+        } else {
+          await expect(guard.canActivate(context)).resolves.toBe(true);
+        }
+      }
+    },
+  );
   for (const role of PLATFORM_ROLES) {
     for (const permission of PLATFORM_PERMISSIONS) {
       it(`QA matrix ${role} / ${permission}`, async () => {
         const guard = new PlatformGuard(new FakeAuditStore());
-        const { context } = httpContext({ handler: handlerRequiring(PLATFORM_PERMISSION, permission),
-          principal: { userId: 'qa-user', platformRole: role } });
+        const { context } = httpContext({
+          handler: handlerRequiring(PLATFORM_PERMISSION, permission),
+          controller: TechnicalController,
+          principal: { userId: 'qa-user', platformRole: role },
+        });
         if (PLATFORM_ROLE_PERMISSIONS[role].includes(permission)) {
           await expect(guard.canActivate(context)).resolves.toBe(true);
         } else {
@@ -1082,7 +1123,12 @@ describe('RBAC-012 non-HTTP contexts', () => {
   it('does not authorize worker or callback payloads through HTTP guards', async () => {
     const context = { getType: () => 'rpc' } as never;
     const audit = new FakeAuditStore();
-    const organization = new OrganizationGuard(new FakeOrganizationStore(), new FakeAuthStore(), audit, TERMS);
+    const organization = new OrganizationGuard(
+      new FakeOrganizationStore(),
+      new FakeAuthStore(),
+      audit,
+      TERMS,
+    );
     expect(await organization.canActivate(context)).toBe(false);
     expect(await new PlatformGuard(audit).canActivate(context)).toBe(false);
   });

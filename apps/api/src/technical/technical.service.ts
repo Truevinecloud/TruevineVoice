@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import {
   assertKnownAuditAction,
   isKnownAuditAction,
@@ -111,9 +111,20 @@ export class TechnicalService {
         // Each subsystem reports the same three-field shape so a reader does
         // not have to learn a different vocabulary per domain: what it is,
         // whether it is integrated, and why not when it is not.
-        voiceProvider: { status: 'not_integrated' as const, activeCalls: null, detail: 'No voice provider integration is configured.' },
-        queues: { status: 'not_integrated' as const, workers: null, detail: 'No business queues are registered yet.' },
-        logStorage: { status: 'not_configured' as const, detail: 'Application logs are written to stdout only; nothing is queryable.' },
+        voiceProvider: {
+          status: 'not_integrated' as const,
+          activeCalls: null,
+          detail: 'No voice provider integration is configured.',
+        },
+        queues: {
+          status: 'not_integrated' as const,
+          workers: null,
+          detail: 'No business queues are registered yet.',
+        },
+        logStorage: {
+          status: 'not_configured' as const,
+          detail: 'Application logs are written to stdout only; nothing is queryable.',
+        },
       },
       notAvailable: NOT_AVAILABLE_DOMAINS,
     };
@@ -137,7 +148,8 @@ export class TechnicalService {
       status: 'not_integrated' as const,
       queues: [] as const,
       failedJobs: [] as const,
-      detail: 'BullMQ is wired for connections only; no business queues or processors are registered yet.',
+      detail:
+        'BullMQ is wired for connections only; no business queues or processors are registered yet.',
     };
   }
 
@@ -157,11 +169,29 @@ export class TechnicalService {
    * Organization-scoped rows are excluded by the store, not filtered here, so
    * the guarantee lives with the query that could break it.
    */
-  async auditTrail(actorUserId: string, query: TechnicalAuditQuery) {
+  async auditTrail(
+    actorUserId: string,
+    query: TechnicalAuditQuery,
+    role: PlatformRole | null = null,
+  ) {
+    const restricted = role === 'TECHNICAL_ADMIN';
     const action = this.optionalAuditAction(query.action);
+    if (restricted && action !== undefined && !action.startsWith('platform.')) {
+      throw new ForbiddenException({
+        error: {
+          code: 'technical_audit_scope',
+          message: 'Only platform-operation events are available.',
+        },
+      });
+    }
     const after = query.cursor === undefined ? undefined : this.requireEventCursor(query.cursor);
 
-    const events = await this.store.platformAuditEvents({ action, after, limit: PAGE_SIZE + 1 });
+    const events = await this.store.platformAuditEvents({
+      action,
+      after,
+      limit: PAGE_SIZE + 1,
+      ...(restricted ? { platformOperationsOnly: true } : {}),
+    });
     const page = events.slice(0, PAGE_SIZE);
 
     await this.recordIdentityEvent(actorUserId, 'platform.technical.audit_viewed', {
@@ -169,22 +199,30 @@ export class TechnicalService {
     });
 
     return {
-      events: page.map((event) => ({
-        id: event.id,
-        trail: event.trail,
-        action: event.action,
-        outcome: event.outcome,
-        scope: event.scope,
-        targetType: event.targetType,
-        targetId: event.targetId,
-        occurredAt: event.occurredAt.toISOString(),
-        actor: { userId: event.actorUserId, email: event.actorEmail },
-        metadata: event.metadata,
-      })),
-      nextCursor:
-        events.length > PAGE_SIZE
-          ? this.encodeCursor(page.at(-1)!)
-          : null,
+      events: page.map((event) =>
+        restricted
+          ? {
+              id: event.id,
+              trail: event.trail,
+              action: event.action,
+              outcome: event.outcome,
+              scope: event.scope,
+              occurredAt: event.occurredAt.toISOString(),
+            }
+          : {
+              id: event.id,
+              trail: event.trail,
+              action: event.action,
+              outcome: event.outcome,
+              scope: event.scope,
+              targetType: event.targetType,
+              targetId: event.targetId,
+              occurredAt: event.occurredAt.toISOString(),
+              actor: { userId: event.actorUserId, email: event.actorEmail },
+              metadata: event.metadata,
+            },
+      ),
+      nextCursor: events.length > PAGE_SIZE ? this.encodeCursor(page.at(-1)!) : null,
     };
   }
 
@@ -201,11 +239,17 @@ export class TechnicalService {
   }
 
   /** `<trail>:<uuid>` so a page spanning two tables stays navigable. */
-  private encodeCursor(event: { readonly trail: TechnicalAuditTrail; readonly id: string }): string {
+  private encodeCursor(event: {
+    readonly trail: TechnicalAuditTrail;
+    readonly id: string;
+  }): string {
     return `${event.trail}:${event.id}`;
   }
 
-  private requireEventCursor(value: unknown): { readonly trail: TechnicalAuditTrail; readonly eventId: string } {
+  private requireEventCursor(value: unknown): {
+    readonly trail: TechnicalAuditTrail;
+    readonly eventId: string;
+  } {
     if (typeof value !== 'string') invalid('invalid_cursor', 'That position is not valid.');
 
     const separator = value.indexOf(':');

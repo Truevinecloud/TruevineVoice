@@ -16,6 +16,7 @@ import { MiddlewareConsumer, Module, RequestMethod, type NestModule } from '@nes
 import { APP_FILTER } from '@nestjs/core';
 import { createEmailSender, type EmailSender } from '@truevine/messaging';
 
+import { AppConfigModule } from '../config/app-config.module.js';
 import { InfrastructureModule } from '../infrastructure/infrastructure.module.js';
 
 import { AuthController } from './auth.controller.js';
@@ -110,7 +111,7 @@ function emailSender(): EmailSender {
   // global provider being registered before this module is initialised is an
   // ordering assumption, and it fails in a testing module that overrides the
   // client. Declaring the import states the dependency instead of implying it.
-  imports: [InfrastructureModule],
+  imports: [AppConfigModule, InfrastructureModule],
   controllers: [AuthController],
   providers: [
     { provide: SECURITY_TRANSACTION, useClass: PrismaSecurityTransaction },
