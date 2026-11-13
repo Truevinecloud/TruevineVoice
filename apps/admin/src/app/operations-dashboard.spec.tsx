@@ -43,6 +43,8 @@ describe('OperationsDashboard', () => {
   it('renders an unauthenticated sign-in state', () => {
     const markup = renderToStaticMarkup(<OperationsDashboard />);
     expect(markup).toContain('Platform sign in');
+    // Initial discovery issues the CSRF cookie before a sign-in can be submitted.
+    expect(markup).toMatch(/<button\b(?=[^>]*type="submit")(?=[^>]*\bdisabled)[^>]*>/);
   });
 });
 

@@ -21,31 +21,45 @@ export const SESSION_COOKIE = 'tv_session';
 /** Name of the cookie carrying the CSRF token. */
 export const CSRF_COOKIE = 'tv_csrf';
 
-/** Options for the session cookie. */
-export const SESSION_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'lax',
+/** Base cookie options shared by both cookies. */
+const BASE_COOKIE_OPTIONS = {
+  sameSite: 'lax' as const,
   path: '/',
-  // Express response.cookie() accepts milliseconds (wire Max-Age is seconds).
   maxAge: 12 * 60 * 60 * 1_000,
-} as const satisfies CookieSerializeOptions;
+} as const;
 
 /**
- * The CSRF cookie is deliberately readable by the browser.
+ * Returns session cookie options for the given environment.
  *
+ * In development (HTTP), `secure` must be false so the browser accepts the
+ * cookie. In production (HTTPS), `secure` is true.
+ */
+export function sessionCookieOptions(environment: string): CookieSerializeOptions {
+  return {
+    ...BASE_COOKIE_OPTIONS,
+    httpOnly: true,
+    secure: environment !== 'development',
+  };
+}
+
+/**
+ * Returns CSRF cookie options for the given environment.
+ *
+ * The CSRF cookie is deliberately readable by the browser (`httpOnly: false`).
  * That is the entire double-submit pattern: the server issues a value, the
  * client echoes it back in a header, and a cross-site attacker can neither read
  * the cookie nor set the header. `httpOnly` here would break it.
+ *
+ * In development (HTTP), `secure` must be false so the browser accepts the
+ * cookie. In production (HTTPS), `secure` is true.
  */
-export const CSRF_COOKIE_OPTIONS = {
-  httpOnly: false,
-  secure: true,
-  sameSite: 'lax',
-  path: '/',
-  // Express response.cookie() accepts milliseconds (wire Max-Age is seconds).
-  maxAge: 12 * 60 * 60 * 1_000,
-} as const satisfies CookieSerializeOptions;
+export function csrfCookieOptions(environment: string): CookieSerializeOptions {
+  return {
+    ...BASE_COOKIE_OPTIONS,
+    httpOnly: false,
+    secure: environment !== 'development',
+  };
+}
 
 /**
  * Options used when clearing a cookie.

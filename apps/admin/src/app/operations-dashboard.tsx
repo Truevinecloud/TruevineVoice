@@ -225,7 +225,7 @@ export default function OperationsDashboard() {
             Password
             <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
           </label>
-          <button disabled={busy} type="submit">
+          <button disabled={busy || loading} type="submit">
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </form>

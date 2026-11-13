@@ -370,6 +370,12 @@ the environment, because `${VAR:-default}` shell syntax does not work under
 
 `npm run dev` runs the API, worker, web and admin dev servers together.
 
+The admin frontend is mounted at `/admin`. Its development server explicitly
+allows the loopback origin `127.0.0.1`, as well as Next.js's default localhost
+origin, so local browser hydration and development resources work with either
+hostname. Set `TRUEVINE_API_URL` to the intended API origin when starting the
+admin frontend; use the isolated QA API for QA accounts.
+
 ---
 
 ## Health endpoint

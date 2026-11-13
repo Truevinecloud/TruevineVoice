@@ -31,7 +31,11 @@ export function isPlatformNavItemActive(pathname: string, href: string): boolean
 
 export function platformNavigationItems(role: PlatformRole | null): readonly PlatformLink[] {
   if (!role || !PLATFORM_ROLES.includes(role)) return [];
-  return PLATFORM_LINKS.filter((item) => canActAsPlatform(role, item.permission));
+  return PLATFORM_LINKS.filter(
+    (item) =>
+      canActAsPlatform(role, item.permission) &&
+      !(role === 'TECHNICAL_ADMIN' && item.href === '/auditor'),
+  );
 }
 
 export function PlatformShell({ children }: { children: ReactNode }) {
@@ -40,6 +44,8 @@ export function PlatformShell({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<PlatformRole | null>(null);
   const [checked, setChecked] = useState(false);
   const [open, setOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -67,11 +73,19 @@ export function PlatformShell({ children }: { children: ReactNode }) {
   const items = platformNavigationItems(role);
 
   async function signOut() {
-    await api('/auth/sign-out', { method: 'POST' }).catch(() => undefined);
-    setRole(null);
-    window.dispatchEvent(new Event('truevine:session-changed'));
-    router.replace('/');
-    router.refresh();
+    setSigningOut(true);
+    setSignOutError('');
+    try {
+      await api('/auth/sign-out', { method: 'POST' });
+      setRole(null);
+      window.dispatchEvent(new Event('truevine:session-changed'));
+      router.replace('/');
+      router.refresh();
+    } catch {
+      setSignOutError('Sign out failed. Your session may still be active. Please retry.');
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   return (
@@ -137,9 +151,15 @@ export function PlatformShell({ children }: { children: ReactNode }) {
               </div>
             </nav>
             <div className="platform-sidebar-footer">
-              <button className="platform-shell-signout" type="button" onClick={() => void signOut()}>
-                Sign out
+              <button
+                className="platform-shell-signout"
+                type="button"
+                disabled={signingOut}
+                onClick={() => void signOut()}
+              >
+                {signingOut ? 'Signing out…' : 'Sign out'}
               </button>
+              {signOutError && <p role="alert">{signOutError}</p>}
             </div>
           </>
         )}

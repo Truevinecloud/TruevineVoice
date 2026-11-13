@@ -31,16 +31,18 @@ import {
 // like a missing dependency rather than a missing import.
 import type { Request, Response } from 'express';
 
+import { APP_CONFIG } from '../config/app-config.module.js';
+import type { ApiConfig } from '../config/api.config.js';
 import { AuthService } from './auth.service.js';
 import { CsrfGuard } from './csrf.guard.js';
 import {
   CSRF_COOKIE,
-  CSRF_COOKIE_OPTIONS,
   SESSION_COOKIE,
-  SESSION_COOKIE_OPTIONS,
   clearedCookieOptions,
+  csrfCookieOptions,
   hashUserAgent,
   ipPrefixOf,
+  sessionCookieOptions,
 } from './cookies.js';
 import { CurrentPrincipal } from './permission.decorators.js';
 import type { Principal } from './principal.js';
@@ -74,6 +76,7 @@ export class AuthController {
   constructor(
     @Inject(AuthService) private readonly authService: AuthService,
     @Inject(TERMS_VERSION) private readonly termsVersion: string,
+    @Inject(APP_CONFIG) private readonly config: ApiConfig,
   ) {}
 
   /**
@@ -100,8 +103,8 @@ export class AuthController {
       },
     );
 
-    response.cookie(SESSION_COOKIE, result.sessionToken, SESSION_COOKIE_OPTIONS);
-    response.cookie(CSRF_COOKIE, result.csrfToken, CSRF_COOKIE_OPTIONS);
+    response.cookie(SESSION_COOKIE, result.sessionToken, sessionCookieOptions(this.config.environment));
+    response.cookie(CSRF_COOKIE, result.csrfToken, csrfCookieOptions(this.config.environment));
 
     return { ok: true };
   }
@@ -128,8 +131,8 @@ export class AuthController {
 
     // Clear both cookies. A signed-out browser holding a valid-looking session
     // cookie is the state that produces confusing "am I logged in?" behaviour.
-    response.clearCookie(SESSION_COOKIE, clearedCookieOptions(SESSION_COOKIE_OPTIONS));
-    response.clearCookie(CSRF_COOKIE, clearedCookieOptions(CSRF_COOKIE_OPTIONS));
+    response.clearCookie(SESSION_COOKIE, clearedCookieOptions(sessionCookieOptions(this.config.environment)));
+    response.clearCookie(CSRF_COOKIE, clearedCookieOptions(csrfCookieOptions(this.config.environment)));
   }
 
   /**
@@ -168,7 +171,7 @@ export class AuthController {
 
     // Every session was destroyed by the reset, so the browser is signed out and
     // needs a fresh CSRF token for its next mutation.
-    response.clearCookie(SESSION_COOKIE, clearedCookieOptions(SESSION_COOKIE_OPTIONS));
+    response.clearCookie(SESSION_COOKIE, clearedCookieOptions(sessionCookieOptions(this.config.environment)));
 
     return { ok: true };
   }
@@ -225,8 +228,8 @@ export class AuthController {
 
     // The server has already revoked every session; clear the browser's cookies
     // so it is not left holding a credential that no longer works.
-    response.clearCookie(SESSION_COOKIE, clearedCookieOptions(SESSION_COOKIE_OPTIONS));
-    response.clearCookie(CSRF_COOKIE, clearedCookieOptions(CSRF_COOKIE_OPTIONS));
+    response.clearCookie(SESSION_COOKIE, clearedCookieOptions(sessionCookieOptions(this.config.environment)));
+    response.clearCookie(CSRF_COOKIE, clearedCookieOptions(csrfCookieOptions(this.config.environment)));
   }
 }
 

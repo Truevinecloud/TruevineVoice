@@ -22,6 +22,7 @@ packages/database/src/generated/
 
 # Logs
 logs/
+!apps/admin/src/app/technical/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -54,5 +55,6 @@ Thumbs.db
 
 # Operator provisioning: holds single-use activation tokens (0600).
 .owner-activation/
+/.bootstrap-approval/
 qa-owner-recovery-*.txt
 .email-capture/

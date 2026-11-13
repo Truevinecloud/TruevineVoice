@@ -183,6 +183,55 @@ describe('TechnicalService providers and queues', () => {
 });
 
 describe('TechnicalService audit trail', () => {
+  it('projects Technical Admin events through an explicit privacy allowlist', async () => {
+    const { service, store, audit } = buildService();
+    store.events = [
+      anAuditEvent({
+        action: 'platform.technical.overview_viewed',
+        metadata: { secret: 'must-not-leak', customerEmail: 'customer@example.invalid' },
+      }),
+    ];
+    const result = await service.auditTrail(ACTOR, {}, 'TECHNICAL_ADMIN');
+    expect(store.lastAudit).toEqual({
+      action: undefined,
+      after: undefined,
+      limit: 51,
+      platformOperationsOnly: true,
+    });
+    expect(result.events[0]).toEqual({
+      id: store.events[0]!.id,
+      trail: 'identity',
+      action: 'platform.technical.overview_viewed',
+      outcome: 'SUCCESS',
+      scope: null,
+      occurredAt: NOW.toISOString(),
+    });
+    expect(JSON.stringify(result)).not.toContain('example.invalid');
+    expect(JSON.stringify(result)).not.toContain('must-not-leak');
+    expect(audit.identityEvents[0]?.action).toBe('platform.technical.audit_viewed');
+  });
+
+  it('refuses non-platform action filters for Technical Admin', async () => {
+    const { service, store } = buildService();
+    await expect(
+      service.auditTrail(ACTOR, { action: 'auth.sign_in.succeeded' }, 'TECHNICAL_ADMIN'),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(store.lastAudit).toBeUndefined();
+  });
+
+  it.each(['PLATFORM_OWNER', 'SUPPORT_ADMIN', 'AUDITOR'] as const)(
+    'preserves %s audit access and projection',
+    async (role) => {
+      const { service, store } = buildService();
+      store.events = [anAuditEvent()];
+      const result = await service.auditTrail(ACTOR, { action: 'auth.sign_in.succeeded' }, role);
+      expect(store.lastAudit).not.toHaveProperty('platformOperationsOnly');
+      expect(result.events[0]).toMatchObject({
+        actor: { email: 'operator@example.invalid' },
+        metadata: {},
+      });
+    },
+  );
   it('pages at 50 and returns a trail-qualified cursor', async () => {
     const { service, store } = buildService();
     store.events = Array.from({ length: 51 }, (_, index) =>

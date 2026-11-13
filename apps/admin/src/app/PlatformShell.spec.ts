@@ -13,7 +13,6 @@ describe('platform navigation entitlements', () => {
     ]);
     expect(platformNavigationItems('TECHNICAL_ADMIN').map((item) => item.label)).toEqual([
       'Technical',
-      'Audit',
     ]);
     expect(platformNavigationItems('AUDITOR').map((item) => item.label)).toEqual([
       'Operations',

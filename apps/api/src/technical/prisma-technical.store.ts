@@ -37,8 +37,18 @@ export class PrismaTechnicalStore implements TechnicalStore {
   async platformAuditEvents(
     input: TechnicalAuditTrailInput,
   ): Promise<readonly TechnicalAuditEventRecord[]> {
-    const anchor = await this.resolveAnchor(input.after);
-    const action = input.action === undefined ? {} : { action: input.action };
+    const platformOperationsOnly = input.platformOperationsOnly === true;
+    const anchor = await this.resolveAnchor(input.after, platformOperationsOnly);
+    const action =
+      input.action === undefined
+        ? platformOperationsOnly
+          ? { action: { startsWith: 'platform.' } }
+          : {}
+        : {
+            action: platformOperationsOnly
+              ? { equals: input.action, startsWith: 'platform.' }
+              : input.action,
+          };
     const position = anchor
       ? {
           OR: [
@@ -86,36 +96,32 @@ export class PrismaTechnicalStore implements TechnicalStore {
     ]);
 
     const merged: TechnicalAuditEventRecord[] = [
-      ...identity.map(
-        (event): TechnicalAuditEventRecord => ({
-          id: event.id,
-          trail: 'identity',
-          action: event.action,
-          outcome: event.outcome,
-          scope: null,
-          targetType: null,
-          targetId: null,
-          occurredAt: event.occurredAt,
-          actorUserId: event.actorUserId,
-          actorEmail: event.actor.email,
-          metadata: event.metadata,
-        }),
-      ),
-      ...security.map(
-        (event): TechnicalAuditEventRecord => ({
-          id: event.id,
-          trail: 'security',
-          action: event.action,
-          outcome: event.outcome,
-          scope: event.scope,
-          targetType: event.targetType,
-          targetId: event.targetId,
-          occurredAt: event.occurredAt,
-          actorUserId: event.actorUserId,
-          actorEmail: event.actor.email,
-          metadata: event.metadata,
-        }),
-      ),
+      ...identity.map((event): TechnicalAuditEventRecord => ({
+        id: event.id,
+        trail: 'identity',
+        action: event.action,
+        outcome: event.outcome,
+        scope: null,
+        targetType: null,
+        targetId: null,
+        occurredAt: event.occurredAt,
+        actorUserId: event.actorUserId,
+        actorEmail: event.actor.email,
+        metadata: event.metadata,
+      })),
+      ...security.map((event): TechnicalAuditEventRecord => ({
+        id: event.id,
+        trail: 'security',
+        action: event.action,
+        outcome: event.outcome,
+        scope: event.scope,
+        targetType: event.targetType,
+        targetId: event.targetId,
+        occurredAt: event.occurredAt,
+        actorUserId: event.actorUserId,
+        actorEmail: event.actor.email,
+        metadata: event.metadata,
+      })),
     ];
 
     return merged.sort(newerFirst).slice(0, input.limit);
@@ -131,17 +137,25 @@ export class PrismaTechnicalStore implements TechnicalStore {
    */
   private async resolveAnchor(
     cursor: TechnicalAuditCursor | undefined,
+    platformOperationsOnly: boolean,
   ): Promise<{ readonly id: string; readonly occurredAt: Date } | null> {
     if (cursor === undefined) return null;
 
     const anchor =
       cursor.trail === 'identity'
         ? await this.prisma.identityAuditEvent.findUnique({
-            where: { id: cursor.eventId },
+            where: {
+              id: cursor.eventId,
+              ...(platformOperationsOnly ? { action: { startsWith: 'platform.' } } : {}),
+            },
             select: { id: true, occurredAt: true },
           })
         : await this.prisma.securityAuditEvent.findFirst({
-            where: { id: cursor.eventId, scope: 'PLATFORM' },
+            where: {
+              id: cursor.eventId,
+              scope: 'PLATFORM',
+              ...(platformOperationsOnly ? { action: { startsWith: 'platform.' } } : {}),
+            },
             select: { id: true, occurredAt: true },
           });
 

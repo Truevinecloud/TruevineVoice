@@ -60,11 +60,11 @@ export type AuditEventRow = {
   action: string;
   outcome: string;
   scope: string | null;
-  targetType: string | null;
-  targetId: string | null;
+  targetType?: string | null;
+  targetId?: string | null;
   occurredAt: string;
-  actor: { userId: string; email: string };
-  metadata: unknown;
+  actor?: { userId: string; email: string };
+  metadata?: unknown;
 };
 
 export function TechnicalHeader({ title }: { title: string }) {
@@ -84,12 +84,13 @@ export function TechnicalHeader({ title }: { title: string }) {
 export function TechnicalNav({
   current,
 }: {
-  current: 'overview' | 'providers' | 'queues' | 'audit';
+  current: 'overview' | 'providers' | 'queues' | 'logs' | 'audit';
 }) {
   const sections: Array<{ key: typeof current; href: string; label: string }> = [
     { key: 'overview', href: '/technical', label: 'Overview' },
     { key: 'providers', href: '/technical/providers', label: 'Providers' },
     { key: 'queues', href: '/technical/queues', label: 'Queues' },
+    { key: 'logs', href: '/technical/logs', label: 'Logs' },
     { key: 'audit', href: '/technical/audit', label: 'Audit' },
   ];
 
@@ -144,7 +145,14 @@ export function OverviewPanels({ overview }: { overview: OverviewView }) {
       <section className="health-grid" aria-label="Application health">
         <HealthCard label="Application" value={overview.application.status} />
         {dependencies.map(([name, dependency]) => (
-          <HealthCard key={name} label={name} value={dependency.status} />
+          <HealthCard
+            key={name}
+            label={name}
+            value={dependency.status}
+            detail={
+              dependency.latencyMs === undefined ? undefined : `${dependency.latencyMs} ms response`
+            }
+          />
         ))}
       </section>
       <section className="health-grid" aria-label="Subsystem availability">
@@ -282,8 +290,14 @@ export function TechnicalAuditTable({ events }: { events: AuditEventRow[] }) {
                 <small>{event.trail} trail</small>
               </td>
               <td>
-                {event.actor.email}
-                <small>{event.actor.userId}</small>
+                {event.actor ? (
+                  <>
+                    {event.actor.email}
+                    <small>{event.actor.userId}</small>
+                  </>
+                ) : (
+                  'Identity withheld'
+                )}
               </td>
               <td>{event.scope ?? '—'}</td>
               <td>
@@ -297,11 +311,12 @@ export function TechnicalAuditTable({ events }: { events: AuditEventRow[] }) {
   );
 }
 
-function HealthCard({ label, value }: { label: string; value: string }) {
+function HealthCard({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
     <div className="health-card">
       <span>{label}</span>
       <strong>{value}</strong>
+      {detail && <small>{detail}</small>}
     </div>
   );
 }
