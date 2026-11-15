@@ -39,6 +39,11 @@ import { SupportAccessGuard } from '../src/support/support-access.guard.js';
 import { SupportRateLimitGuard } from '../src/support/support-rate-limit.guard.js';
 import { TechnicalController } from '../src/technical/technical.controller.js';
 import { PlatformAdminController } from '../src/platform-admin/platform-admin.controller.js';
+import { BillingAdminController } from '../src/billing-admin/billing-admin.controller.js';
+import { PaymentProvidersController } from '../src/payments/payment-providers.controller.js';
+import { PLATFORM_ROLES, canActAsPlatform, type PlatformPermission } from '@truevine/auth';
+import { PRINCIPAL } from '../src/auth/principal.js';
+import { FakeAuditStore } from './fakes/auth.fakes.js';
 
 type AnyController = new (...args: never[]) => object;
 
@@ -571,8 +576,10 @@ describe('every platform route is guarded and none is a mutation reachable by an
     ['SupportController', SupportController],
     ['TechnicalController', TechnicalController],
     ['AuditController', AuditController],
-      ['OperationsController', OperationsController],
-      ['PlatformAdminController', PlatformAdminController],
+    ['OperationsController', OperationsController],
+    ['PlatformAdminController', PlatformAdminController],
+    ['BillingAdminController', BillingAdminController],
+    ['PaymentProvidersController', PaymentProvidersController],
   ];
 
   it('declares PlatformGuard on every route of every platform controller', () => {
@@ -587,7 +594,41 @@ describe('every platform route is guarded and none is a mutation reachable by an
     expect(unguarded).toEqual([]);
   });
 
-  it('declares no mutating permission on the three read-only platform controllers', () => {
+  it('denies Auditor at every platform mutation and preserves the other role boundaries', async () => {
+    let mutations = 0;
+    for (const [, controller] of PLATFORM_CONTROLLERS) {
+      for (const route of handlersOf(controller)) {
+        const name = route.name.split('.')[1]!;
+        const handler = (controller.prototype as unknown as Record<string, object>)[name]!;
+        const verb = Reflect.getMetadata(METHOD_METADATA, handler);
+        if (verb === RequestMethod.GET || verb === RequestMethod.HEAD || verb === RequestMethod.OPTIONS) continue;
+        mutations++;
+        const permission = Reflect.getMetadata(PLATFORM_PERMISSION, handler) as PlatformPermission;
+        expect(permission, route.name).toBeDefined();
+        expect(canActAsPlatform('AUDITOR', permission), route.name).toBe(false);
+        expect(route.guards, route.name).toEqual(expect.arrayContaining([SessionGuard, PlatformGuard, CsrfGuard]));
+        for (const role of PLATFORM_ROLES) {
+          const audit = new FakeAuditStore();
+          const guard = new PlatformGuard(audit);
+          const context = {
+            getType: () => 'http', getHandler: () => handler, getClass: () => controller,
+            switchToHttp: () => ({ getRequest: () => ({
+              [PRINCIPAL]: { userId: 'operator', platformRole: role },
+            }) }),
+          } as never;
+          if (canActAsPlatform(role, permission)) {
+            await expect(guard.canActivate(context), `${route.name}: ${role}`).resolves.toBe(true);
+          } else {
+            await expect(guard.canActivate(context), `${route.name}: ${role}`).rejects.toMatchObject({ status: 403 });
+            expect(audit.identityEvents.at(-1)?.action).toBe('platform.access.denied');
+          }
+        }
+      }
+    }
+    expect(mutations).toBeGreaterThan(0);
+  });
+
+  it('declares no mutating permission on the technical and audit controllers', () => {
     // Technical and audit are read-only consoles. Support has explicit session
     // lifecycle routes, but their dedicated permission does not grant customer
     // writes. The set is written literally so new capabilities require review.
@@ -606,7 +647,7 @@ describe('every platform route is guarded and none is a mutation reachable by an
     ]);
 
     for (const [label, controller] of PLATFORM_CONTROLLERS) {
-      if (label === 'OperationsController' || label === 'SupportController' || label === 'PlatformAdminController') continue;
+      if (label !== 'TechnicalController' && label !== 'AuditController') continue;
 
       for (const route of handlersOf(controller)) {
         const method = route.name.split('.')[1]!;

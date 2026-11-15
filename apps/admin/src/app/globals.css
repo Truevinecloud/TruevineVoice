@@ -222,3 +222,19 @@ h1 {
   .platform-admin-table td { display: block; border: 0; padding: .35rem 0; }
   .platform-admin-table td::before { content: attr(data-label); display: block; color: var(--muted-fg); font-size: .72rem; text-transform: uppercase; }
 }
+
+/* Auditor workspace: shared brand tokens with bounded, readable event details. */
+.auditor-workspace { margin: 0 auto; padding: 3rem 1.5rem; }
+.auditor-workspace .topbar { align-items: flex-start; flex-wrap: wrap; }
+.auditor-workspace h1 { margin-bottom: .5rem; }
+.auditor-workspace td { vertical-align: top; }
+.auditor-workspace td time { white-space: nowrap; font-size: .85rem; }
+.auditor-workspace td details { min-width: 12rem; max-width: 28rem; }
+.auditor-workspace summary { cursor: pointer; color: var(--accent); }
+.auditor-workspace pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }
+.audit-details { font-size: .8rem; overflow-wrap: anywhere; }
+.audit-details dt { color: var(--muted-fg); margin-top: .5rem; }
+.audit-details dd { margin: 0; }
+.auditor-workspace .status-success { color: var(--accent); }
+.auditor-workspace .status-denied, .auditor-workspace .status-failure { color: #f0b429; }
+@media (max-width: 640px) { .auditor-workspace { padding: 1.5rem 1rem; } }

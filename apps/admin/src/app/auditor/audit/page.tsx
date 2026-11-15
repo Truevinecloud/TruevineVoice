@@ -1,107 +1,100 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-
 import { api } from '../../../lib/api';
 import {
-  AuditorAccessNotice,
-  AuditorAuditTable,
-  AuditorHeader,
-  AuditorNav,
-  type AuditEventRow,
+  AuditorAccessNotice, AuditorAuditTable, AuditorHeader, AuditorNav, type AuditEventRow,
 } from '../auditor-ui';
 
 type AuditTrail = { events: AuditEventRow[]; nextCursor: string | null };
 
-/** Platform audit trail (RBAC-011): operator actions across the platform, newest first. */
 export default function AuditorAuditPage() {
-  const [access, setAccess] = useState<number | null | 'checking'>('checking');
   const [action, setAction] = useState('');
-  const [events, setEvents] = useState<AuditEventRow[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState({ action: '', cursor: '', revision: 0 });
+  const [result, setResult] = useState<AuditTrail | null>(null);
+  const [status, setStatus] = useState<number | null>(null);
+  const [busy, setBusy] = useState(true);
 
   useEffect(() => {
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
+      setBusy(true);
+      setStatus(null);
+      if (!query.cursor) setResult(null);
       void (async () => {
         try {
-          await api('/platform/audit/me');
-          setAccess(null);
-          await load();
+          await api('/platform/audit/me', { signal: controller.signal });
+          const parameters = new URLSearchParams();
+          if (query.action) parameters.set('action', query.action);
+          if (query.cursor) parameters.set('cursor', query.cursor);
+          const page = await api<AuditTrail>(
+            `/platform/audit/audit${parameters.size ? `?${parameters}` : ''}`,
+            { signal: controller.signal },
+          );
+          if (!controller.signal.aborted) {
+            setResult((previous) => ({
+              events: query.cursor ? [...(previous?.events ?? []), ...page.events] : page.events,
+              nextCursor: page.nextCursor,
+            }));
+          }
         } catch (error) {
-          setAccess((error as { status?: number }).status ?? 500);
+          if (!controller.signal.aborted) {
+            const code = (error as { status?: number }).status ?? 500;
+            setStatus(code);
+            if (code === 401 || code === 403) setResult(null);
+          }
+        } finally {
+          if (!controller.signal.aborted) setBusy(false);
         }
       })();
     }, 0);
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function load(nextCursor?: string) {
-    setBusy(true);
-    setMessage('');
-    try {
-      const parameters = new URLSearchParams();
-      if (action.trim()) parameters.set('action', action.trim());
-      if (nextCursor) parameters.set('cursor', nextCursor);
-      const result = await api<AuditTrail>(
-        `/platform/audit/audit${parameters.size > 0 ? `?${parameters.toString()}` : ''}`,
-      );
-      setEvents((current) => (nextCursor ? [...current, ...result.events] : result.events));
-      setCursor(result.nextCursor);
-    } catch {
-      setMessage('That filter is not valid, or the trail could not be read.');
-    } finally {
-      setBusy(false);
-    }
-  }
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [query]);
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    void load();
+    setBusy(true);
+    setQuery((previous) => ({ action: action.trim(), cursor: '', revision: previous.revision + 1 }));
   }
 
+  const denied = status === 401 || status === 403;
   return (
-    <main className="operations-shell">
+    <div className="operations-shell auditor-workspace">
       <AuditorHeader title="Audit trail" />
       <AuditorNav current="audit" />
-      <AuditorAccessNotice status={typeof access === 'number' ? access : null} />
-      {access === null && (
+      <p className="subtitle">Review operator activity across the platform. Events appear newest first; all times are UTC.</p>
+      <AuditorAccessNotice status={denied ? status : null} />
+      {!denied && (
         <>
           <form className="search-bar" onSubmit={onSubmit}>
-            <label>
-              Action
-              <input
-                value={action}
-                onChange={(event) => setAction(event.target.value)}
-                placeholder="platform.audit.overview_viewed"
-                maxLength={64}
-              />
+            <label>Exact action
+              <input value={action} onChange={(event) => setAction(event.target.value)}
+                placeholder="platform.audit.overview_viewed" maxLength={64} />
             </label>
-            <button disabled={busy} type="submit">
-              Filter
-            </button>
+            <button disabled={busy} type="submit">Filter</button>
           </form>
-          {message && (
-            <p className="notice" role="status">
-              {message}
-            </p>
-          )}
-          <section className="card">
-            <div className="section-heading">
-              <h2>Platform audit trail</h2>
-              <span>{events.length} shown</span>
+          {status !== null && (
+            <div className="notice" role="alert">
+              <p>{status === 400 ? 'Enter a valid, registered audit action.' : status === 429 ? 'Too many requests. Wait a moment, then retry.' : 'Audit records are temporarily unavailable.'}</p>
+              <button className="quiet-button" disabled={busy} onClick={() => {
+                setBusy(true);
+                setQuery((previous) => ({ ...previous, revision: previous.revision + 1 }));
+              }}>Retry</button>
             </div>
-            <AuditorAuditTable events={events} />
-            {cursor && (
-              <button className="quiet-button" disabled={busy} onClick={() => void load(cursor)}>
-                Load more
-              </button>
+          )}
+          <section className="card" aria-busy={busy}>
+            <div className="section-heading"><h2>Platform audit trail</h2><span>{result?.events.length ?? 0} shown</span></div>
+            {busy && <p role="status">Loading audit events...</p>}
+            {result && <AuditorAuditTable events={result.events} />}
+            {result?.nextCursor && (
+              <button className="quiet-button" disabled={busy} onClick={() => {
+                setBusy(true);
+                setQuery((previous) => ({ ...previous, cursor: result.nextCursor! }));
+              }}>Load more</button>
             )}
           </section>
         </>
       )}
-    </main>
+    </div>
   );
 }
