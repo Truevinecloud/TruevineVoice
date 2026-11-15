@@ -1,3 +1,4 @@
+import { selectMembership } from '../../lib/organization-context';
 import { redirect } from 'next/navigation';
 
 import { fetchCampaigns, fetchInvitations, fetchMembers, fetchOrganization } from '../../lib/org-api';
@@ -23,21 +24,13 @@ export default async function DashboardPage({
   if (!session.ok) redirect('/sign-in');
 
   const params = await searchParams;
-  const requested = Array.isArray(params.organization)
-    ? params.organization[0]
-    : params.organization;
-
-  const memberships = session.me.memberships;
 
   // Only ever fall back to a membership the caller actually holds. Reading an
   // organization id from the URL without checking it is the cross-tenant bug
   // this whole task exists to prevent.
-  const membership =
-    requested === undefined
-      ? memberships[0]
-      : memberships.find((entry) => entry.organizationId === requested);
+  const membership = selectMembership(session.me.memberships, params.organization);
 
-  if (requested !== undefined && !membership) {
+  if (params.organization !== undefined && !membership) {
     return (
       <>
         <PageHeader title="Dashboard" description="Your organization workspace." />
@@ -53,8 +46,12 @@ export default async function DashboardPage({
       <>
         <PageHeader title="Welcome" description="Your Truevine Voice account is ready." />
         <SectionCard>
-          <EmptyState title="No organization yet">
-            Accept an invitation, or ask an organization owner to invite you.
+          <EmptyState
+            title={session.me.memberships.length ? 'No available workspace' : 'No organization yet'}
+          >
+            {session.me.memberships.length
+              ? 'Your workspaces are currently unavailable. Contact your organization owner or platform support.'
+              : 'Accept an invitation, or ask an organization owner to invite you.'}
           </EmptyState>
         </SectionCard>
       </>

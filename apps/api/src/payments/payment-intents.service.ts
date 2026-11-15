@@ -13,7 +13,7 @@ function invalid(message: string): never {
 export class PaymentIntentsService {
   constructor(@Inject(PAYMENT_INTENT_STORE) private readonly store: PaymentIntentStore) {}
 
-  async createPending(organizationId: string, input: unknown) {
+  async createPending(organizationId: string, actorUserId: string, input: unknown) {
     if (!input || typeof input !== 'object') invalid('Payment details are required.');
     const body = input as Record<string, unknown>;
     if (body.purpose !== 'WALLET_TOP_UP') invalid('Only wallet top-up payment intents are supported.');
@@ -26,6 +26,7 @@ export class PaymentIntentsService {
       invalid('A valid idempotency key is required.');
     const intent = await this.store.createPending({
       organizationId,
+      actorUserId,
       purpose: 'WALLET_TOP_UP',
       amountMinor,
       currency: 'UGX',

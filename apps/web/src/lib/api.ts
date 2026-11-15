@@ -73,6 +73,7 @@ export async function ensureCsrfToken(): Promise<void> {
 
 /** Options for {@link request}. */
 interface RequestOptions {
+  readonly signal?: AbortSignal;
   readonly method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   readonly body?: unknown;
   readonly headers?: Readonly<Record<string, string>>;
@@ -110,6 +111,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   const response = await fetch(browserApiUrl(path), {
+    signal: options.signal,
     method,
     headers,
     credentials: 'same-origin',

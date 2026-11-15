@@ -1,3 +1,5 @@
+import { OrganizationAccessDenied } from '../../AppUI';
+import { selectMembership } from '../../../../lib/organization-context';
 import { redirect } from 'next/navigation';
 import { delegableRoles } from '@truevine/auth';
 
@@ -17,15 +19,10 @@ export default async function InvitePage({
   if (!session.ok) redirect('/sign-in');
 
   const params = await searchParams;
-  const requested = Array.isArray(params.organization)
-    ? params.organization[0]
-    : params.organization;
 
-  const membership =
-    session.me.memberships.find((entry) => entry.organizationId === requested) ??
-    session.me.memberships[0];
+  const membership = selectMembership(session.me.memberships, params.organization);
 
-  if (!membership) redirect('/app');
+  if (!membership) return <OrganizationAccessDenied />;
 
   if (!hasPermission(membership, 'member:invite')) {
     return (
@@ -51,6 +48,7 @@ export default async function InvitePage({
         description="Assign a role no more powerful than the one you hold."
       >
         <InviteForm
+          key={membership.organizationId}
           organizationId={membership.organizationId}
           organizationName={membership.organizationName}
           roles={delegableRoles(membership.role)}

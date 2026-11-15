@@ -883,3 +883,16 @@ Run `npm run test:sensitive-audit:e2e` against the disposable loopback stack wit
 included in ordinary E2E/security runs and fails loudly without infrastructure.
 The additive audit-integrity migration remains unapproved for production.
 No frontend, real financial operation, plan or provider execution is added.
+
+## RBAC-012 tenant isolation QA
+
+The authenticated customer shell keeps organization context in the existing URL,
+revalidates membership before showing cached tenant views, and refreshes data
+when switching workspaces. API guards and scoped repositories remain authoritative.
+
+`npm run test:rbac-012:qa` runs the cross-tenant PostgreSQL/HTTP suites only against
+`truevine_bootstrap_test_a1b2c3d4e5f67890` on loopback port 55432. It derives local
+connection credentials in memory, verifies the connected database name and never
+connects to `truevine_voice`. It creates fresh synthetic fixtures only, does not
+apply migrations or reset accounts, and fails loudly if the QA database is not
+ready. See [RBAC-012 architecture, scope and verification](docs/rbac-012-tenant-isolation.md).
