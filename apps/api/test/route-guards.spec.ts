@@ -41,6 +41,7 @@ import { TechnicalController } from '../src/technical/technical.controller.js';
 import { PlatformAdminController } from '../src/platform-admin/platform-admin.controller.js';
 import { BillingAdminController } from '../src/billing-admin/billing-admin.controller.js';
 import { PaymentProvidersController } from '../src/payments/payment-providers.controller.js';
+import { PaymentIntentsController } from '../src/payments/payment-intents.controller.js';
 import { PLATFORM_ROLES, canActAsPlatform, type PlatformPermission } from '@truevine/auth';
 import { PRINCIPAL } from '../src/auth/principal.js';
 import { FakeAuditStore } from './fakes/auth.fakes.js';
@@ -714,6 +715,7 @@ describe('RBAC-012 tenant route contract', () => {
       BillingController,
       ContactsController,
       AudioController,
+      PaymentIntentsController,
     ]) {
       for (const name of Object.getOwnPropertyNames(controller.prototype)) {
         const handler = (controller.prototype as unknown as Record<string, object>)[name];

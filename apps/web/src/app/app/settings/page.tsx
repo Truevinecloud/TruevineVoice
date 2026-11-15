@@ -1,3 +1,5 @@
+import { OrganizationAccessDenied } from '../AppUI';
+import { selectMembership } from '../../../lib/organization-context';
 import { redirect } from 'next/navigation';
 
 import { fetchOrganization } from '../../../lib/org-api';
@@ -17,15 +19,10 @@ export default async function SettingsPage({
   if (!session.ok) redirect('/sign-in');
 
   const params = await searchParams;
-  const requested = Array.isArray(params.organization)
-    ? params.organization[0]
-    : params.organization;
 
-  const membership =
-    session.me.memberships.find((entry) => entry.organizationId === requested) ??
-    session.me.memberships[0];
+  const membership = selectMembership(session.me.memberships, params.organization);
 
-  if (!membership) redirect('/app');
+  if (!membership) return <OrganizationAccessDenied />;
 
   const organization = await fetchOrganization(membership.organizationId);
 
@@ -56,6 +53,7 @@ export default async function SettingsPage({
       >
         {canUpdate ? (
           <OrganizationSettingsForm
+            key={membership.organizationId}
             organizationId={organization.id}
             slug={organization.slug}
             name={organization.name}

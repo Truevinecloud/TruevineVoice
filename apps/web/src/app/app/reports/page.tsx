@@ -1,3 +1,4 @@
+import { selectMembership } from '../../../lib/organization-context';
 import { redirect } from 'next/navigation';
 
 import { fetchCampaignStatusReport } from '../../../lib/org-api';
@@ -21,13 +22,7 @@ export default async function ReportsPage({
   if (!session.me.termsAccepted) redirect('/accept-terms');
 
   const params = await searchParams;
-  const requested = Array.isArray(params.organization)
-    ? params.organization[0]
-    : params.organization;
-  const membership =
-    requested === undefined
-      ? session.me.memberships[0]
-      : session.me.memberships.find((entry) => entry.organizationId === requested);
+  const membership = selectMembership(session.me.memberships, params.organization);
 
   if (!membership || !hasPermission(membership, 'reporting:read')) {
     return (

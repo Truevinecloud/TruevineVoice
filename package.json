@@ -41,6 +41,7 @@
                     "test:audio:e2e": "npm run build:packages \u0026\u0026 npm run test:e2e --workspace @truevine/api -- audio-assets.e2e-spec.ts",
                     "test:sensitive-audit:e2e": "npm run test:e2e --workspace @truevine/api -- sensitive-audit.e2e-spec.ts",
                     "test:tenant-isolation:e2e": "npm run test:e2e --workspace @truevine/api -- tenant-isolation.e2e-spec.ts",
+                    "test:rbac-012:qa": "npm run build:packages && node infrastructure/scripts/run-tenant-isolation-qa.mjs",
                     "test:call-persistence:e2e": "npm run test:e2e --workspace @truevine/api -- call-persistence.e2e-spec.ts",
                     "prisma:migrate:diff": "prisma migrate diff --config packages/database/prisma.config.ts",
                     "test:billing:e2e": "npm run test:e2e --workspace @truevine/api -- billing.e2e-spec.ts",
