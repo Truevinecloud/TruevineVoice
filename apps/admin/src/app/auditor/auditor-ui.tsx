@@ -55,6 +55,7 @@ export function AuditorHeader({ title }: { title: string }) {
       <div>
         <span className="eyebrow">TRUEVINE VOICE · PLATFORM AUDIT</span>
         <h1>{title}</h1>
+        <span className="badge">Read-only workspace</span>
       </div>
       <Link className="quiet-button" href="/">
         Operations home
@@ -208,7 +209,7 @@ export function OrganizationsTable({ organizations }: { organizations: Organizat
                 <Status value={organization.status} />
               </td>
               <td>{organization.memberCount}</td>
-              <td>{organization.createdAt}</td>
+              <td><AuditTime value={organization.createdAt} /></td>
             </tr>
           ))}
         </tbody>
@@ -237,7 +238,7 @@ export function AuditorAuditTable({ events }: { events: AuditEventRow[] }) {
         <tbody>
           {events.map((event) => (
             <tr key={`${event.trail}:${event.id}`}>
-              <td>{event.occurredAt}</td>
+              <td><AuditTime value={event.occurredAt} /></td>
               <td>
                 <strong>{event.action}</strong>
                 <small>{event.trail} trail</small>
@@ -251,7 +252,14 @@ export function AuditorAuditTable({ events }: { events: AuditEventRow[] }) {
                 <Status value={event.outcome} />
               </td>
               <td>
-                <code>{JSON.stringify(event.metadata)}</code>
+                <details>
+                  <summary>View event details</summary>
+                  <dl className="audit-details">
+                    <dt>Event ID</dt><dd>{event.id}</dd>
+                    <dt>Target</dt><dd>{event.targetType ?? 'Not recorded'}{event.targetId && ` · ${event.targetId}`}</dd>
+                  </dl>
+                  <pre>{JSON.stringify(event.metadata, null, 2)}</pre>
+                </details>
               </td>
             </tr>
           ))}
@@ -259,6 +267,11 @@ export function AuditorAuditTable({ events }: { events: AuditEventRow[] }) {
       </table>
     </div>
   );
+}
+
+function AuditTime({ value }: { value: string }) {
+  const date = new Date(value);
+  return <time dateTime={value}>{Number.isNaN(date.getTime()) ? value : `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 19)} UTC`}</time>;
 }
 
 function HealthCard({ label, value }: { label: string; value: string }) {

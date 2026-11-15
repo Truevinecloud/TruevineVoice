@@ -122,8 +122,8 @@ describe('AuditorAuditTable', () => {
             action: 'platform.audit.overview_viewed',
             outcome: 'SUCCESS',
             scope: null,
-            targetType: null,
-            targetId: null,
+            targetType: 'organization',
+            targetId: 'org-1',
             occurredAt: '2026-10-20T00:00:00.000Z',
             actor: { userId: 'actor-1', email: 'auditor@example.com' },
             metadata: { outcome: 'SUCCESS' },
@@ -135,6 +135,11 @@ describe('AuditorAuditTable', () => {
     expect(markup).toContain('auditor@example.com');
     expect(markup).toContain('identity trail');
     expect(markup).toContain('SUCCESS');
+    expect(markup).toContain('2026-10-20 00:00:00 UTC');
+    expect(markup).toContain('dateTime="2026-10-20T00:00:00.000Z"');
+    expect(markup).toContain('View event details');
+    expect(markup).toContain('organization · org-1');
+    expect(markup).not.toContain('<button');
   });
 
   it('reports an empty trail explicitly', () => {
