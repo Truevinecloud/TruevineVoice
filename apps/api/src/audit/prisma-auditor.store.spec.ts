@@ -14,6 +14,7 @@ interface Row {
   readonly scope?: 'ORGANIZATION' | 'PLATFORM';
   readonly targetType?: string | null;
   readonly targetId?: string | null;
+  readonly organizationId?: string;
   readonly metadata: unknown;
   readonly occurredAt: Date;
   readonly actorUserId: string;
@@ -184,7 +185,7 @@ describe('PrismaAuditorStore platform audit trail', () => {
   it('merges the two trails newest first and tags each row with its trail', async () => {
     state.identityRows.push(anIdentityRow({ occurredAt: new Date('2026-10-20T00:00:00Z') }));
     state.securityRows.push(
-      aSecurityRow({ occurredAt: new Date('2026-10-20T01:00:00Z') }),
+      aSecurityRow({ occurredAt: new Date('2026-10-20T01:00:00Z'), organizationId: 'organization-1' }),
     );
 
     const events = await state.store.platformAuditEvents({ limit: 50 });
@@ -194,6 +195,7 @@ describe('PrismaAuditorStore platform audit trail', () => {
       id: SECURITY_ID,
       trail: 'security',
       scope: 'PLATFORM',
+      organizationId: 'organization-1',
       actorEmail: 'operator@example.invalid',
     });
   });

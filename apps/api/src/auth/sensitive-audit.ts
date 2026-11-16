@@ -47,6 +47,9 @@ export async function writeMutationAudit(
     change: Readonly<Record<string, unknown>>;
     after: Readonly<Record<string, unknown>> | null;
     reasonCode: string;
+    justification?: string | null;
+    /** Who chose the reason: the caller's submitted code, or a server purpose. */
+    reasonSource?: string;
     scope?: 'ORGANIZATION' | 'PLATFORM';
     outcome?: 'SUCCESS' | 'DENIED';
     legacy?: Readonly<Record<string, unknown>>;
@@ -64,6 +67,45 @@ export async function writeMutationAudit(
       outcome: input.outcome ?? 'SUCCESS',
       targetType: input.targetType,
       targetId: input.targetId,
+      metadata: metadata as never,
+    },
+  });
+}
+
+/**
+ * Shared insert into the identity trail, using the caller's transaction.
+ *
+ * Identity events are the right trail for an action whose subject is an operator
+ * rather than a tenant - a platform role grant has no organization id. Writing
+ * it inside the mutation's transaction is what makes the action and its evidence
+ * commit or roll back together.
+ */
+export async function writeIdentityMutationAudit(
+  tx: Pick<import('@truevine/database').PrismaClient, 'identityAuditEvent'>,
+  input: {
+    actorUserId: string;
+    action: string;
+    targetType: string;
+    targetId: string;
+    before: Readonly<Record<string, unknown>> | null;
+    change: Readonly<Record<string, unknown>>;
+    after: Readonly<Record<string, unknown>> | null;
+    reasonCode: string;
+    justification?: string | null;
+    /** Who chose the reason: the caller's submitted code, or a server purpose. */
+    reasonSource?: string;
+    outcome?: 'SUCCESS' | 'DENIED';
+    legacy?: Readonly<Record<string, unknown>>;
+  },
+): Promise<void> {
+  assertKnownAuditAction(input.action);
+  const metadata = { ...input.legacy, ...mutationAudit(input) };
+  if (!isSafeAuditMetadata(metadata)) throw new Error('Unsafe audit metadata.');
+  await tx.identityAuditEvent.create({
+    data: {
+      actorUserId: input.actorUserId,
+      action: input.action,
+      outcome: input.outcome ?? 'SUCCESS',
       metadata: metadata as never,
     },
   });

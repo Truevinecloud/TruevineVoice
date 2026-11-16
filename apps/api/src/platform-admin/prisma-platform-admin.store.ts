@@ -2,8 +2,13 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import type { PlatformRole } from '@truevine/auth';
 import { DATABASE_CLIENT } from '../tokens.js';
+import { writeIdentityMutationAudit } from '../auth/sensitive-audit.js';
 import type { SecurityDatabase } from '../auth/prisma-stores.js';
-import type { PlatformAdminAssignment, PlatformAdminStore } from './platform-admin.store.js';
+import type {
+  PlatformAdminAssignment,
+  PlatformAdminReason,
+  PlatformAdminStore,
+} from './platform-admin.store.js';
 
 @Injectable()
 export class PrismaPlatformAdminStore implements PlatformAdminStore {
@@ -57,35 +62,65 @@ export class PrismaPlatformAdminStore implements PlatformAdminStore {
     readonly userId: string;
     readonly role: PlatformRole;
     readonly grantedByUserId: string;
+    readonly reason: PlatformAdminReason;
   }): Promise<PlatformAdminAssignment> {
-    const row = await this.prisma.platformRoleAssignment.upsert({
-      where: { userId: input.userId },
-      update: {
-        role: input.role,
-        grantedByUserId: input.grantedByUserId,
-        grantedAt: new Date(),
-        revokedAt: null,
-      },
-      create: {
-        userId: input.userId,
-        role: input.role,
-        grantedByUserId: input.grantedByUserId,
-        revokedAt: null,
-      },
-      include: { user: { select: { email: true, status: true } } },
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.platformRoleAssignment.findUnique({
+        where: { userId: input.userId },
+      });
+      const row = await tx.platformRoleAssignment.upsert({
+        where: { userId: input.userId },
+        update: {
+          role: input.role,
+          grantedByUserId: input.grantedByUserId,
+          grantedAt: new Date(),
+          revokedAt: null,
+        },
+        create: {
+          userId: input.userId,
+          role: input.role,
+          grantedByUserId: input.grantedByUserId,
+          revokedAt: null,
+        },
+        include: { user: { select: { email: true, status: true } } },
+      });
+
+      // The assignment and its evidence commit together. A platform role change
+      // is exactly the "administrative rights change" whose audit record must
+      // never be optional, and there is no tenant id to hang a security-trail
+      // row on, so the identity trail carries it.
+      await writeIdentityMutationAudit(tx, {
+        actorUserId: input.grantedByUserId,
+        action: 'platform.admin.role_granted',
+        targetType: 'platform_role',
+        targetId: input.userId,
+        before:
+          existing !== null && existing.revokedAt === null ? { role: existing.role } : null,
+        change: { operation: 'granted', role: input.role },
+        after: { role: row.role },
+        reasonCode: input.reason.reasonCode,
+        justification: input.reason.justification ?? null,
+        reasonSource: 'caller',
+        legacy: { targetUserId: input.userId, role: input.role },
+      });
+
+      return {
+        userId: row.userId,
+        email: row.user.email,
+        status: row.user.status as 'ACTIVE' | 'SUSPENDED',
+        role: row.role as PlatformRole,
+        grantedByUserId: row.grantedByUserId,
+        grantedAt: row.grantedAt,
+        revokedAt: row.revokedAt,
+      };
     });
-    return {
-      userId: row.userId,
-      email: row.user.email,
-      status: row.user.status as 'ACTIVE' | 'SUSPENDED',
-      role: row.role as PlatformRole,
-      grantedByUserId: row.grantedByUserId,
-      grantedAt: row.grantedAt,
-      revokedAt: row.revokedAt,
-    };
   }
 
-  async revokeRole(userId: string): Promise<'revoked' | 'not_found' | 'last_owner'> {
+  async revokeRole(
+    userId: string,
+    actorUserId: string,
+    reason: PlatformAdminReason,
+  ): Promise<'revoked' | 'not_found' | 'last_owner'> {
     return this.prisma.$transaction(async (tx) => {
       const assignment = await tx.platformRoleAssignment.findUnique({ where: { userId } });
       if (!assignment || assignment.revokedAt) return 'not_found';
@@ -98,6 +133,19 @@ export class PrismaPlatformAdminStore implements PlatformAdminStore {
       await tx.platformRoleAssignment.update({
         where: { userId },
         data: { revokedAt: new Date() },
+      });
+      await writeIdentityMutationAudit(tx, {
+        actorUserId,
+        action: 'platform.admin.role_revoked',
+        targetType: 'platform_role',
+        targetId: userId,
+        before: { role: assignment.role },
+        change: { operation: 'revoked', role: assignment.role },
+        after: null,
+        reasonCode: reason.reasonCode,
+        justification: reason.justification ?? null,
+        reasonSource: 'caller',
+        legacy: { targetUserId: userId, role: assignment.role },
       });
       return 'revoked';
     });

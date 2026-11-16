@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, NotFoundExc
 import type { PrismaClient } from '@truevine/database';
 
 import { DATABASE_CLIENT } from '../tokens.js';
+import { writeIdentityMutationAudit, writeMutationAudit } from '../auth/sensitive-audit.js';
 import type {
   BillingAdminOrganizationQuery,
   BillingAdminOrganizationSummary,
@@ -13,7 +14,16 @@ import type {
 
 type BillingAdminClient = Pick<
   PrismaClient,
-  'organization' | 'membership' | 'campaign' | 'billingProfile' | 'walletEntry' | 'topUpRequest' | '$transaction' | '$executeRaw'
+  | 'organization'
+  | 'membership'
+  | 'campaign'
+  | 'billingProfile'
+  | 'walletEntry'
+  | 'topUpRequest'
+  | 'securityAuditEvent'
+  | 'identityAuditEvent'
+  | '$transaction'
+  | '$executeRaw'
 >;
 
 const INSENSITIVE = { mode: 'insensitive' } as const;
@@ -252,24 +262,28 @@ export class PrismaBillingAdminStore implements BillingAdminStore {
             error: { code: 'idempotency_conflict', message: 'This request identifier was already used for a different adjustment.' },
           });
         }
+        // An idempotent replay returns the original entry and writes no second
+        // success record: one ledger entry must have exactly one audit record.
         return { entry: existing, created: false };
       }
 
-      if (input.amountMinor < 0n) {
-        const aggregate = await tx.walletEntry.aggregate({
-          where: { organizationId: input.organizationId, currency: input.currency },
-          _sum: { amountMinor: true },
+      // Read the balance under the same lock that guards the insert, so the
+      // recorded before/after values describe the state this entry actually
+      // produced rather than a value read before a concurrent adjustment.
+      const aggregate = await tx.walletEntry.aggregate({
+        where: { organizationId: input.organizationId, currency: input.currency },
+        _sum: { amountMinor: true },
+      });
+      const balanceBefore = aggregate._sum.amountMinor ?? 0n;
+      if (input.amountMinor < 0n && balanceBefore + input.amountMinor < 0n) {
+        throw new BadRequestException({
+          error: {
+            code: 'insufficient_wallet_balance',
+            message: 'This adjustment would make the wallet balance negative.',
+          },
         });
-        const currentBalance = aggregate._sum.amountMinor ?? 0n;
-        if (currentBalance + input.amountMinor < 0n) {
-          throw new BadRequestException({
-            error: {
-              code: 'insufficient_wallet_balance',
-              message: 'This adjustment would make the wallet balance negative.',
-            },
-          });
-        }
       }
+      const balanceAfter = balanceBefore + input.amountMinor;
 
       const createdEntry = await tx.walletEntry.create({
         data: {
@@ -287,6 +301,32 @@ export class PrismaBillingAdminStore implements BillingAdminStore {
           description: true,
           createdAt: true,
         },
+      });
+
+      const evidence = {
+        targetType: 'wallet_entry',
+        targetId: createdEntry.id,
+        before: { currency: input.currency, balanceMinor: balanceBefore.toString() },
+        change: { currency: input.currency, amountMinor: input.amountMinor.toString() },
+        after: { currency: input.currency, balanceMinor: balanceAfter.toString() },
+        reasonCode: 'wallet_adjustment',
+        legacy: { organizationId: input.organizationId, reason: input.reason },
+      } as const;
+
+      // The ledger entry and its evidence share one transaction. A failure to
+      // write either rolls both back, so a committed balance change can never
+      // exist without a record of who made it and why.
+      await writeMutationAudit(tx, {
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: 'platform.billing.wallet_adjusted',
+        scope: 'PLATFORM',
+        ...evidence,
+      });
+      await writeIdentityMutationAudit(tx, {
+        actorUserId: input.actorUserId,
+        action: 'platform.billing.wallet_adjusted',
+        ...evidence,
       });
 
       return { entry: createdEntry, created: true };

@@ -31,6 +31,15 @@ afterEach(() => {
 });
 
 describe('RBAC-011 Auditor pages', () => {
+  it('identifies the sensitive action audit and explains its purpose', async () => {
+    mockApi.mockImplementation(() => new Promise(() => {}));
+    await mount();
+    expect(host.querySelector('h1')?.textContent).toBe('Sensitive Action Audit');
+    expect(host.querySelector('.subtitle')?.textContent).toContain('platform actions, actors, targets, and outcomes');
+    expect(host.querySelector('.subtitle')?.textContent).toContain('read-only, newest first');
+    expect(host.querySelector('.subtitle')?.textContent).toContain('UTC');
+  });
+
   it.each([<AuditorAuditPage key="audit" />, <AuditorOverviewPage key="overview" />, <AuditorOrganizationsPage key="organizations" />])('announces loading and read-only access', async (page) => {
     mockApi.mockImplementation(() => new Promise(() => {}));
     await mount(page);

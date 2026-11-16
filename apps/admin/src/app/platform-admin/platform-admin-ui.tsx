@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useId } from 'react';
+import { useEffect, useState } from 'react';
 
 import { api, ApiError } from '../../lib/api';
 
@@ -30,8 +31,73 @@ const PLATFORM_ROLES = [
   { value: 'AUDITOR', label: 'Auditor', description: 'Read-only platform audit access.' },
 ] as const;
 
+const REASON_CODES = [
+  { value: 'routine_administration', label: 'Routine administration' },
+  { value: 'security_incident', label: 'Security incident' },
+  { value: 'membership_request', label: 'Membership request' },
+  { value: 'correction', label: 'Correction' },
+  { value: 'customer_request', label: 'Customer request' },
+] as const;
+
 function formatDate(value: string) {
   return new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+export type RoleActionPreview = {
+  action: 'grant' | 'revoke';
+  userId: string;
+  email: string;
+  role: string;
+  reasonCode: string;
+  justification: string;
+};
+
+export function PlatformAdminConfirmation({
+  preview,
+  busy,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  preview: RoleActionPreview;
+  busy: boolean;
+  error: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const titleId = useId();
+  const detailId = useId();
+  const actionLabel = preview.action === 'grant' ? 'Grant' : 'Revoke';
+  return (
+    <div
+      className="audit-confirm"
+      role="alertdialog"
+      aria-labelledby={titleId}
+      aria-describedby={detailId}
+    >
+      <h3 id={titleId}>Confirm platform role {actionLabel.toLowerCase()}</h3>
+      <p id={detailId} className="footnote">
+        This changes a platform operator&apos;s role and records audit evidence. The reason and justification
+        become part of the permanent audit record.
+      </p>
+      <dl>
+        <dt>User</dt><dd>{preview.email}</dd>
+        <dt>Role</dt><dd>{preview.role}</dd>
+        <dt>Action</dt><dd>{actionLabel}</dd>
+        <dt>Reason code</dt><dd>{preview.reasonCode}</dd>
+        <dt>Justification</dt><dd>{preview.justification || '—'}</dd>
+      </dl>
+      {error && <p className="notice form-error" role="alert">{error}</p>}
+      <div className="button-row">
+        <button type="button" className="danger-button" disabled={busy} onClick={onConfirm}>
+          {busy ? 'Saving…' : `Confirm ${actionLabel.toLowerCase()}`}
+        </button>
+        <button type="button" className="quiet-button" disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function PlatformAdminPage() {
@@ -43,9 +109,13 @@ export default function PlatformAdminPage() {
   const [results, setResults] = useState<UserOption[]>([]);
   const [selectedUser, setSelectedUser] = useState<UserOption | null>(null);
   const [role, setRole] = useState<string>(PLATFORM_ROLES[0].value);
+  const [reasonCode, setReasonCode] = useState<string>(REASON_CODES[0].value);
+  const [justification, setJustification] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [grantPreview, setGrantPreview] = useState<RoleActionPreview | null>(null);
+  const [revokePreview, setRevokePreview] = useState<RoleActionPreview | null>(null);
   const activeOwnerCount = assignments.filter((item) => item.role === 'PLATFORM_OWNER' && item.revokedAt === null).length;
 
   async function load() {
@@ -93,47 +163,91 @@ export default function PlatformAdminPage() {
     }
   }
 
-  async function grant(event: FormEvent) {
-    event.preventDefault();
+  function prepareGrant() {
     if (!selectedUser) {
       setError('Select an eligible user before granting a role.');
       return;
     }
-    if (!window.confirm(`Grant ${role} to ${selectedUser.email}?`)) return;
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      await api('/platform/admin/roles', {
-        method: 'POST',
-        body: JSON.stringify({ userId: selectedUser.id, role }),
-      });
-      setMessage(`Granted ${role} to ${selectedUser.email}.`);
-      setSelectedUser(null);
-      setQuery('');
-      setResults([]);
-      await load();
-    } catch {
-      setError('Role grant failed. Check the user and your permissions.');
-    } finally {
-      setBusy(false);
-    }
+    const preview: RoleActionPreview = {
+      action: 'grant',
+      userId: selectedUser.id,
+      email: selectedUser.email,
+      role,
+      reasonCode,
+      justification,
+    };
+    setGrantPreview(preview);
   }
 
-  async function revoke(assignment: Assignment) {
-    if (!window.confirm(`Revoke platform role from ${assignment.email}?`)) return;
+  function confirmGrant() {
+    if (!grantPreview) return;
     setBusy(true);
     setError('');
     setMessage('');
-    try {
-      await api(`/platform/admin/roles/${assignment.userId}/revoke`, { method: 'POST' });
-      setMessage(`Revoked platform role from ${assignment.email}.`);
-      await load();
-    } catch {
-      setError('Role revocation failed. The last active platform owner cannot be removed.');
-    } finally {
-      setBusy(false);
-    }
+    const preview = grantPreview;
+    setGrantPreview(null);
+    void (async () => {
+      try {
+        await api('/platform/admin/roles', {
+          method: 'POST',
+          body: JSON.stringify({ userId: preview.userId, role: preview.role, reasonCode: preview.reasonCode, justification: preview.justification }),
+        });
+        setMessage(`Granted ${preview.role} to ${preview.email}.`);
+        setSelectedUser(null);
+        setQuery('');
+        setResults([]);
+        setJustification('');
+        await load();
+      } catch {
+        setError('Role grant failed. Check the user and your permissions.');
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }
+
+  function cancelGrant() {
+    setGrantPreview(null);
+  }
+
+  function prepareRevoke(assignment: Assignment) {
+    const preview: RoleActionPreview = {
+      action: 'revoke',
+      userId: assignment.userId,
+      email: assignment.email,
+      role: assignment.role,
+      reasonCode,
+      justification,
+    };
+    setRevokePreview(preview);
+  }
+
+  function confirmRevoke() {
+    if (!revokePreview) return;
+    setBusy(true);
+    setError('');
+    setMessage('');
+    const preview = revokePreview;
+    setRevokePreview(null);
+    void (async () => {
+      try {
+        await api(`/platform/admin/roles/${preview.userId}/revoke`, {
+          method: 'POST',
+          body: JSON.stringify({ reasonCode: preview.reasonCode, justification: preview.justification }),
+        });
+        setMessage(`Revoked platform role from ${preview.email}.`);
+        setJustification('');
+        await load();
+      } catch {
+        setError('Role revocation failed. The last active platform owner cannot be removed.');
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }
+
+  function cancelRevoke() {
+    setRevokePreview(null);
   }
 
   return (
@@ -155,7 +269,7 @@ export default function PlatformAdminPage() {
         <>
           <section className="card">
             <h2>Grant platform role</h2>
-            <form onSubmit={grant} className="credential-form">
+            <form onSubmit={prepareGrant} className="credential-form">
               <label>
                 Search eligible users
                 <input
@@ -200,12 +314,42 @@ export default function PlatformAdminPage() {
                 </select>
               </label>
               <p className="footnote">{PLATFORM_ROLES.find((item) => item.value === role)?.description}</p>
+              <label>
+                Reason code
+                <select aria-label="Reason code" value={reasonCode} onChange={(event) => setReasonCode(event.target.value)} disabled={busy}>
+                  {REASON_CODES.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Justification (optional)
+                <textarea
+                  value={justification}
+                  onChange={(event) => setJustification(event.target.value)}
+                  placeholder="Brief justification for the audit record"
+                  maxLength={300}
+                  rows={3}
+                  disabled={busy}
+                />
+              </label>
               <div className="button-row">
                 <button type="submit" disabled={busy || !selectedUser}>
                   {busy ? 'Saving…' : 'Grant role'}
                 </button>
               </div>
             </form>
+            {grantPreview && (
+              <PlatformAdminConfirmation
+                preview={grantPreview}
+                busy={busy}
+                error={error}
+                onConfirm={confirmGrant}
+                onCancel={cancelGrant}
+              />
+            )}
           </section>
 
           <section className="card">
@@ -259,7 +403,7 @@ export default function PlatformAdminPage() {
                                 type="button"
                                 className="danger-button platform-admin-action"
                                 disabled={busy}
-                                onClick={() => void revoke(assignment)}
+                                onClick={() => void prepareRevoke(assignment)}
                               >
                                 Revoke
                               </button>
@@ -275,6 +419,15 @@ export default function PlatformAdminPage() {
               </div>
             )}
           </section>
+          {revokePreview && (
+            <PlatformAdminConfirmation
+              preview={revokePreview}
+              busy={busy}
+              error={error}
+              onConfirm={confirmRevoke}
+              onCancel={cancelRevoke}
+            />
+          )}
         </>
       )}
     </main>

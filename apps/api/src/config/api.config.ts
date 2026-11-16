@@ -71,9 +71,67 @@ function readPaymentCredentialEncryptionKey(
   return value;
 }
 
+/**
+ * Extracts the database name from a PostgreSQL connection string.
+ *
+ * The connection string itself is never returned or logged: it carries the
+ * password. Only the database component is extracted, because that is the piece
+ * an operator needs to confirm which database a process is actually using.
+ *
+ * @throws Error when the value is not a usable connection string.
+ */
+export function databaseNameOf(connectionString: string): string {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(connectionString);
+  } catch {
+    throw new Error('DATABASE_URL is not a valid connection string.');
+  }
+
+  let name: string;
+  try {
+    name = decodeURIComponent(parsed.pathname.replace(/^\//, '')).trim();
+  } catch {
+    throw new Error('DATABASE_URL contains a malformed database name.');
+  }
+
+  if (name.length === 0) {
+    throw new Error('DATABASE_URL must name a database, for example "...:5432/truevine_voice".');
+  }
+
+  return name;
+}
+
+/**
+ * Refuses to boot when the selected database is not the expected one.
+ *
+ * `EXPECTED_DATABASE_NAME` is how a local QA launcher pins the database it
+ * intends to use. Without it, an environment variable that failed to apply is
+ * invisible: the API connects to the default development database, the QA
+ * account does not exist there, and sign-in fails with `invalid_credentials`,
+ * which is indistinguishable from a wrong password.
+ *
+ * The error names both databases and never the connection string.
+ */
+function assertExpectedDatabase(databaseName: string, env: NodeJS.ProcessEnv): void {
+  const expected = optionalEnv('EXPECTED_DATABASE_NAME', '', env).trim();
+
+  if (expected.length === 0 || expected === databaseName) return;
+
+  throw new Error(
+    `Refusing to start: DATABASE_URL selects database "${databaseName}" but ` +
+      `EXPECTED_DATABASE_NAME is "${expected}". ` +
+      'Point DATABASE_URL at the intended database, or unset EXPECTED_DATABASE_NAME.',
+  );
+}
+
 /** Reads and validates configuration from `env`. */
 export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const environment = optionalEnv('NODE_ENV', 'development', env);
+  const databaseUrl = requireEnv('DATABASE_URL', env);
+  const databaseName = databaseNameOf(databaseUrl);
+  assertExpectedDatabase(databaseName, env);
   const audioBucket = optionalEnv('AUDIO_STORAGE_BUCKET', '', env).trim();
   const audioStorageRegion = optionalEnv('AUDIO_STORAGE_REGION', '', env).trim();
   const audioStorageEndpoint = optionalEnv('AUDIO_STORAGE_ENDPOINT', '', env).trim();
@@ -95,7 +153,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     port: optionalIntEnv('API_PORT', 3001, env),
     environment,
     version: optionalEnv('APP_VERSION', '0.1.0', env),
-    databaseUrl: requireEnv('DATABASE_URL', env),
+    databaseUrl,
     redisUrl: requireEnv('REDIS_URL', env),
     healthTimeoutMs: optionalIntEnv('HEALTH_CHECK_TIMEOUT_MS', 2_000, env),
     serviceName: API_SERVICE_NAME,
