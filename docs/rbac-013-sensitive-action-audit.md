@@ -1,9 +1,71 @@
 # RBAC-013 sensitive-action assessment and coverage
 
+## Audit history columns
+
+The administrative audit history shows timestamp (UTC), action, actor, target,
+organization, reason and outcome, with scope and additional projected metadata
+in the expandable detail. The API additively returns `organizationId` from the
+stored platform security event. Identity events retain a null organization field;
+existing projected organization/target-user/reason metadata remains usable for
+legacy records. Missing historical values display `Not recorded`, not invented
+attribution or justification. Reasons use the existing scalar `reasonCode` or
+legacy `reason` projection; this does not expose arbitrary nested metadata.
+
+Organization identifiers describe already-permitted events. Organization-scoped
+security rows remain excluded, Technical Admin retains its restricted audit
+surface, and no new permission, tenant-content read or audit mutation is added.
+
+### Column increment verification — 2026-11-16
+
+Files changed in this increment (no new files):
+
+- `apps/admin/src/app/auditor/auditor-ui.tsx`
+- `apps/admin/src/app/auditor/auditor-ui.spec.tsx`
+- `apps/admin/src/app/globals.css`
+- `apps/api/src/audit/audit.store.ts`
+- `apps/api/src/audit/prisma-auditor.store.ts`
+- `apps/api/src/audit/prisma-auditor.store.spec.ts`
+- `apps/api/src/audit/audit.service.ts`
+- `apps/api/src/audit/audit.service.spec.ts`
+- `docs/rbac-013-sensitive-action-audit.md`
+
+Commands executed in order; independent checks were launched concurrently:
+
+1. `Get-Content`, `rg`, `git status --short`: inspected existing components,
+   projection/store contracts, tests, ADRs and framework guidance. Existing
+   unrelated modifications and untracked files were left in place.
+2. `npm.cmd run test --workspace @truevine/admin -- auditor-ui.spec.tsx auditor-pages.spec.tsx`:
+   passed, 24 tests.
+3. `npm.cmd run test --workspace @truevine/api -- audit.service.spec.ts prisma-auditor.store.spec.ts auditor.http.spec.ts`:
+   passed, 40 tests.
+4. `npm.cmd run lint --workspace @truevine/admin`: passed with the existing
+   Billing page effect-dependency warning at line 124.
+5. `npm.cmd run lint --workspace @truevine/api`: passed.
+6. `npm.cmd run typecheck --workspace @truevine/admin`: passed.
+7. `npm.cmd run typecheck --workspace @truevine/api`: passed.
+8. `git diff --check`, `git diff`, `git diff --stat`: passed whitespace checks
+   and reviewed the task diff; Git reported existing line-ending warnings.
+9. `npm.cmd run build --workspace @truevine/api`: passed.
+10. `npm.cmd run build --workspace @truevine/admin`: passed. A PowerShell
+    `try/finally` wrapper restored the exact pre-build `next-env.d.ts` bytes.
+11. Final `git diff --check` and `git status --short`: reviewed task scope and
+    preserved unrelated work. Git's global-ignore access warning remains.
+
+No failures occurred in these focused checks. The earlier repository-wide API
+timeout failures were not rerun in this increment; no full-repository green
+result is claimed. Browser visual/accessibility validation and database-backed
+E2E remain unverified. These tests used fakes; no database migration, fixture,
+account change, secret/configuration edit, staging, commit or push occurred.
+
+Deferred: this increment completes the requested columns, not the entire
+RBAC-013 objective. The previously identified wallet mutation/audit transaction
+gap and other full-feature work remain outstanding; no unrelated operational
+capability was introduced while adding the columns.
+
 Baseline: 5b5f1b00f4d18af3d9d890ebf6577d7b47317430.
 Branch: feat/rbac-013-sensitive-action-audit.
 Status: development and review pending; workplan remains In Progress.
-Backend only; no merge, production migration or deployment authorized.
+Backend and audit-history UI development; no merge, production migration or deployment authorized.
 
 ## Existing assessment and identified gaps
 

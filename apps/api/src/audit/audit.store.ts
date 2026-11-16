@@ -32,6 +32,8 @@ export interface AuditorAuditEventRecord {
   readonly scope: 'PLATFORM' | null;
   readonly targetType: string | null;
   readonly targetId: string | null;
+  /** Organization attached to a permitted platform event, never a tenant-content read. */
+  readonly organizationId?: string | null;
   readonly occurredAt: Date;
   readonly actorUserId: string;
   readonly actorEmail: string;
@@ -56,6 +58,15 @@ export interface AuditorAuditCursor {
 
 export interface AuditorAuditTrailInput {
   readonly action?: string;
+  /** Trail to read; omitted means both. */
+  readonly trail?: AuditorAuditTrail;
+  readonly outcome?: 'SUCCESS' | 'DENIED';
+  /** Actor email fragment, or an exact actor user id. */
+  readonly actor?: string;
+  readonly organizationId?: string;
+  readonly targetId?: string;
+  readonly from?: Date;
+  readonly to?: Date;
   readonly after?: AuditorAuditCursor;
   readonly limit: number;
 }

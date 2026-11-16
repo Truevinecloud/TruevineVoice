@@ -69,7 +69,7 @@ class FakeBillingAdminStore implements BillingAdminStore {
 }
 
 describe('BillingAdminService adjustments', () => {
-  it('records a successful adjustment and identity/security audit evidence', async () => {
+  it('returns the created entry and leaves success evidence to the store transaction', async () => {
     const store = new FakeBillingAdminStore();
     const audit = new FakeAuditStore();
     const auditor = { platformAuditEvents: async () => [] };
@@ -92,8 +92,10 @@ describe('BillingAdminService adjustments', () => {
 
     expect(result.created).toBe(true);
     expect(result.entry.amountMinor).toBe('5000');
-    expect(audit.identityEvents.map((event) => event.action)).toContain('platform.billing.wallet_adjusted');
-    expect(audit.events.map((event) => event.action)).toContain('platform.billing.wallet_adjusted');
+    // A successful adjustment writes its evidence in the ledger transaction.
+    // The service must not write a second, post-commit record.
+    expect(audit.identityEvents).toHaveLength(0);
+    expect(audit.events).toHaveLength(0);
   });
 
   it('rejects an unknown organization before mutating', async () => {
@@ -150,5 +152,8 @@ describe('BillingAdminService adjustments', () => {
 
     expect(second.created).toBe(false);
     expect(second.entry.id).toBe(first.entry.id);
+    // A retry must not produce a second audit record for the same entry.
+    expect(audit.identityEvents).toHaveLength(0);
+    expect(audit.events).toHaveLength(0);
   });
 });

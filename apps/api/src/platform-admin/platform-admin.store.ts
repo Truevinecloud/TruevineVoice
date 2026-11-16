@@ -17,6 +17,11 @@ export interface PlatformAdminUser {
   readonly platformRole: PlatformRole | null;
 }
 
+export interface PlatformAdminReason {
+  readonly reasonCode: string;
+  readonly justification?: string | null;
+}
+
 export interface PlatformAdminStore {
   listAssignments(): Promise<readonly PlatformAdminAssignment[]>;
   findUser(userId: string): Promise<{ readonly id: string; readonly email: string; readonly status: 'ACTIVE' | 'SUSPENDED' } | undefined>;
@@ -25,7 +30,12 @@ export interface PlatformAdminStore {
     readonly userId: string;
     readonly role: PlatformRole;
     readonly grantedByUserId: string;
+    readonly reason: PlatformAdminReason;
   }): Promise<PlatformAdminAssignment>;
-  revokeRole(userId: string): Promise<'revoked' | 'not_found' | 'last_owner'>;
+  revokeRole(
+    userId: string,
+    actorUserId: string,
+    reason: PlatformAdminReason,
+  ): Promise<'revoked' | 'not_found' | 'last_owner'>;
   countActiveOwners(excludingUserId?: string): Promise<number>;
 }
