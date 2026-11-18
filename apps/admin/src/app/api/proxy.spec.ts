@@ -32,6 +32,57 @@ describe('platform session proxy', () => {
     expect((init?.headers as Headers).get('cookie')).toBe('tv_session=opaque-session');
   });
 
+  it('forwards GET /auth/terms so a fresh browser can obtain the CSRF cookie', async () => {
+    vi.stubEnv('TRUEVINE_API_URL', 'https://api.example.test');
+    const fetchMock = vi.fn(
+      async (..._args: Parameters<typeof fetch>) =>
+        new Response(null, {
+          status: 200,
+          headers: { 'set-cookie': 'tv_csrf=fresh-token; Path=/; SameSite=Lax' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const request = new NextRequest('https://admin.example.test/admin/api/auth/terms');
+
+    const response = await GET(request, { params: Promise.resolve({ path: ['auth', 'terms'] }) });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('set-cookie')).toContain('tv_csrf=fresh-token');
+    const [target] = fetchMock.mock.calls[0]!;
+    expect(target).toEqual(new URL('/auth/terms', 'https://api.example.test'));
+  });
+
+  it('forwards GET /platform/support/diagnostics/overview so the diagnostics page can load', async () => {
+    vi.stubEnv('TRUEVINE_API_URL', 'https://api.example.test');
+    const fetchMock = vi.fn(
+      async (..._args: Parameters<typeof fetch>) =>
+        new Response(
+          JSON.stringify({
+            organizationCount: 0,
+            userCount: 0,
+            activeSupportSessions: 0,
+            recentDiagnostics: [],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const request = new NextRequest(
+      'https://admin.example.test/admin/api/platform/support/diagnostics/overview',
+      { headers: { cookie: 'tv_session=opaque-session' } },
+    );
+
+    const response = await GET(request, {
+      params: Promise.resolve({ path: ['platform', 'support', 'diagnostics', 'overview'] }),
+    });
+
+    expect(response.status).toBe(200);
+    const [target] = fetchMock.mock.calls[0]!;
+    expect(target).toEqual(
+      new URL('/platform/support/diagnostics/overview', 'https://api.example.test'),
+    );
+  });
+
   it('continues to reject paths outside the explicit proxy allowlist', async () => {
     const request = new NextRequest('https://admin.example.test/admin/api/users');
     const response = await GET(request, { params: Promise.resolve({ path: ['users'] }) });

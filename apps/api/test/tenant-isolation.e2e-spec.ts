@@ -74,7 +74,11 @@ describe('RBAC-012 cross-tenant release blocker', () => {
         (await db.$queryRaw<{ name: string }[]>`SELECT current_database() AS name`)[0]?.name,
       expected,
     );
-    await db.$transaction(async (tx) => {
+    // The seed performs many inserts; on a slow CI/filesystem host it can exceed
+    // Prisma's default 5s interactive-transaction limit. Size the timeout to the
+    // work rather than skipping the isolation assertions.
+    await db.$transaction(
+      async (tx) => {
       for (const id of [ua, ub, multi, outsider, platform])
         await tx.user.create({
           data: { id, email: id + '@example.invalid', passwordHash: 'unusable-synthetic' },
@@ -139,7 +143,9 @@ describe('RBAC-012 cross-tenant release blocker', () => {
           expiresAt: new Date(Date.now() + 60000),
         },
       });
-    });
+      },
+      { timeout: 60_000 },
+    );
     for (const [organizationId, userId, contactId, groupId, importId, assetId] of [
       [a, ua, contactA, groupA, importA, assetA], [b, ub, contactB, groupB, importB, assetB],
     ] as const) {
