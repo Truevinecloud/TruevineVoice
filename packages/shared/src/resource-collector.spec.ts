@@ -72,7 +72,6 @@ function mockProcStatCpu(counters: {
   const irq = counters.irq ?? 0;
   const softirq = counters.softirq ?? 0;
   const steal = counters.steal ?? 0;
-  const total = counters.user + counters.nice + counters.system + counters.idle + iowait + irq + softirq + steal;
   const line = `cpu ${counters.user} ${counters.nice} ${counters.system} ${counters.idle} ${iowait} ${irq} ${softirq} ${steal}\n`;
   mockReadFile.mockImplementation((path: string) => {
     if (path === '/proc/stat') return Promise.resolve(line);

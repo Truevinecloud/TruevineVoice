@@ -11,8 +11,8 @@ const jar=new Map();
 const csrf=await ensureCsrf(jar);
 // direct API sign-in
 const direct=await fetch(`${apiBase}/auth/sign-in`,{method:'POST',headers:{'content-type':'application/json','x-truevine-csrf':csrf,cookie:cookieHeader(jar)},body:JSON.stringify({email:info.email,password:info.password}),cache:'no-store'});
-console.log('direct status',direct.status, await direct.text());
+globalThis.console.log('direct status',direct.status, await direct.text());
 // web proxy sign-in
 const csrf2=await ensureCsrf(jar);
 const proxied=await fetch(`${webBase}/auth/sign-in`,{method:'POST',headers:{'content-type':'application/json','x-truevine-csrf':csrf2,cookie:cookieHeader(jar)},body:JSON.stringify({email:info.email,password:info.password}),cache:'no-store'});
-console.log('proxied status',proxied.status, await proxied.text());
+globalThis.console.log('proxied status',proxied.status, await proxied.text());
