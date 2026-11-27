@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
 import { ApiError, api } from '../../lib/api';
 import {
@@ -62,7 +62,7 @@ export default function BillingAdminPage() {
   const [orgStatus, setOrgStatus] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError('');
     setSectionErrors({});
@@ -117,7 +117,7 @@ export default function BillingAdminPage() {
       setError('Billing data is temporarily unavailable.');
     }
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

@@ -18,32 +18,27 @@ const makeConfig = (overrides: Partial<WorkerConfig> = {}): WorkerConfig => ({
   ...overrides,
 });
 
-const makeQueueMetrics = (samples: any[] = []) => ({
+const makeQueueMetrics = (): Pick<QueueMetricsService, 'initialize' | 'collect'> => ({
   initialize: vi.fn(async () => undefined),
-  collect: vi.fn(async () => samples),
-  monitoredQueueCount: samples.length,
+  collect: vi.fn(async () => ({
+    queueName: 'campaign-execution',
+    waiting: 0,
+    active: 0,
+    delayed: 0,
+    failed: 0,
+    oldestWaitingAgeMs: undefined,
+    error: undefined,
+  })),
 });
 
-const makeRedis = () => ({
+const makeRedis = (): Pick<Redis, 'ping' | 'disconnect'> => ({
   ping: vi.fn(async () => 'PONG'),
   disconnect: vi.fn(async () => undefined),
 });
 
 describe('ObservabilityService (worker)', () => {
   it('collects queue and host resource metrics', async () => {
-    const queueMetrics = makeQueueMetrics([
-      {
-        queueName: 'campaign-execution',
-        timestamp: new Date().toISOString(),
-        status: 'ok',
-        waiting: 10,
-        active: 3,
-        delayed: 2,
-        failed: 1,
-        oldestWaitingAgeMs: 5000,
-        error: undefined,
-      },
-    ]);
+    const queueMetrics = makeQueueMetrics();
     const redis = makeRedis();
 
     const service = new ObservabilityService(
@@ -65,13 +60,13 @@ describe('ObservabilityService (worker)', () => {
   });
 
   it('records provider failures', async () => {
-    const queueMetrics = makeQueueMetrics([]);
+    const queueMetrics = makeQueueMetrics();
     const redis = makeRedis();
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics as any,
-      redis as any,
+      queueMetrics,
+      redis,
     );
 
     await service.onModuleInit();
@@ -90,13 +85,13 @@ describe('ObservabilityService (worker)', () => {
   });
 
   it('records payment failures', async () => {
-    const queueMetrics = makeQueueMetrics([]);
+    const queueMetrics = makeQueueMetrics();
     const redis = makeRedis();
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics as any,
-      redis as any,
+      queueMetrics,
+      redis,
     );
 
     await service.onModuleInit();
@@ -149,13 +144,16 @@ describe('ObservabilityService (worker)', () => {
       collect: vi.fn(async () => {
         throw new Error('queue unavailable');
       }),
-    };
-    const redis = makeRedis();
+    } as Pick<QueueMetricsService, 'initialize' | 'collect'>;
+    const redis = {
+      ping: vi.fn(async () => 'PONG'),
+      disconnect: vi.fn(async () => undefined),
+    } as Pick<Redis, 'ping' | 'disconnect'>;
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics as any,
-      redis as any,
+      queueMetrics,
+      redis,
     );
 
     // Should not throw even though initialize fails
@@ -169,13 +167,13 @@ describe('ObservabilityService (worker)', () => {
   });
 
   it('stop is idempotent and does not throw', async () => {
-    const queueMetrics = makeQueueMetrics([]);
+    const queueMetrics = makeQueueMetrics();
     const redis = makeRedis();
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics as any,
-      redis as any,
+      queueMetrics,
+      redis,
     );
 
     service.onModuleDestroy();

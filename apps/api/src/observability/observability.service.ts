@@ -28,7 +28,6 @@ import {
   ProviderFailureCounter,
   StructuredLogNotifier,
   type MetricCollector,
-  type ObservabilityConfig,
 } from '@truevine/shared';
 
 import { APP_CONFIG } from '../config/app-config.module.js';
