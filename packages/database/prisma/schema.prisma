@@ -614,6 +614,7 @@ model AudioAsset {
   ttsProvider String? @map("tts_provider") @db.VarChar(64)
   ttsVoice String? @map("tts_voice") @db.VarChar(64)
   ttsCharacterCount Int? @map("tts_character_count")
+  storageBackend AudioStorageBackend @map("storage_backend") @default(S3)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   creator Membership @relation(fields: [organizationId, createdById], references: [organizationId, userId], onDelete: Restrict)
@@ -1004,6 +1005,18 @@ model CallEvent {
   @@map("call_events")
 }
 
+/// Backend used to store audio asset bytes.
+enum AudioStorageBackend {
+  S3
+  POSTGRESQL
+}
+
+/// Whether a role is a built-in system role or a tenant-created custom role.
+enum RoleType {
+  SYSTEM
+  CUSTOM
+}
+
 /// Platform-owned payment-provider credentials (MTN MoMo / Airtel Money).
 ///
 /// NOT TENANT-OWNED. A payment provider account belongs to Truevine, not to a
@@ -1062,4 +1075,88 @@ model PaymentProviderConfiguration {
   @@unique([provider, environment])
   @@index([provider, active])
   @@map("payment_provider_configurations")
+}
+
+/// PostgreSQL BYTEA audio storage. One blob per audio asset, org-scoped.
+model AudioBlob {
+  organizationId String   @map("organization_id") @db.Uuid
+  id             String   @default(uuid()) @db.Uuid
+  assetId        String   @map("asset_id") @db.Uuid
+  content        Bytes    @db.Bytea
+  contentType    String   @map("content_type") @db.VarChar(64)
+  byteSize       BigInt   @map("byte_size") @db.BigInt
+  checksumSha256 String   @map("checksum_sha256") @db.Char(64)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset        AudioAsset @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+
+  @@id([organizationId, id])
+  @@unique([organizationId, assetId])
+  @@index([organizationId, byteSize])
+  @@map("audio_blobs")
+}
+
+/// Per-organization audio storage quotas.
+model OrganizationAudioQuota {
+  organizationId     String   @id @map("organization_id") @db.Uuid
+  maxTotalBytes      BigInt   @default(52428800) @map("max_total_bytes") @db.BigInt
+  maxSingleFileBytes BigInt   @default(5242880) @map("max_single_file_bytes") @db.BigInt
+  maxFiles           Int      @default(100) @map("max_files")
+  updatedAt          DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+  updatedByUserId    String?  @map("updated_by_user_id") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  updatedBy    User?      @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("organization_audio_quota")
+}
+
+/// Tenant-created custom role within one organization.
+model CustomRole {
+  organizationId String      @map("organization_id") @db.Uuid
+  id             String      @default(uuid()) @db.Uuid
+  name           String      @db.VarChar(120)
+  description    String?
+  type           RoleType    @default(CUSTOM)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime    @db.Timestamptz(3) @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions  RolePermission[]
+  assignments  RoleAssignment[]
+
+  @@id([organizationId, id])
+  @@unique([organizationId, name])
+  @@index([organizationId, type])
+  @@map("custom_roles")
+}
+
+/// Permission granted to a custom role.
+model RolePermission {
+  organizationId String @map("organization_id") @db.Uuid
+  roleId         String @map("role_id") @db.Uuid
+  permission     String @db.VarChar(64)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  role CustomRole @relation(fields: [organizationId, roleId], references: [organizationId, id], onDelete: Cascade)
+
+  @@id([organizationId, roleId, permission])
+  @@index([organizationId, roleId])
+  @@map("role_permissions")
+}
+
+/// Assignment of a custom role to a member.
+model RoleAssignment {
+  organizationId String @map("organization_id") @db.Uuid
+  roleId         String @map("role_id") @db.Uuid
+  userId         String @map("user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  role    CustomRole   @relation(fields: [organizationId, roleId], references: [organizationId, id], onDelete: Cascade)
+  member  Membership   @relation(fields: [organizationId, userId], references: [organizationId, userId], onDelete: Cascade)
+
+  @@id([organizationId, roleId, userId])
+  @@index([organizationId, userId])
+  @@map("role_assignments")
 }

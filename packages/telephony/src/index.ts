@@ -24,3 +24,23 @@ export {
   createFakeVoiceAdapter,
   type FakeVoiceAdapterOptions,
 } from './adapters/fake/fake-voice.adapter.js';
+
+export {
+  AfricaTalkingVoiceAdapter,
+  createAfricaTalkingVoiceAdapter,
+  type AfricaTalkingVoiceAdapterOptions,
+} from './adapters/africas-talking/africa-talking-voice.adapter.js';
+
+export * from './call-contract.js';
+export * from './call-event-persistence.js';
+export * from './callback-sources.js';
+export * from './callback-receipts.js';
+export * from './provider-error-classification.js';
+export {
+  AFRICA_TALKING_CALLBACK_FIELDS,
+  CallbackNormalizationError,
+  normalizeAfricaTalkingCallback,
+  type AfricaTalkingCallbackEvidence,
+  type CallbackNormalizationErrorCode,
+  type NormalizedAfricaTalkingCallback,
+} from './adapters/africas-talking/africa-talking-callback.js';

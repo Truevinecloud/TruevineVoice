@@ -405,15 +405,3 @@ describe('SmsFallbackOrchestrationService', () => {
     expect(result).toBeNull();
   });
 });
-
-async function workWith(
-  smsFallbackOperation: {
-    findUnique: ReturnType<typeof vi.fn>;
-    create: ReturnType<typeof vi.fn>;
-    update: ReturnType<typeof vi.fn>;
-  },
-  work: (tx: { smsFallbackOperation: { findUnique: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> }; $queryRaw: ReturnType<typeof vi.fn> }) => Promise<unknown>,
-): Promise<unknown> {
-  const $queryRaw = vi.fn().mockResolvedValue([{ lock: 1 }]);
-  return await work({ smsFallbackOperation, $queryRaw });
-}

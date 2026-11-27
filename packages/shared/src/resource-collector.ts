@@ -21,7 +21,6 @@
 import { cpus, freemem, loadavg, totalmem, type CpuInfo } from 'node:os';
 import { statfs } from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
-import { type MetricStatus, type MetricSample } from './metrics.js';
 
 /** ------------------------------------------------------------------ */
 /** CPU                                                                */

@@ -52,6 +52,10 @@ export const ORGANIZATION_PERMISSIONS = [
   'billing:update',
   'wallet:read',
   'reporting:read',
+  'campaign:launch',
+  'campaign:pause',
+  'campaign:resume',
+  'campaign:cancel',
 ] as const;
 
 export type OrganizationPermission = (typeof ORGANIZATION_PERMISSIONS)[number];
