@@ -8,3 +8,5 @@
 export * from './async.js';
 export * from './env.js';
 export * from './health.js';
+export * from './metrics.js';
+export * from './resource-collector.js';
