@@ -97,7 +97,7 @@ jobs:
           SSH_PORT: ${{ vars.VPS_SSH_PORT || '22' }}
         run: |
           set -euo pipefail
-          test "$SSH_HOST" = '169.58.162.143'
+          test "$SSH_HOST" = '77.216.129.196'
           [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] && test "$SSH_USER" != root
           [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]]

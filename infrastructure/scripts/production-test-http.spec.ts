@@ -44,7 +44,7 @@ function fixture() {
       memberships: account.scope === 'organization' ? [{ organizationId: state.organizationId, role: account.role, permissions: ORGANIZATION_ROLE_PERMISSIONS[account.role] }] : [] });
     const suffix = path.split(`/api/organizations/${state.organizationId}`)[1];
     const orgPermission = { '': 'organization:read', '/members': 'member:read', '/campaigns': 'campaign:read', '/reports/campaign-status': 'reporting:read', '/wallet': 'wallet:read', '/billing': 'billing:read' }[suffix];
-    const platformPermission = { '/api/platform/operations/me': 'platform:operations:read', '/api/platform/support/me': 'platform:support:read', '/api/platform/technical/me': 'platform:technical:read', '/api/platform/audit/me': 'platform:audit:read' }[path];
+    const platformPermission = { '/api/platform/operations/me': 'platform:operations:read', '/api/platform/support/me': 'platform:support:read', '/api/platform/technical/me': 'platform:technical:read', '/api/platform/audit/me': 'platform:audit:read', '/api/platform/technical/audit': 'platform:audit:read' }[path];
     const allowed = account.scope === 'organization' ? Boolean(orgPermission && ORGANIZATION_ROLE_PERMISSIONS[account.role].includes(orgPermission)) : Boolean(platformPermission && PLATFORM_ROLE_PERMISSIONS[account.role].includes(platformPermission));
     return response(allowed ? 200 : 403, allowed ? {} : { error: { code: 'permission_denied' } });
   });
