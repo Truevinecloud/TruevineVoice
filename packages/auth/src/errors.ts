@@ -43,6 +43,14 @@ export const AUTH_ERROR_CODES = [
   'audio_operation_conflict',
   'audio_provider_unavailable',
   'invalid_audit_reason',
+  'assignment_failed',
+  'assignment_not_found',
+  'member_not_found',
+  'role_assigned',
+  'role_name_conflict',
+  'role_not_found',
+  'self_unassignment',
+  'system_role_protected',
 ] as const;
 
 export type AuthErrorCode = (typeof AUTH_ERROR_CODES)[number];
@@ -182,4 +190,36 @@ export function audioProviderUnavailable(): AuthError {
     'The audio provider is temporarily unavailable. Please try again with a new request key.',
     503,
   );
+}
+
+export function assignmentFailed(): AuthError {
+  return new AuthError('assignment_failed', 'Failed to assign the role.', 400);
+}
+
+export function assignmentNotFound(): AuthError {
+  return new AuthError('assignment_not_found', 'No such role assignment.', 404);
+}
+
+export function memberNotFound(): AuthError {
+  return new AuthError('member_not_found', 'No such member in this organization.', 404);
+}
+
+export function roleAssigned(): AuthError {
+  return new AuthError('role_assigned', 'The role is already assigned to this member.', 409);
+}
+
+export function roleNameConflict(): AuthError {
+  return new AuthError('role_name_conflict', 'A role with this name already exists.', 409);
+}
+
+export function roleNotFound(): AuthError {
+  return new AuthError('role_not_found', 'No such role.', 404);
+}
+
+export function selfUnassignment(): AuthError {
+  return new AuthError('self_unassignment', 'You cannot unassign your own role.', 403);
+}
+
+export function systemRoleProtected(): AuthError {
+  return new AuthError('system_role_protected', 'System roles cannot be modified.', 403);
 }
