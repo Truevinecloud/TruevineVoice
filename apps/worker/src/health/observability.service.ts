@@ -25,10 +25,8 @@ import {
   HostResourceCollector,
   PaymentFailureCounter,
   ProviderFailureCounter,
-  QueueMetricCollector,
   StructuredLogNotifier,
   type MetricCollector,
-  type ObservabilityConfig,
 } from '@truevine/shared';
 
 import { QueueMetricsService } from './queue-metrics.service.js';
@@ -36,7 +34,6 @@ import { WORKER_CONFIG } from '../config/worker-config.module.js';
 import type { WorkerConfig } from '../config/worker.config.js';
 import { REDIS_CLIENT } from '../tokens.js';
 import type { Redis } from 'ioredis';
-import { Queue } from 'bullmq';
 
 /** Default collection interval: 30 seconds. */
 const DEFAULT_COLLECTION_INTERVAL_MS = 30_000;

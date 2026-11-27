@@ -44,6 +44,7 @@ import { TechnicalModule } from './technical/technical.module.js';
     TechnicalModule,
     AuditModule,
     AudioModule,
+    AnalyticsModule,
   ],
 })
 export class AppModule {}
