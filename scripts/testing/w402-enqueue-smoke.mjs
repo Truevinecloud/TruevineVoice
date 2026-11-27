@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { URL } from 'node:url';
 import process from 'node:process';
 import { Queue, QueueEvents } from 'bullmq';
 import { createDatabaseClient } from '@truevine/database';
