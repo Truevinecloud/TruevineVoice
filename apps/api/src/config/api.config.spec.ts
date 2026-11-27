@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { API_SERVICE_NAME, loadApiConfig } from './api.config.js';
+import { API_SERVICE_NAME, databaseNameOf, loadApiConfig } from './api.config.js';
 
 describe('loadApiConfig', () => {
   it('reads the required connection URLs', () => {
@@ -10,8 +10,49 @@ describe('loadApiConfig', () => {
     });
 
     expect(config.databaseUrl).toBe('postgresql://user:pass@localhost:5432/db');
+    expect(databaseNameOf(config.databaseUrl)).toBe('db');
     expect(config.redisUrl).toBe('redis://localhost:6379');
     expect(config.serviceName).toBe(API_SERVICE_NAME);
+  });
+
+  it('derives the database name without exposing the rest of the URL', () => {
+    const config = loadApiConfig({
+      DATABASE_URL:
+        'postgresql://truevine:s3cret@localhost:55432/truevine_bootstrap_test_a1b2c3d4e5f67890?schema=public',
+      REDIS_URL: 'redis://localhost:6379',
+    });
+
+    expect(databaseNameOf(config.databaseUrl)).toBe('truevine_bootstrap_test_a1b2c3d4e5f67890');
+    expect(databaseNameOf('postgresql://localhost/name%20with%20spaces')).toBe('name with spaces');
+  });
+
+  it('refuses to boot when the selected database is not the expected one', () => {
+    expect(() =>
+      loadApiConfig({
+        DATABASE_URL: 'postgresql://localhost/truevine_voice',
+        REDIS_URL: 'redis://localhost:6379',
+        EXPECTED_DATABASE_NAME: 'truevine_bootstrap_test_a1b2c3d4e5f67890',
+      }),
+    ).toThrow(/selects database "truevine_voice".*EXPECTED_DATABASE_NAME/);
+  });
+
+  it('starts when the selected database matches the expectation', () => {
+    const config = loadApiConfig({
+      DATABASE_URL: 'postgresql://localhost/truevine_bootstrap_test_a1b2c3d4e5f67890',
+      REDIS_URL: 'redis://localhost:6379',
+      EXPECTED_DATABASE_NAME: 'truevine_bootstrap_test_a1b2c3d4e5f67890',
+    });
+
+    expect(databaseNameOf(config.databaseUrl)).toBe('truevine_bootstrap_test_a1b2c3d4e5f67890');
+  });
+
+  it('rejects a connection string with no database component', () => {
+    expect(() =>
+      loadApiConfig({
+        DATABASE_URL: 'postgresql://localhost:5432',
+        REDIS_URL: 'redis://localhost:6379',
+      }),
+    ).toThrow(/must name a database/);
   });
 
   it('applies documented defaults', () => {

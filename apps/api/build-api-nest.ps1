@@ -1,0 +1,1 @@
+node F:/TruevineVoice/node_modules/@nestjs/cli/bin/nest.js build

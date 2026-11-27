@@ -1,0 +1,4 @@
+apps/api/src/payments/top-up-integration.service.spec.ts(153,55): error TS2345: Argument of type '{ amountMinor: string; id: string; currency: string; status: "PENDING"; createdAt: Date; }' is not assignable to parameter of type '{ id: string; amountMinor: string; currency: string; status: "PENDING"; createdAt: string; }'.
+  Types of property 'createdAt' are incompatible.
+    Type 'Date' is not assignable to type 'string'.
+apps/api/src/payments/top-up-payment-e2e.spec.ts(18,31): error TS2459: Module '"../billing/billing.service.js"' declares 'BillingStore' locally, but it is not exported.

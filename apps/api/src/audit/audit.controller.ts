@@ -53,6 +53,6 @@ export class AuditController {
     @Query() query: Record<string, string | undefined>,
     @CurrentPrincipal() principal: Principal,
   ) {
-    return this.audit.auditTrail(principal.userId, query);
+    return this.audit.auditTrail(principal.userId, query, principal.platformRole);
   }
 }

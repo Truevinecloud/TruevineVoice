@@ -17,6 +17,7 @@ export type PaymentIntentRecord = {
 
 export type CreatePaymentIntentInput = {
   organizationId: string;
+  actorUserId: string;
   purpose: string;
   amountMinor: bigint;
   currency: string;

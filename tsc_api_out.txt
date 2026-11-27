@@ -1,0 +1,12 @@
+apps/api/src/analytics/analytics-read-adapter.ts(477,7): error TS2322: Type 'readonly AnalyticsCampaignRecord[]' is not assignable to type 'readonly AnalyticsCampaignSummary[]'.
+  Type 'AnalyticsCampaignRecord' is missing the following properties from type 'AnalyticsCampaignSummary': attempts, answered, statusCounts, spend
+apps/api/src/payments/top-up-integration.service.spec.ts(6,10): error TS2305: Module '"./payment-intents.tokens.js"' has no exported member 'DATABASE_CLIENT'.
+apps/api/src/payments/top-up-integration.service.spec.ts(149,22): error TS2554: Expected 2 arguments, but got 1.
+apps/api/src/payments/top-up-integration.service.spec.ts(173,22): error TS2554: Expected 2 arguments, but got 1.
+apps/api/src/payments/top-up-integration.service.spec.ts(196,22): error TS2554: Expected 2 arguments, but got 1.
+apps/api/src/payments/top-up-integration.service.spec.ts(213,22): error TS2554: Expected 2 arguments, but got 1.
+apps/api/src/payments/top-up-integration.service.spec.ts(232,22): error TS2554: Expected 2 arguments, but got 1.
+apps/api/src/payments/top-up-integration.service.ts(107,34): error TS2345: Argument of type 'SyntheticCallbackPayload' is not assignable to parameter of type 'SyntheticPaymentCallback'.
+  Property 'signature' is missing in type 'SyntheticCallbackPayload' but required in type 'SyntheticPaymentCallback'.
+apps/api/test/w5-03-analytics-adapter.dbspec.ts(104,56): error TS2339: Property 'name' does not exist on type 'AnalyticsCampaignSummary'.
+apps/api/test/w5-03-analytics-adapter.dbspec.ts(105,57): error TS2339: Property 'name' does not exist on type 'AnalyticsCampaignSummary'.

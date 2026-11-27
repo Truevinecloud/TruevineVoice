@@ -1,0 +1,8 @@
+apps/api/src/payments/top-up-integration.module.ts(31,42): error TS2345: Argument of type '{ $queryRaw: unknown; $executeRaw: unknown; $transaction: unknown; }' is not assignable to parameter of type 'TopUpDatabase'.
+  Types of property '$transaction' are incompatible.
+    Type 'unknown' is not assignable to type '<T>(body: (tx: TopUpSql) => Promise<T>) => Promise<T>'.
+apps/api/src/payments/top-up-integration.service.spec.ts(146,12): error TS2304: Cannot find name 'paymentIntents'.
+apps/api/src/payments/top-up-integration.service.spec.ts(153,55): error TS2345: Argument of type '{ amountMinor: string; id: string; currency: string; status: "PENDING"; createdAt: Date; }' is not assignable to parameter of type '{ id: string; amountMinor: string; currency: string; status: "PENDING"; createdAt: string; }'.
+  Types of property 'createdAt' are incompatible.
+    Type 'Date' is not assignable to type 'string'.
+apps/api/src/payments/top-up-payment-e2e.spec.ts(77,70): error TS2304: Cannot find name 'BillingStore'.

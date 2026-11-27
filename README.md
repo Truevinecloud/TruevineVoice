@@ -1,5 +1,11 @@
 # Truevine Voice
 
+Local Windows recovery for the two existing QA platform accounts:
+[approval, pinned targets, encrypted storage and commands](docs/runbooks/local-qa-platform-recovery.md).
+`npm run qa:recover-platform -- issue|complete --approve-local-qa-recovery --operation-id <v4-uuid>`
+requires separate explicit live operator approval. `npm run test:qa-platform-recovery`
+uses in-memory fakes only; it never connects to the existing QA database.
+
 ## RBAC-003 backend authorization verification
 
 `npm run test:rbac-003` runs the focused Campaign Manager HTTP and guard
@@ -639,6 +645,7 @@ safe placeholders only.
 | Variable                  | Required | Default       | Purpose                                     |
 | ------------------------- | -------- | ------------- | ------------------------------------------- |
 | `DATABASE_URL`            | yes      | —             | PostgreSQL connection string                |
+| `EXPECTED_DATABASE_NAME`  | no       | unset         | Refuse to boot unless `DATABASE_URL` names this database |
 | `REDIS_URL`               | yes      | —             | Redis connection string                     |
 | `NODE_ENV`                | no       | `development` | Environment name                            |
 | `APP_VERSION`             | no       | `0.1.0`       | Reported by `/health`                       |
@@ -736,6 +743,19 @@ Your Node version does not match `engines`. Run `nvm use`, or install Node
 **`GET /health` returns 503**
 Start infrastructure with `npm run infra:up`, or inspect
 `npm run infra:ps`. The response body names the failing dependency and its error.
+
+**Sign-in returns 401 in the local QA environment**
+The API is probably serving a different database than the one the account exists
+in, or the browser changed host between sign-in and the next request. Check the
+`database:` line in the API boot log, then follow
+[Local QA sign-in](./docs/runbooks/local-qa-authentication.md). Do not reset the
+password until that runbook's triage says the credential is the fault.
+
+**`Refusing to start: DATABASE_URL selects database "X" but EXPECTED_DATABASE_NAME is "Y"`**
+The database interlock is working. `EXPECTED_DATABASE_NAME` pins the database a
+local QA process must use; point `DATABASE_URL` at that database instead of
+unsetting the variable. See
+[Local QA sign-in](./docs/runbooks/local-qa-authentication.md).
 
 **`Missing required environment variable "DATABASE_URL"`**
 `.env` does not exist at the repository root. Run
@@ -883,3 +903,16 @@ Run `npm run test:sensitive-audit:e2e` against the disposable loopback stack wit
 included in ordinary E2E/security runs and fails loudly without infrastructure.
 The additive audit-integrity migration remains unapproved for production.
 No frontend, real financial operation, plan or provider execution is added.
+
+## RBAC-012 tenant isolation QA
+
+The authenticated customer shell keeps organization context in the existing URL,
+revalidates membership before showing cached tenant views, and refreshes data
+when switching workspaces. API guards and scoped repositories remain authoritative.
+
+`npm run test:rbac-012:qa` runs the cross-tenant PostgreSQL/HTTP suites only against
+`truevine_bootstrap_test_a1b2c3d4e5f67890` on loopback port 55432. It derives local
+connection credentials in memory, verifies the connected database name and never
+connects to `truevine_voice`. It creates fresh synthetic fixtures only, does not
+apply migrations or reset accounts, and fails loudly if the QA database is not
+ready. See [RBAC-012 architecture, scope and verification](docs/rbac-012-tenant-isolation.md).

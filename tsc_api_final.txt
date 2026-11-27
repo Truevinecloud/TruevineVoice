@@ -1,0 +1,14 @@
+apps/api/src/payments/top-up-payment-e2e.spec.ts(53,44): error TS2345: Argument of type '{ $queryRaw: unknown; $executeRaw: unknown; $transaction: unknown; walletEntry: unknown; topUpRequest: unknown; billingProfile: unknown; securityAuditEvent: unknown; }' is not assignable to parameter of type 'BillingDatabase'.
+  Type '{ $queryRaw: unknown; $executeRaw: unknown; $transaction: unknown; walletEntry: unknown; topUpRequest: unknown; billingProfile: unknown; securityAuditEvent: unknown; }' is not assignable to type 'Pick<PrismaClient, "securityAuditEvent" | "walletEntry" | "topUpRequest" | "billingProfile">'.
+    Types of property 'securityAuditEvent' are incompatible.
+      Type 'unknown' is not assignable to type 'SecurityAuditEventDelegate<DefaultArgs, { omit: GlobalOmitConfig | undefined; }>'.
+apps/api/src/payments/top-up-payment-e2e.spec.ts(54,50): error TS2345: Argument of type '{ $queryRaw: unknown; $executeRaw: unknown; $transaction: unknown; paymentIntent: unknown; }' is not assignable to parameter of type 'PaymentDatabase'.
+  Type '{ $queryRaw: unknown; $executeRaw: unknown; $transaction: unknown; paymentIntent: unknown; }' is not assignable to type 'Pick<PrismaClient, "paymentIntent">'.
+    Types of property 'paymentIntent' are incompatible.
+      Type 'unknown' is not assignable to type 'PaymentIntentDelegate<DefaultArgs, { omit: GlobalOmitConfig | undefined; }>'.
+apps/api/src/payments/top-up-payment-e2e.spec.ts(55,52): error TS2345: Argument of type '{ $queryRaw: unknown; $executeRaw: unknown; $transaction: unknown; }' is not assignable to parameter of type 'TopUpDatabase'.
+  Types of property '$transaction' are incompatible.
+    Type 'unknown' is not assignable to type '<T>(body: (tx: TopUpSql) => Promise<T>) => Promise<T>'.
+apps/api/src/payments/top-up-payment-e2e.spec.ts(56,61): error TS2345: Argument of type '{ $queryRaw: unknown; $executeRaw: unknown; $transaction: unknown; paymentIntent: unknown; }' is not assignable to parameter of type 'PrismaClient'.
+  Type '{ $queryRaw: unknown; $executeRaw: unknown; $transaction: unknown; paymentIntent: unknown; }' is missing the following properties from type 'PrismaClient<never, GlobalOmitConfig | undefined, DefaultArgs>': $on, $connect, $disconnect, $executeRawUnsafe, and 44 more.
+apps/api/src/payments/top-up-payment-e2e.spec.ts(124,22): error TS2554: Expected 2 arguments, but got 1.

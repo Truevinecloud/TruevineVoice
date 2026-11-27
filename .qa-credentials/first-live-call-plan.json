@@ -1,0 +1,22 @@
+{
+  "status": "prepared_not_executed",
+  "environment": "PRODUCTION",
+  "destination": "+256766207549",
+  "recipientCount": 1,
+  "callingNumber": null,
+  "liveUsername": null,
+  "audioUrl": null,
+  "message": "one short prerecorded file via callActions Play",
+  "callActions": [{ "actionType": "Play", "url": null }],
+  "retries": 0,
+  "campaignScheduling": false,
+  "maxApprovedChargeUgx": 290,
+  "paymentAction": false,
+  "publicCallbackIngress": false,
+  "approvalRequiredBeforeExecution": true,
+  "notes": [
+    "Populate callingNumber, liveUsername and audioUrl only after provider confirmation and owner approval.",
+    "Live API key stays in the gitignored env; never in this file or chat.",
+    "Do not retry on ambiguous response; use reconciliation."
+  ]
+}

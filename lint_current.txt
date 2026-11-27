@@ -1,0 +1,52 @@
+﻿
+> truevine-voice@0.1.0 lint
+> eslint .
+
+
+F:\TruevineVoice\apps\admin\src\app\billing\page.tsx
+  127:6  warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+F:\TruevineVoice\apps\api\src\sms\sms-fallback-orchestration.service.spec.ts
+    5:43   error  'SmsFallbackOutcome' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+   30:6    error  'TxLike' is defined but never used. Allowed unused vars must match /^_/u              @typescript-eslint/no-unused-vars
+   78:81   error  Unexpected any. Specify a different type                                              @typescript-eslint/no-explicit-any
+  112:110  error  Unexpected any. Specify a different type                                              @typescript-eslint/no-explicit-any
+  140:110  error  Unexpected any. Specify a different type                                              @typescript-eslint/no-explicit-any
+  169:110  error  Unexpected any. Specify a different type                                              @typescript-eslint/no-explicit-any
+  197:110  error  Unexpected any. Specify a different type                                              @typescript-eslint/no-explicit-any
+  212:81   error  Unexpected any. Specify a different type                                              @typescript-eslint/no-explicit-any
+  231:81   error  Unexpected any. Specify a different type                                              @typescript-eslint/no-explicit-any
+  251:81   error  Unexpected any. Specify a different type                                              @typescript-eslint/no-explicit-any
+  271:81   error  Unexpected any. Specify a different type                                              @typescript-eslint/no-explicit-any
+  284:176  error  Unexpected any. Specify a different type                                              @typescript-eslint/no-explicit-any
+  306:110  error  Unexpected any. Specify a different type                                              @typescript-eslint/no-explicit-any
+  326:110  error  Unexpected any. Specify a different type                                              @typescript-eslint/no-explicit-any
+
+F:\TruevineVoice\apps\api\src\sms\sms-fallback-orchestration.service.ts
+   21:18  error  'Injectable' is defined but never used. Allowed unused vars must match /^_/u    @typescript-eslint/no-unused-vars
+   23:15  error  'PrismaClient' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  133:13  error  The value assigned to 'uncertain' is not used in subsequent statements          no-useless-assignment
+
+F:\TruevineVoice\apps\api\src\sms\sms-fallback.module.ts
+  3:10  error  'DATABASE_CLIENT' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  5:10  error  'SmsPort' is defined but never used. Allowed unused vars must match /^_/u          @typescript-eslint/no-unused-vars
+
+F:\TruevineVoice\apps\api\src\sms\sms-providers.service.ts
+  9:31  error  'ConflictException' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+F:\TruevineVoice\apps\api\src\sms\synthetic-sms-adapter.ts
+  12:10  error  'Injectable' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+F:\TruevineVoice\scripts\testing\w402-enqueue-smoke.mjs
+   91:3  error  Unexpected console statement    no-console
+  110:9  error  Unsafe usage of ThrowStatement  no-unsafe-finally
+
+F:\TruevineVoice\scripts\testing\w5-02f-provision-qa.mjs
+  106:5  error  Unexpected console statement  no-console
+  107:5  error  Unexpected console statement  no-console
+  108:5  error  Unexpected console statement  no-console
+  109:5  error  Unexpected console statement  no-console
+  116:3  error  Unexpected console statement  no-console
+
+✖ 29 problems (28 errors, 1 warning)
+

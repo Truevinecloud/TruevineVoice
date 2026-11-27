@@ -1,0 +1,4 @@
+apps/api/src/payments/top-up-payment-e2e.spec.ts(28,3): error TS2322: Type '{ provider: typeof SYNTHETIC_PROVIDER; environment: typeof SYNTHETIC_ENVIRONMENT; eventId: string; providerReference?: string | undefined; status: SyntheticCallbackStatus; amountMinor: string; currency: "UGX"; }' is not assignable to type 'SyntheticCallbackPayload'.
+  Types of property 'providerReference' are incompatible.
+    Type 'string | undefined' is not assignable to type 'string'.
+      Type 'undefined' is not assignable to type 'string'.

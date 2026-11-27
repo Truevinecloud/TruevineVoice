@@ -1,0 +1,21 @@
+﻿apps/api/src/middleware/correlation-id.middleware.spec.ts(21,18): error TS2345: Argument of type 'Request' is not assignable to parameter of type 'Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>'.
+  Type 'Request' is missing the following properties from type 'Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>': get, header, accepts, acceptsCharsets, and 93 more.
+apps/api/src/middleware/correlation-id.middleware.spec.ts(43,16): error TS2345: Argument of type 'Request' is not assignable to parameter of type 'Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>'.
+  Type 'Request' is missing the following properties from type 'Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>': get, header, accepts, acceptsCharsets, and 93 more.
+apps/api/src/middleware/correlation-id.middleware.spec.ts(62,16): error TS2345: Argument of type 'Request' is not assignable to parameter of type 'Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>'.
+  Type 'Request' is missing the following properties from type 'Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>': get, header, accepts, acceptsCharsets, and 93 more.
+apps/api/src/middleware/correlation-id.middleware.spec.ts(79,16): error TS2345: Argument of type 'Request' is not assignable to parameter of type 'Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>'.
+  Type 'Request' is missing the following properties from type 'Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>': get, header, accepts, acceptsCharsets, and 93 more.
+apps/api/src/sms/sms-fallback.controller.spec.ts(16,5): error TS2322: Type 'unknown' is not assignable to type 'Mock<Procedure | Constructable>'.
+apps/api/src/sms/sms-fallback.controller.spec.ts(36,14): error TS18048: 'err.response' is possibly 'undefined'.
+apps/api/src/sms/sms-fallback.controller.spec.ts(36,14): error TS18048: 'err.response.error' is possibly 'undefined'.
+apps/api/src/sms/sms-fallback.controller.spec.ts(50,7): error TS2345: Argument of type 'unknown' is not assignable to parameter of type '{ $queryRaw<T = unknown>(sql: TemplateStringsArray, ...values: unknown[]): Promise<T[]>; }'.
+apps/api/src/sms/sms-fallback.controller.spec.ts(76,7): error TS2345: Argument of type 'unknown' is not assignable to parameter of type '{ $queryRaw<T = unknown>(sql: TemplateStringsArray, ...values: unknown[]): Promise<T[]>; }'.
+apps/api/src/sms/sms-fallback.controller.spec.ts(96,7): error TS2345: Argument of type 'unknown' is not assignable to parameter of type '{ $queryRaw<T = unknown>(sql: TemplateStringsArray, ...values: unknown[]): Promise<T[]>; }'.
+apps/api/src/sms/sms-fallback.controller.spec.ts(116,7): error TS2345: Argument of type 'unknown' is not assignable to parameter of type '{ $queryRaw<T = unknown>(sql: TemplateStringsArray, ...values: unknown[]): Promise<T[]>; }'.
+apps/api/src/sms/sms-fallback.controller.spec.ts(136,7): error TS2345: Argument of type 'unknown' is not assignable to parameter of type '{ $queryRaw<T = unknown>(sql: TemplateStringsArray, ...values: unknown[]): Promise<T[]>; }'.
+apps/api/src/sms/sms-fallback.controller.spec.ts(156,7): error TS2345: Argument of type 'unknown' is not assignable to parameter of type '{ $queryRaw<T = unknown>(sql: TemplateStringsArray, ...values: unknown[]): Promise<T[]>; }'.
+apps/api/src/sms/sms-fallback.controller.spec.ts(177,7): error TS2345: Argument of type 'unknown' is not assignable to parameter of type '{ $queryRaw<T = unknown>(sql: TemplateStringsArray, ...values: unknown[]): Promise<T[]>; }'.
+apps/api/src/sms/sms-fallback.controller.spec.ts(205,7): error TS2345: Argument of type 'unknown' is not assignable to parameter of type '{ $queryRaw<T = unknown>(sql: TemplateStringsArray, ...values: unknown[]): Promise<T[]>; }'.
+apps/api/src/sms/sms-fallback.controller.spec.ts(233,7): error TS2345: Argument of type 'unknown' is not assignable to parameter of type '{ $queryRaw<T = unknown>(sql: TemplateStringsArray, ...values: unknown[]): Promise<T[]>; }'.
+apps/api/src/sms/sms-fallback.controller.spec.ts(257,7): error TS2345: Argument of type 'unknown' is not assignable to parameter of type '{ $queryRaw<T = unknown>(sql: TemplateStringsArray, ...values: unknown[]): Promise<T[]>; }'.

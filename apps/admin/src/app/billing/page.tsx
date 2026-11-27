@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
 import { ApiError, api } from '../../lib/api';
 import {
@@ -12,9 +12,11 @@ import {
   OverviewPanels,
   PaymentsTable,
   ReconciliationPanel,
+  WalletAdjustmentConfirmation,
   type AuditEventRow,
   type OrganizationBilling,
   type OverviewView,
+  type WalletAdjustmentPreview,
   WalletEntriesTable,
   type PaymentRow,
   type WalletEntryRow,
@@ -50,6 +52,7 @@ export default function BillingAdminPage() {
   const [adjustmentBusy, setAdjustmentBusy] = useState(false);
   const [adjustmentStatus, setAdjustmentStatus] = useState('');
   const [adjustmentError, setAdjustmentError] = useState('');
+  const [adjustmentPreview, setAdjustmentPreview] = useState<WalletAdjustmentPreview | null>(null);
   const [reconciliation, setReconciliation] = useState<ReconciliationView | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEventRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,7 +62,7 @@ export default function BillingAdminPage() {
   const [orgStatus, setOrgStatus] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError('');
     setSectionErrors({});
@@ -114,7 +117,7 @@ export default function BillingAdminPage() {
       setError('Billing data is temporarily unavailable.');
     }
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -147,39 +150,55 @@ export default function BillingAdminPage() {
     event.preventDefault();
     if (!adjustmentOrganizationId) return;
     const organization = organizations.find((item) => item.id === adjustmentOrganizationId);
-    const confirmed = window.confirm(
-      `Record wallet adjustment?\nOrganization: ${organization?.name ?? adjustmentOrganizationId}\nAmount: ${adjustmentAmount} ${adjustmentCurrency}\nReason: ${adjustmentReason}`,
-    );
-    if (!confirmed) return;
+    if (!organization) return;
+    const preview: WalletAdjustmentPreview = {
+      organizationId: adjustmentOrganizationId,
+      organizationName: organization.name,
+      amountMinor: adjustmentAmount,
+      currency: adjustmentCurrency,
+      reason: adjustmentReason,
+    };
+    setAdjustmentPreview(preview);
+  }
+
+  function confirmAdjustment() {
+    if (!adjustmentPreview) return;
     setAdjustmentBusy(true);
     setAdjustmentError('');
     setAdjustmentStatus('');
-    try {
-      await api(`/platform/billing/organizations/${adjustmentOrganizationId}/wallet/adjustments`, {
-        method: 'POST',
-        body: JSON.stringify({
-          amountMinor: adjustmentAmount,
-          currency: adjustmentCurrency,
-          reason: adjustmentReason,
-          idempotencyKey: adjustmentIdempotencyKey,
-        }),
-      });
-      setAdjustmentStatus('Adjustment recorded.');
-      setAdjustmentAmount('');
-      setAdjustmentReason('');
-      setAdjustmentIdempotencyKey(crypto.randomUUID());
-      if (adjustmentOrganizationId === walletOrganizationId) {
-        void loadWalletEntries(adjustmentOrganizationId);
+    setAdjustmentPreview(null);
+    void (async () => {
+      try {
+        await api(`/platform/billing/organizations/${adjustmentPreview.organizationId}/wallet/adjustments`, {
+          method: 'POST',
+          body: JSON.stringify({
+            amountMinor: adjustmentPreview.amountMinor,
+            currency: adjustmentPreview.currency,
+            reason: adjustmentPreview.reason,
+            idempotencyKey: adjustmentIdempotencyKey,
+          }),
+        });
+        setAdjustmentStatus('Adjustment recorded.');
+        setAdjustmentAmount('');
+        setAdjustmentReason('');
+        setAdjustmentIdempotencyKey(crypto.randomUUID());
+        if (adjustmentPreview.organizationId === walletOrganizationId) {
+          void loadWalletEntries(adjustmentPreview.organizationId);
+        }
+      } catch (caught) {
+        setAdjustmentError(
+          caught instanceof ApiError && caught.detail
+            ? caught.detail
+            : messageFor(caught, 'Adjustment failed.'),
+        );
+      } finally {
+        setAdjustmentBusy(false);
       }
-    } catch (caught) {
-      setAdjustmentError(
-        caught instanceof ApiError && caught.detail
-          ? caught.detail
-          : messageFor(caught, 'Adjustment failed.'),
-      );
-    } finally {
-      setAdjustmentBusy(false);
-    }
+    })();
+  }
+
+  function cancelAdjustment() {
+    setAdjustmentPreview(null);
   }
 
   async function searchOrganizations(event?: FormEvent) {
@@ -288,68 +307,77 @@ export default function BillingAdminPage() {
                   </button>
                 )}
               </section>
-               <section className="card" id="wallet-adjustment">
-                 <div className="section-heading">
-                   <h2>Wallet adjustment</h2>
-                 </div>
-                 <form className="search-bar" onSubmit={(event) => void submitAdjustment(event)}>
-                   <label>
-                     Organization
-                     <select
-                       value={adjustmentOrganizationId}
-                       onChange={(event) => {
-                         setAdjustmentOrganizationId(event.target.value);
-                         setAdjustmentIdempotencyKey(crypto.randomUUID());
-                       }}
-                     >
-                       <option value="">Select an organization</option>
-                       {organizations.map((organization) => (
-                         <option key={organization.id} value={organization.id}>
-                           {organization.name}
-                         </option>
-                       ))}
-                     </select>
-                   </label>
-                   <label>
-                     Amount (minor units)
-                     <input
-                       value={adjustmentAmount}
-                       onChange={(event) => {
-                         setAdjustmentAmount(event.target.value);
-                         setAdjustmentIdempotencyKey(crypto.randomUUID());
-                       }}
-                       placeholder="-5000 or 5000"
-                     />
-                   </label>
-                   <label>
-                     Currency
-                     <input
-                       value={adjustmentCurrency}
-                       onChange={(event) => {
-                         setAdjustmentCurrency(event.target.value.toUpperCase());
-                         setAdjustmentIdempotencyKey(crypto.randomUUID());
-                       }}
-                       maxLength={3}
-                     />
-                   </label>
-                   <label>
-                     Reason
-                     <input
-                       value={adjustmentReason}
-                       onChange={(event) => {
-                         setAdjustmentReason(event.target.value);
-                         setAdjustmentIdempotencyKey(crypto.randomUUID());
-                       }}
-                       placeholder="Required audit reason"
-                     />
-                   </label>
-                   <button disabled={adjustmentBusy || !adjustmentOrganizationId} type="submit">
-                     {adjustmentBusy ? 'Recording…' : 'Record adjustment'}
-                   </button>
-                 </form>
-                 {adjustmentError && <p className="notice form-error" role="alert">{adjustmentError}</p>}
-                 {adjustmentStatus && <p className="notice" role="status">{adjustmentStatus}</p>}
-               </section>
+<section className="card" id="wallet-adjustment">
+                  <div className="section-heading">
+                    <h2>Wallet adjustment</h2>
+                  </div>
+                  <form className="search-bar" onSubmit={(event) => void submitAdjustment(event)}>
+                    <label>
+                      Organization
+                      <select
+                        value={adjustmentOrganizationId}
+                        onChange={(event) => {
+                          setAdjustmentOrganizationId(event.target.value);
+                          setAdjustmentIdempotencyKey(crypto.randomUUID());
+                        }}
+                      >
+                        <option value="">Select an organization</option>
+                        {organizations.map((organization) => (
+                          <option key={organization.id} value={organization.id}>
+                            {organization.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Amount (minor units)
+                      <input
+                        value={adjustmentAmount}
+                        onChange={(event) => {
+                          setAdjustmentAmount(event.target.value);
+                          setAdjustmentIdempotencyKey(crypto.randomUUID());
+                        }}
+                        placeholder="-5000 or 5000"
+                      />
+                    </label>
+                    <label>
+                      Currency
+                      <input
+                        value={adjustmentCurrency}
+                        onChange={(event) => {
+                          setAdjustmentCurrency(event.target.value.toUpperCase());
+                          setAdjustmentIdempotencyKey(crypto.randomUUID());
+                        }}
+                        maxLength={3}
+                      />
+                    </label>
+                    <label>
+                      Reason
+                      <input
+                        value={adjustmentReason}
+                        onChange={(event) => {
+                          setAdjustmentReason(event.target.value);
+                          setAdjustmentIdempotencyKey(crypto.randomUUID());
+                        }}
+                        placeholder="Required audit reason"
+                      />
+                    </label>
+                    <button disabled={adjustmentBusy || !adjustmentOrganizationId} type="submit">
+                      {adjustmentBusy ? 'Recording…' : 'Record adjustment'}
+                    </button>
+                  </form>
+                  {adjustmentPreview && (
+                    <WalletAdjustmentConfirmation
+                      preview={adjustmentPreview}
+                      busy={adjustmentBusy}
+                      error={adjustmentError}
+                      onConfirm={confirmAdjustment}
+                      onCancel={cancelAdjustment}
+                    />
+                  )}
+                  {adjustmentError && !adjustmentPreview && <p className="notice form-error" role="alert">{adjustmentError}</p>}
+                  {adjustmentStatus && <p className="notice" role="status">{adjustmentStatus}</p>}
+                </section>
                <section className="card" id="payments">
                 <div className="section-heading">
                   <h2>Payments and top-up requests</h2>

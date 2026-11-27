@@ -2,11 +2,16 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 type RouteContext = { params: Promise<{ path: string[] }> };
 const ALLOWED = [
-  /^auth\/(sign-in|sign-out)$/,
+  // `auth/terms` is a GET that needs no session; it exists so the admin client
+  // can obtain the CSRF cookie on a browser that has never visited the web app
+  // on this host. Without it, every admin mutation - sign-out included - is
+  // rejected with an opaque 403 until the cookie happens to exist.
+  /^auth\/(sign-in|sign-out|terms)$/,
   /^me$/,
   /^platform\/operations\/(me|organizations|campaigns|health)$/,
   /^platform\/operations\/organizations\/[0-9a-f-]+\/campaigns\/[0-9a-f-]+\/emergency-stop$/i,
   /^platform\/support\/(me|overview|organizations|users)$/,
+  /^platform\/support\/diagnostics\/overview$/,
   /^platform\/support\/organizations\/[0-9a-f-]+(\/diagnostics|\/audit)?$/i,
   /^platform\/support\/users\/[0-9a-f-]+(\/audit)?$/i,
   /^platform\/technical\/(me|overview|providers|queues|logs|audit)$/,

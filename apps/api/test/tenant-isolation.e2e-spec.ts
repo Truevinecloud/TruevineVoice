@@ -3,6 +3,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { hashToken } from '@truevine/auth';
 import { createDatabaseClient, type PrismaClient } from '@truevine/database';
+import type { AudioObjectStore } from '@truevine/audio';
 import { loadEnvFiles, requireEnv } from '@truevine/shared';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -13,6 +14,9 @@ import { DATABASE_CLIENT, REDIS_CLIENT } from '../src/tokens.js';
 import { CallPersistence } from '../src/calls/call-persistence.js';
 import { PrismaCampaignStore } from '../src/campaigns/prisma-campaign.store.js';
 import { PrismaBillingStore } from '../src/billing/prisma-billing.store.js';
+import { PrismaContactStore } from '../src/contacts/prisma-contact.store.js';
+import { PrismaPaymentIntentStore } from '../src/payments/prisma-payment-intents.store.js';
+import { AUDIO_OBJECT_STORE } from '../src/audio/audio.tokens.js';
 import {
   assertConnectedToDisposableDatabase,
   assertDisposableDatabase,
@@ -34,6 +38,10 @@ describe('RBAC-012 cross-tenant release blocker', () => {
     entryA = randomUUID(),
     entryB = randomUUID();
   const invitationB = randomUUID();
+  const contactA = randomUUID(), contactB = randomUUID();
+  const groupA = randomUUID(), groupB = randomUUID();
+  const importA = randomUUID(), importB = randomUUID();
+  const assetA = randomUUID(), assetB = randomUUID();
   const tokens = new Map<string, string>();
   const csrf = 'tenant-isolation-synthetic-csrf';
   type Method = 'get' | 'post' | 'patch' | 'delete';
@@ -66,7 +74,11 @@ describe('RBAC-012 cross-tenant release blocker', () => {
         (await db.$queryRaw<{ name: string }[]>`SELECT current_database() AS name`)[0]?.name,
       expected,
     );
-    await db.$transaction(async (tx) => {
+    // The seed performs many inserts; on a slow CI/filesystem host it can exceed
+    // Prisma's default 5s interactive-transaction limit. Size the timeout to the
+    // work rather than skipping the isolation assertions.
+    await db.$transaction(
+      async (tx) => {
       for (const id of [ua, ub, multi, outsider, platform])
         await tx.user.create({
           data: { id, email: id + '@example.invalid', passwordHash: 'unusable-synthetic' },
@@ -131,8 +143,27 @@ describe('RBAC-012 cross-tenant release blocker', () => {
           expiresAt: new Date(Date.now() + 60000),
         },
       });
-    });
+      },
+      { timeout: 60_000 },
+    );
+    for (const [organizationId, userId, contactId, groupId, importId, assetId] of [
+      [a, ua, contactA, groupA, importA, assetA], [b, ub, contactB, groupB, importB, assetB],
+    ] as const) {
+      await db.contact.create({ data: { organizationId, id: contactId, createdById: userId,
+        destination: '+256700000090', phoneE164: '+256700000090', label: `Tenant contact ${organizationId}` } });
+      await db.contactGroup.create({ data: { organizationId, id: groupId, createdById: userId,
+        name: 'QA group', normalizedName: 'qa group' } });
+      await db.contactGroupMember.create({ data: { organizationId, groupId, contactId } });
+      await db.contactImport.create({ data: { organizationId, id: importId, createdById: userId, mapping: { phone: 'phone' } } });
+      await db.audioAsset.create({ data: { organizationId, id: assetId, createdById: userId,
+        name: `Tenant audio ${organizationId}`, source: 'RECORDING', mimeType: 'audio/wav',
+        storageKey: `${organizationId}/audio/${assetId}.wav`, checksumSha256: 'a'.repeat(64), byteSize: 4n } });
+    }
     const module = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(AUDIO_OBJECT_STORE)
+      .useValue({ getObject: async () => ({ body: Buffer.from('synthetic QA audio'), contentType: 'audio/wav' }),
+        putObject: async () => undefined, deleteObject: async () => undefined,
+        createPlaybackUrl: async () => '/synthetic-qa-audio', close: async () => undefined } satisfies AudioObjectStore)
       .overrideProvider(APP_CONFIG)
       .useValue({
         host: '127.0.0.1',
@@ -186,6 +217,16 @@ describe('RBAC-012 cross-tenant release blocker', () => {
       db.callAttempt.findMany({ where, orderBy: { id: 'asc' } }),
       db.callOperation.findMany({ where, orderBy: { key: 'asc' } }),
       db.callEvent.findMany({ where, orderBy: { id: 'asc' } }),
+      db.contactGroup.findMany({ where, orderBy: { id: 'asc' } }),
+      db.contactGroupMember.findMany({ where, orderBy: { contactId: 'asc' } }),
+      db.contactImport.findMany({ where, orderBy: { id: 'asc' } }),
+      db.contactImportBatch.findMany({ where, orderBy: { importId: 'asc' } }),
+      db.audioAsset.findMany({ where, orderBy: { id: 'asc' } }),
+      db.paymentIntent.findMany({ where, orderBy: { id: 'asc' } }),
+      db.audioAssetOperation.findMany({ where, orderBy: { id: 'asc' } }),
+      db.audioAssetUsage.findMany({ where, orderBy: { id: 'asc' } }),
+      db.paymentAttempt.findMany({ where, orderBy: { id: 'asc' } }),
+      db.paymentProviderEvent.findMany({ where, orderBy: { id: 'asc' } }),
     ]);
     return JSON.stringify(rows, (_key, value: unknown) =>
       typeof value === 'bigint' ? value.toString() : value,
@@ -210,6 +251,31 @@ describe('RBAC-012 cross-tenant release blocker', () => {
     ['get', '/wallet'],
     ['get', '/wallet/transactions?cursor=' + entryB],
     ['get', '/billing'],
+    ['get', '/contacts'],
+    ['post', '/contacts', { phone: '+256700000091', name: 'Denied' }],
+    ['patch', '/contacts/' + contactB, { name: 'Denied' }],
+    ['delete', '/contacts/' + contactB],
+    ['post', '/contacts/' + contactB + '/suppress', { reason: 'Denied' }],
+    ['post', '/contacts/' + contactB + '/voice-consent', { source: 'written' }],
+    ['get', '/contact-groups'],
+    ['get', '/contact-groups/' + groupB],
+    ['post', '/contact-groups', { name: 'Denied' }],
+    ['patch', '/contact-groups/' + groupB, { name: 'Denied' }],
+    ['delete', '/contact-groups/' + groupB],
+    ['get', '/contact-groups/' + groupB + '/contacts'],
+    ['post', '/contact-groups/' + groupB + '/contacts/' + contactB],
+    ['delete', '/contact-groups/' + groupB + '/contacts/' + contactB],
+    ['post', '/contact-imports', { importId: randomUUID(), columnMapping: { phone: 'phone' } }],
+    ['get', '/contact-imports/' + importB],
+    ['post', '/contact-imports/' + importB + '/batches', { batchNumber: 1, csv: 'phone\n+256700000091' }],
+    ['post', '/contact-imports/' + importB + '/complete'],
+    ['get', '/audio-assets'],
+    ['get', '/audio-assets/voices'],
+    ['post', '/audio-assets/' + assetB + '/playback-link'],
+    ['get', '/audio-assets/' + assetB + '/content'],
+    ['post', '/audio-assets/recordings'],
+    ['post', '/audio-assets/tts', { name: 'Denied', text: 'Denied' }],
+    ['post', '/payments/intents', { purpose: 'WALLET_TOP_UP', amountMinor: '1', currency: 'UGX', idempotencyKey: randomUUID() }],
     ['patch', '/billing', profile],
     [
       'post',
@@ -568,6 +634,96 @@ describe('RBAC-012 cross-tenant release blocker', () => {
         ?.emergencyStoppedAt,
     ).not.toBeNull();
   });
+  it('reads real tenant contacts, groups, imports and audio while concealing foreign nested IDs', async () => {
+    for (const [actor, org, contactId, groupId, importId, assetId] of [
+      [ua, a, contactA, groupA, importA, assetA], [ub, b, contactB, groupB, importB, assetB],
+    ] as const) {
+      for (const path of ['/contacts', '/contact-groups', `/contact-groups/${groupId}/contacts`,
+        `/contact-imports/${importId}`, '/audio-assets', `/audio-assets/${assetId}/content`]) {
+        expect((await http(actor, 'get', root(org) + path)).status, path).toBe(200);
+      }
+      const list = await http(actor, 'get', root(org) + `/contacts?organizationId=${org === a ? b : a}&org_id=${org === a ? b : a}`);
+      expect(list.body.items.map((item: { id: string }) => item.id)).toContain(contactId);
+      expect(JSON.stringify(list.body)).not.toContain(org === a ? contactB : contactA);
+    }
+    const before = await snapshot(b);
+    for (const [method, path, body] of [
+      ['patch', `/contacts/${contactB}`, { name: 'Denied' }],
+      ['delete', `/contacts/${contactB}`],
+      ['get', `/contact-groups/${groupB}`],
+      ['patch', `/contact-groups/${groupB}`, { name: 'Denied' }],
+      ['delete', `/contact-groups/${groupB}`],
+      ['post', `/contact-groups/${groupA}/contacts/${contactB}`],
+      ['delete', `/contact-groups/${groupA}/contacts/${contactB}`],
+      ['get', `/contact-imports/${importB}`],
+      ['post', `/contact-imports/${importB}/batches`, { batchNumber: 0, csv: 'phone\n+256700000091' }],
+      ['post', `/contact-imports/${importB}/complete`],
+      ['get', `/audio-assets/${assetB}/content`],
+      ['post', `/audio-assets/${assetB}/playback-link`],
+    ] as [Method, string, unknown?][]) {
+      expect((await http(ua, method, root(a) + path, body)).status, `${method} ${path}`).toBe(404);
+    }
+    const filtered = await http(ua, 'get', root(a) + `/contacts?groupId=${groupB}&cursor=${contactB}`);
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.items).toEqual([]);
+    expect(await snapshot(b)).toBe(before);
+  });
+
+  it('isolates pending payment intents and refuses replay after membership revocation', async () => {
+    const key = randomUUID();
+    const input = { purpose: 'WALLET_TOP_UP', amountMinor: '123', currency: 'UGX', idempotencyKey: key,
+      organizationId: b, org_id: b, actorUserId: ub };
+    const [first, retry, foreign] = await Promise.all([
+      http(ua, 'post', root(a) + '/payments/intents', input),
+      http(ua, 'post', root(a) + '/payments/intents', input),
+      http(ub, 'post', root(b) + '/payments/intents', input),
+    ]);
+    expect(first.status).toBe(201); expect(retry.status).toBe(201); expect(foreign.status).toBe(201);
+    expect(first.body.organizationId).toBe(a); expect(retry.body.id).toBe(first.body.id);
+    expect(foreign.body.organizationId).toBe(b); expect(foreign.body.id).not.toBe(first.body.id);
+    const store = new PrismaPaymentIntentStore(db);
+    expect(await store.findById(a, foreign.body.id)).toBeNull();
+    const before = await snapshot(b);
+    await expect(store.createPending({ organizationId: b, actorUserId: ua, purpose: 'WALLET_TOP_UP', amountMinor: 123n,
+      currency: 'UGX', idempotencyKey: key })).rejects.toMatchObject({ status: 403 });
+    expect(await snapshot(b)).toBe(before);
+    const actor = randomUUID();
+    await db.user.create({ data: { id: actor, email: `${actor}@example.invalid`, passwordHash: 'unusable-synthetic' } });
+    await db.membership.create({ data: { organizationId: b, userId: actor, role: 'BILLING' } });
+    const pending = { organizationId: b, actorUserId: actor, purpose: 'WALLET_TOP_UP', amountMinor: 321n,
+      currency: 'UGX', idempotencyKey: randomUUID() };
+    const accepted = await store.createPending(pending);
+    await db.membership.delete({ where: { organizationId_userId: { organizationId: b, userId: actor } } });
+    const revoked = await snapshot(b);
+    await expect(store.createPending(pending)).rejects.toMatchObject({ status: 403 });
+    expect(await snapshot(b)).toBe(revoked);
+    expect((await store.findById(b, accepted.id))?.status).toBe('PENDING');
+  });
+
+  it('rechecks contact/import mutation authority at persistence even for no-op retries', async () => {
+    const store = new PrismaContactStore(db);
+    const before = await snapshot(b);
+    for (const operation of [
+      () => store.createContact({ organizationId: b, actorUserId: ua, id: randomUUID(), phoneE164: '+256700000091', name: null, email: null, groupNames: [] }),
+      () => store.deleteContact({ organizationId: b, actorUserId: ua, contactId: contactB }),
+      () => store.suppressContact({ organizationId: b, actorUserId: ua, contactId: contactB, reason: 'Denied' }),
+      () => store.recordVoiceConsent({ organizationId: b, actorUserId: ua, contactId: contactB, consentedAt: new Date(), source: 'written', purpose: 'voice_calling', evidenceReference: 'qa-evidence' }),
+      () => store.createImport({ organizationId: b, actorUserId: ua, importId: randomUUID(), mapping: {} }),
+      () => store.processImportBatch({ organizationId: b, actorUserId: ua, importId: importB, batchNumber: 0, payloadHash: 'qa', rows: [], resolvedMapping: {} }),
+      () => store.completeImport({ organizationId: b, actorUserId: ua, importId: importB }),
+    ]) await expect(operation()).rejects.toMatchObject({ status: 403 });
+    expect(await snapshot(b)).toBe(before);
+    const actor = randomUUID();
+    await db.user.create({ data: { id: actor, email: `${actor}@example.invalid`, passwordHash: 'unusable-synthetic' } });
+    await db.membership.create({ data: { organizationId: b, userId: actor, role: 'CAMPAIGN_MANAGER' } });
+    const contact = await store.createContact({ organizationId: b, actorUserId: actor, id: randomUUID(),
+      phoneE164: '+256700000092', name: 'QA downgrade', email: null, groupNames: [] });
+    await db.membership.update({ where: { organizationId_userId: { organizationId: b, userId: actor } }, data: { role: 'VIEWER' } });
+    const downgraded = await snapshot(b);
+    await expect(store.deleteContact({ organizationId: b, actorUserId: actor, contactId: contact.id })).rejects.toMatchObject({ status: 403 });
+    expect(await snapshot(b)).toBe(downgraded);
+  });
+
   it('rejects forged worker/webhook payloads because execution ingress is absent', async () => {
     const before = await snapshot(b);
     for (const path of [

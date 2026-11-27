@@ -48,6 +48,7 @@ export class PrismaAuditorStore implements AuditorStore {
   ): Promise<readonly AuditorAuditEventRecord[]> {
     const anchor = await this.resolveAnchor(input.after);
     const action = input.action === undefined ? {} : { action: input.action };
+    const outcome = input.outcome === undefined ? {} : { outcome: input.outcome };
     const position = anchor
       ? {
           OR: [
@@ -56,43 +57,82 @@ export class PrismaAuditorStore implements AuditorStore {
           ],
         }
       : {};
+    const timeRange =
+      input.from === undefined && input.to === undefined
+        ? {}
+        : {
+            occurredAt: {
+              ...(input.from === undefined ? {} : { gte: input.from }),
+              ...(input.to === undefined ? {} : { lte: input.to }),
+            },
+          };
+    const actor =
+      input.actor === undefined
+        ? {}
+        : /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.actor)
+          ? { actorUserId: input.actor }
+          : { actor: { email: { contains: input.actor, mode: 'insensitive' as const } } };
+
+    // Identity rows carry no organization or target column, so a filter that
+    // names one can only match the security trail. Excluding identity rows
+    // there is correct; matching them on a different field would invent scope.
+    const identityCanMatch =
+      input.organizationId === undefined && input.targetId === undefined;
+    const includeIdentity = input.trail !== 'security' && identityCanMatch;
+    const includeSecurity = input.trail !== 'identity';
 
     const [identity, security] = await Promise.all([
-      this.prisma.identityAuditEvent.findMany({
-        where: { ...action, ...position },
-        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
-        take: input.limit,
-        select: {
-          id: true,
-          action: true,
-          outcome: true,
-          metadata: true,
-          occurredAt: true,
-          actorUserId: true,
-          actor: { select: { email: true } },
-        },
-      }),
-      this.prisma.securityAuditEvent.findMany({
-        // The scope filter is the tenant-isolation boundary of this trail.
-        // Organization-scoped rows describe customer activity and never appear
-        // here, whatever the actor's other permissions may be. An auditor sees
-        // the platform, not into a tenant's account.
-        where: { scope: 'PLATFORM', ...action, ...position },
-        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
-        take: input.limit,
-        select: {
-          id: true,
-          action: true,
-          outcome: true,
-          scope: true,
-          targetType: true,
-          targetId: true,
-          metadata: true,
-          occurredAt: true,
-          actorUserId: true,
-          actor: { select: { email: true } },
-        },
-      }),
+      includeIdentity
+        ? this.prisma.identityAuditEvent.findMany({
+            where: { ...action, ...outcome, ...timeRange, ...actor, ...position },
+            orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+            take: input.limit,
+            select: {
+              id: true,
+              action: true,
+              outcome: true,
+              metadata: true,
+              occurredAt: true,
+              actorUserId: true,
+              actor: { select: { email: true } },
+            },
+          })
+        : Promise.resolve([]),
+      includeSecurity
+        ? this.prisma.securityAuditEvent.findMany({
+            // The scope filter is the tenant-isolation boundary of this trail.
+            // Organization-scoped rows describe customer activity and never
+            // appear here, whatever the actor's other permissions may be. An
+            // auditor sees the platform, not into a tenant's account.
+            where: {
+              scope: 'PLATFORM',
+              ...action,
+              ...outcome,
+              ...timeRange,
+              ...actor,
+              ...(input.organizationId === undefined
+                ? {}
+                : { organizationId: input.organizationId }),
+              ...(input.targetId === undefined ? {} : { targetId: input.targetId }),
+              ...position,
+            },
+            orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+            take: input.limit,
+            select: {
+              id: true,
+              action: true,
+              outcome: true,
+              scope: true,
+              organizationId: true,
+              targetType: true,
+              targetId: true,
+              metadata: true,
+              occurredAt: true,
+              actorUserId: true,
+              actor: { select: { email: true } },
+            },
+          })
+        : Promise.resolve([]),
     ]);
 
     const merged: AuditorAuditEventRecord[] = [
@@ -132,6 +172,7 @@ export class PrismaAuditorStore implements AuditorStore {
             action: event.action,
             outcome: event.outcome,
             scope: event.scope,
+            organizationId: event.organizationId,
             targetType: event.targetType,
             targetId: event.targetId,
             occurredAt: event.occurredAt,

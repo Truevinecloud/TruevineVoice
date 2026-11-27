@@ -1,0 +1,13 @@
+apps/api/src/payments/top-up-integration.module.ts(31,42): error TS2345: Argument of type '{ $queryRaw: unknown; $executeRaw: unknown; $transaction: unknown; }' is not assignable to parameter of type 'TopUpDatabase'.
+  Types of property '$transaction' are incompatible.
+    Type 'unknown' is not assignable to type '<T>(body: (tx: TopUpSql) => Promise<T>) => Promise<T>'.
+apps/api/src/payments/top-up-integration.service.spec.ts(94,42): error TS2345: Argument of type 'BillingStore' is not assignable to parameter of type 'BillingService'.
+  Type 'BillingStore' is missing the following properties from type 'BillingService': store, wallet, billing, topUpView, text
+apps/api/src/payments/top-up-integration.service.ts(56,38): error TS2554: Expected 3 arguments, but got 1.
+apps/api/src/payments/top-up-integration.service.ts(87,11): error TS2322: Type 'string' is not assignable to type 'Date'.
+apps/api/src/payments/top-up-integration.service.ts(123,9): error TS2322: Type 'string' is not assignable to type 'Date'.
+apps/api/src/payments/top-up-integration.service.ts(125,15): error TS2352: Conversion of type '{ provider: "SYNTHETIC_SANDBOX"; environment: "SANDBOX"; providerReference: string; id: string; organizationId: string; purpose: string; amountMinor: string; currency: string; status: PaymentIntentStatus; idempotencyKey: string; createdAt: string; updatedAt: string; }' to type 'PaymentIntentRecord' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Types of property 'amountMinor' are incompatible.
+    Type 'string' is not comparable to type 'bigint'.
+apps/api/src/payments/top-up-payment-e2e.spec.ts(78,43): error TS2345: Argument of type 'PrismaBillingStore' is not assignable to parameter of type 'BillingService'.
+  Type 'PrismaBillingStore' is missing the following properties from type 'BillingService': store, wallet, billing, topUpView, text

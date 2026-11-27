@@ -54,6 +54,21 @@ export function AudioLibrary({
   const [recording, setRecording] = useState(false);
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      const instance = recorder.current;
+      if (instance) {
+        // Leaving a workspace discards a recording; it must never auto-save on stop.
+        instance.onstop = null;
+        if (instance.state !== 'inactive') instance.stop();
+        instance.stream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   async function refresh(): Promise<void> {
     setLoading(true);
@@ -118,6 +133,10 @@ export function AudioLibrary({
     setError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mounted.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const mimeType = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'].find(
         (type) => MediaRecorder.isTypeSupported(type),
       );
