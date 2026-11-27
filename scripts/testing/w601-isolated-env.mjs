@@ -10,7 +10,8 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, URL } from 'node:url';
+import process from 'node:process';
 
 const ENV_FILE = fileURLToPath(new URL('../../.env', import.meta.url));
 const COMMAND = process.argv[2];

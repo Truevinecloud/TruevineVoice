@@ -11,6 +11,7 @@
 
 import { createDatabaseClient } from '@truevine/database';
 import { randomUUID } from 'node:crypto';
+import process from 'node:process';
 import { hash as argonHash } from '@node-rs/argon2';
 
 const ARGON2_OPTIONS = {
