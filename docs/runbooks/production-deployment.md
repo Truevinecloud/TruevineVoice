@@ -1,6 +1,6 @@
 # Production deployment runbook
 
-Target: Ubuntu VPS `169.58.162.143`, application root `/var/www/TruevineVoice`.
+Target: Ubuntu VPS `77.216.129.196`, application root `/var/www/TruevineVoice`.
 Customer URL: `https://voice.truevinecloud.online/`.
 
 The 2026-10-14 audit confirmed the existing public customer route `/` and
@@ -312,7 +312,7 @@ environment) needs:
 
 | Secret                | Purpose                                                    |
 | --------------------- | ---------------------------------------------------------- |
-| `VPS_SSH_HOST`        | `169.58.162.143`; the workflow verifies this exact target  |
+| `VPS_SSH_HOST`        | `77.216.129.196`; the workflow verifies this exact target  |
 | `VPS_SSH_USER`        | Dedicated non-root application/service account             |
 | `VPS_SSH_KEY`         | Private key belonging only to that deploy account          |
 | `VPS_SSH_KNOWN_HOSTS` | Complete OpenSSH known_hosts line for the VPS and SSH port |
@@ -320,7 +320,7 @@ environment) needs:
 Verify the server host-key fingerprint through a trusted console or administrator
 before setting known_hosts. Do not trust an unauthenticated `ssh-keyscan` result
 by itself. For port 22 use the IP host entry; for another port use
-`[169.58.162.143]:<port>`. Key rotation requires updating the secret after trusted
+`[77.216.129.196]:<port>`. Key rotation requires updating the secret after trusted
 verification, not disabling StrictHostKeyChecking.
 
 Enter secrets through GitHub's UI from your local files, or use these commands

@@ -69,7 +69,7 @@ function permissionProbes(organizationId) {
     ['platform', 'platform:operations:read', '/api/platform/operations/me'],
     ['platform', 'platform:support:read', '/api/platform/support/me'],
     ['platform', 'platform:technical:read', '/api/platform/technical/me'],
-    ['platform', 'platform:audit:read', '/api/platform/audit/me'],
+    ['platform', 'platform:audit:read', '/api/platform/technical/audit'],
   ];
 }
 
