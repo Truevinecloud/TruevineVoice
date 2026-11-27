@@ -1,8 +1,10 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   assertKnownAuditAction,
+  canActAsPlatform,
   isKnownAuditAction,
   isSafeAuditMetadata,
+  isSafeAuditMetadataKey,
   type PlatformRole,
 } from '@truevine/auth';
 
@@ -40,6 +42,13 @@ function invalid(code: string, message: string): never {
 
 export interface AuditorAuditQuery {
   readonly action?: string;
+  readonly trail?: string;
+  readonly outcome?: string;
+  readonly actor?: string;
+  readonly organizationId?: string;
+  readonly targetId?: string;
+  readonly from?: string;
+  readonly to?: string;
   readonly cursor?: string;
 }
 
@@ -133,11 +142,38 @@ export class AuditService {
    * check stops the value entering the trail, the read-time projection stops it
    * leaving.
    */
-  async auditTrail(actorUserId: string, query: AuditorAuditQuery) {
+  async auditTrail(
+    actorUserId: string,
+    query: AuditorAuditQuery,
+    platformRole: PlatformRole | null = null,
+  ) {
     const action = this.optionalAuditAction(query.action);
+    const trail = this.optionalTrail(query.trail);
+    const outcome = this.optionalOutcome(query.outcome);
+    const actor = this.optionalSearchTerm(query.actor);
+    const organizationId = this.optionalUuid(query.organizationId, 'organization');
+    const targetId = this.optionalTargetId(query.targetId);
+    const from = this.optionalDate(query.from, 'from');
+    const to = this.optionalDate(query.to, 'to', true);
+    if (from !== undefined && to !== undefined && from.getTime() > to.getTime()) {
+      invalid('invalid_time_range', 'The start of the range must not be after its end.');
+    }
     const after = query.cursor === undefined ? undefined : this.requireEventCursor(query.cursor);
+    const canReadFinancials =
+      platformRole !== null && canActAsPlatform(platformRole, 'platform:billing:read');
 
-    const events = await this.store.platformAuditEvents({ action, after, limit: PAGE_SIZE + 1 });
+    const events = await this.store.platformAuditEvents({
+      action,
+      trail,
+      outcome,
+      actor,
+      organizationId,
+      targetId,
+      from,
+      to,
+      after,
+      limit: PAGE_SIZE + 1,
+    });
     const page = events.slice(0, PAGE_SIZE);
 
     await this.recordIdentityEvent(actorUserId, 'platform.audit.audit_viewed', {
@@ -153,9 +189,11 @@ export class AuditService {
         scope: event.scope,
         targetType: event.targetType,
         targetId: event.targetId,
+        organizationId: event.organizationId ?? null,
         occurredAt: event.occurredAt.toISOString(),
         actor: { userId: event.actorUserId, email: event.actorEmail },
         metadata: projectSafeMetadata(event.metadata),
+        evidence: projectEvidence(event.metadata, canReadFinancials),
       })),
       nextCursor: events.length > PAGE_SIZE ? this.encodeCursor(page.at(-1)!) : null,
     };
@@ -186,6 +224,59 @@ export class AuditService {
     if (value === undefined || value === null || value === '') return undefined;
     if (typeof value === 'string' && isKnownAuditAction(value)) return value;
     invalid('invalid_action', 'Unknown audit action.');
+  }
+
+  private optionalTrail(value: unknown): AuditorAuditTrail | undefined {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (value === 'identity' || value === 'security') return value;
+    invalid('invalid_trail', 'Trail must be identity or security.');
+  }
+
+  private optionalOutcome(value: unknown): 'SUCCESS' | 'DENIED' | undefined {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (value === 'SUCCESS' || value === 'DENIED') return value;
+    invalid('invalid_outcome', 'Outcome must be SUCCESS or DENIED.');
+  }
+
+  /**
+   * A bounded fragment, used for the actor search. Wildcards are refused rather
+   * than escaped: a user searching for `%` wants everything, and this endpoint
+   * does not offer "everything" as a side effect of punctuation.
+   */
+  private optionalSearchTerm(value: unknown): string | undefined {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== 'string') invalid('invalid_search', 'Enter a search term.');
+    const term = value.trim();
+    if (term === '') return undefined;
+    if (term.length > 200 || /[\\%_]/.test(term)) {
+      invalid('invalid_search', 'Enter up to 200 characters without wildcards.');
+    }
+    return term;
+  }
+
+  private optionalUuid(value: unknown, what: string): string | undefined {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (typeof value === 'string' && UUID.test(value)) return value;
+    invalid('invalid_filter', `Enter a valid ${what} identifier.`);
+  }
+
+  private optionalTargetId(value: unknown): string | undefined {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (typeof value === 'string' && /^[A-Za-z0-9:_-]{1,64}$/.test(value)) return value;
+    invalid('invalid_filter', 'Enter a valid target identifier.');
+  }
+
+  private optionalDate(value: unknown, what: string, endOfDay = false): Date | undefined {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (typeof value !== 'string') invalid('invalid_time_range', 'Enter a valid date.');
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+    const parsed = dateOnly
+      ? new Date(`${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`)
+      : new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      invalid('invalid_time_range', `Enter a valid ${what} date.`);
+    }
+    return parsed;
   }
 
   private optionalSlug(value: unknown): string | undefined {
@@ -285,4 +376,160 @@ function isSafeMetadataValue(value: unknown): value is string | number | boolean
   if (typeof value === 'number') return Number.isFinite(value);
   if (typeof value === 'string') return value.length <= MAX_METADATA_STRING_LENGTH;
   return false;
+}
+
+/** Bounded structured evidence returned beside the flat metadata projection. */
+export interface AuditEvidence {
+  readonly target: { readonly type: string; readonly id: string } | null;
+  readonly before: Readonly<Record<string, unknown>> | null;
+  readonly change: Readonly<Record<string, unknown>> | null;
+  readonly after: Readonly<Record<string, unknown>> | null;
+  readonly reasonCode: string | null;
+  readonly justification: string | null;
+  readonly reasonSource: string | null;
+  readonly redacted: readonly string[];
+  readonly financialAccess: 'visible' | 'redacted' | 'not_financial';
+}
+
+const MAX_EVIDENCE_DEPTH = 4;
+const MAX_EVIDENCE_KEYS = 40;
+const MAX_EVIDENCE_ARRAY = 20;
+const MAX_EVIDENCE_STRING = 256;
+const MAX_JUSTIFICATION = 300;
+const FINANCIAL_KEY = /amount|balance|minor|price|total/i;
+
+/**
+ * Projects a sensitive mutation's stored `before`/`change`/`after` into a
+ * bounded, redacted view.
+ *
+ * The audit trail is append-only, but a value being *stored* is not the same as
+ * a value being *readable by every audit role*. Money is the clearest case: an
+ * Auditor answers "what changed and who changed it" without holding
+ * `platform:billing:read`. For a reader without that permission the monetary
+ * values are replaced with `[redacted]` and the affected paths are listed, so
+ * the record is still complete and the omission is explicit rather than silent.
+ */
+function projectEvidence(metadata: unknown, canReadFinancials: boolean): AuditEvidence {
+  if (!isPlainRecord(metadata)) return emptyEvidence();
+  const source = metadata as Record<string, unknown>;
+
+  const before = isPlainRecord(source['before']) ? source['before'] : null;
+  const change = isPlainRecord(source['change']) ? source['change'] : null;
+  const after = isPlainRecord(source['after']) ? source['after'] : null;
+  const hasFinancialValue =
+    containsFinancialValue(before) || containsFinancialValue(change) || containsFinancialValue(after);
+
+  const redacted = new Set<string>();
+  const projectedBefore = before === null ? null : projectEvidenceRecord(before, 'before', redacted, canReadFinancials);
+  const projectedChange = change === null ? null : projectEvidenceRecord(change, 'change', redacted, canReadFinancials);
+  const projectedAfter = after === null ? null : projectEvidenceRecord(after, 'after', redacted, canReadFinancials);
+
+  const targetSource = isPlainRecord(source['target']) ? source['target'] : null;
+  const target =
+    targetSource !== null &&
+    typeof targetSource['type'] === 'string' &&
+    typeof targetSource['id'] === 'string'
+      ? { type: targetSource['type'], id: targetSource['id'] }
+      : null;
+
+  return {
+    target,
+    before: projectedBefore,
+    change: projectedChange,
+    after: projectedAfter,
+    reasonCode: boundedText(source['reasonCode'], 64),
+    justification: boundedText(source['justification'], MAX_JUSTIFICATION),
+    reasonSource: boundedText(source['reasonSource'], 32),
+    redacted: [...redacted].sort(),
+    financialAccess: hasFinancialValue
+      ? canReadFinancials
+        ? 'visible'
+        : 'redacted'
+      : 'not_financial',
+  };
+}
+
+function emptyEvidence(): AuditEvidence {
+  return {
+    target: null,
+    before: null,
+    change: null,
+    after: null,
+    reasonCode: null,
+    justification: null,
+    reasonSource: null,
+    redacted: [],
+    financialAccess: 'not_financial',
+  };
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+function projectEvidenceRecord(
+  source: Readonly<Record<string, unknown>>,
+  path: string,
+  redacted: Set<string>,
+  canReadFinancials: boolean,
+): Readonly<Record<string, unknown>> | null {
+  if (Object.keys(source).length > MAX_EVIDENCE_KEYS) return null;
+  const projected: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (!isSafeAuditMetadataKey(key)) continue;
+    const childPath = `${path}.${key}`;
+    if (!canReadFinancials && FINANCIAL_KEY.test(key)) {
+      projected[key] = '[redacted]';
+      redacted.add(childPath);
+      continue;
+    }
+    const child = projectEvidenceValue(value, childPath, redacted, canReadFinancials, 1);
+    if (child !== undefined) projected[key] = child;
+  }
+  return projected;
+}
+
+function projectEvidenceValue(
+  value: unknown,
+  path: string,
+  redacted: Set<string>,
+  canReadFinancials: boolean,
+  depth: number,
+): unknown {
+  if (value === null || typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'string') {
+    return value.length <= MAX_EVIDENCE_STRING ? value : undefined;
+  }
+  if (depth >= MAX_EVIDENCE_DEPTH) return undefined;
+  if (Array.isArray(value)) {
+    if (value.length > MAX_EVIDENCE_ARRAY) return undefined;
+    const items = value.map((item, index) =>
+      projectEvidenceValue(item, `${path}[${index}]`, redacted, canReadFinancials, depth + 1),
+    );
+    return items.every((item) => item !== undefined) ? items : undefined;
+  }
+  if (!isPlainRecord(value)) return undefined;
+  return projectEvidenceRecord(value, path, redacted, canReadFinancials);
+}
+
+function containsFinancialValue(value: unknown, depth = 0): boolean {
+  if (depth > MAX_EVIDENCE_DEPTH || value === null || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some((item) => containsFinancialValue(item, depth + 1));
+  if (!isPlainRecord(value)) return false;
+  return Object.entries(value).some(([key, item]) => {
+    if (FINANCIAL_KEY.test(key) && (typeof item === 'string' || typeof item === 'number')) {
+      return true;
+    }
+    return containsFinancialValue(item, depth + 1);
+  });
+}
+
+function boundedText(value: unknown, max: number): string | null {
+  return typeof value === 'string' && value.length <= max ? value : null;
 }

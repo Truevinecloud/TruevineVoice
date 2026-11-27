@@ -23,6 +23,6 @@ export class PaymentIntentsController {
     @CurrentPrincipal() principal: { userId: string },
     @Body() body: unknown,
   ) {
-    return this.service.createPending(context.organizationId, body);
+    return this.service.createPending(context.organizationId, principal.userId, body);
   }
 }

@@ -92,6 +92,7 @@ export interface MembershipSummary {
   readonly organizationId: string;
   readonly organizationSlug: string;
   readonly organizationName: string;
+  readonly organizationStatus: 'ACTIVE' | 'SUSPENDED';
   readonly role: OrganizationRole;
   readonly permissions: readonly OrganizationPermission[];
 }

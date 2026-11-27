@@ -29,6 +29,8 @@ export const DISPOSABLE_DATABASE_PORT = '55432';
 
 /** The shared development/test database name used by Compose and CI. */
 export const SHARED_TEST_DATABASE = 'truevine_voice';
+/** Explicit operator opt-in pins this run to the existing isolated QA database. */
+export const ISOLATED_QA_DATABASE = 'truevine_bootstrap_test_a1b2c3d4e5f67890';
 
 /**
  * Databases created and dropped by `npm run test:security`.
@@ -110,8 +112,10 @@ export function assertDisposableDatabase(
       `port "${url.port === '' ? 'default' : url.port}" is not ${DISPOSABLE_DATABASE_PORT}`,
     );
 
-  if (!isDisposableDatabaseName(name))
+  const isolatedQa = process.env['RBAC_ISOLATED_QA'] === '1';
+  if (isolatedQa ? name !== ISOLATED_QA_DATABASE : !isDisposableDatabaseName(name))
     reasons.push(
+      isolatedQa ? 'database is not the pinned isolated QA database' :
       `database "${name}" is not "${SHARED_TEST_DATABASE}" or a ${ISOLATED_DATABASE_PATTERN} database`,
     );
 

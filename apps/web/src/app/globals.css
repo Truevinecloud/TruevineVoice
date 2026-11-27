@@ -3133,3 +3133,14 @@ button:disabled {
     transition: none;
   }
 }
+
+/* Tenant context and transitions use the existing workspace visual language. */
+.workspace-access-state { max-width: 44rem; margin: 2rem auto; }
+.workspace-access-state h1 { margin-top: 1rem; }
+.workspace-access-state .button-primary { display: inline-flex; margin-top: 1rem; }
+.workspace-loading { padding: 1.5rem 0; }
+.workspace-loading > p { color: var(--muted-fg); }
+.workspace-skeleton { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.workspace-skeleton > div { min-height: 9rem; border: 1px solid var(--card-border); border-radius: .85rem; background: var(--card-bg); }
+.organization-switcher select:disabled { opacity: .7; cursor: wait; }
+@media (max-width: 640px) { .workspace-skeleton { grid-template-columns: 1fr; } }

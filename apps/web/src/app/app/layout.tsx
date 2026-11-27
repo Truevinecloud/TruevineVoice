@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 
 import { currentSession } from '../../lib/session';
 
-import { AppNavigation } from './AppNavigation';
+import { OrganizationWorkspace } from './OrganizationWorkspace';
 import { Suspense } from 'react';
 
 /**
@@ -39,7 +39,6 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="app-shell">
       <Suspense
         fallback={
           <div className="app-navigation-loading" role="status">
@@ -47,12 +46,9 @@ export default async function AppLayout({
           </div>
         }
       >
-        <AppNavigation memberships={session.me.memberships} email={session.me.email} />
+        <OrganizationWorkspace memberships={session.me.memberships} email={session.me.email} userId={session.me.userId}>
+          {children}
+        </OrganizationWorkspace>
       </Suspense>
-
-      <main className="app-main" id="main-content" tabIndex={-1}>
-        <div className="page-content">{children}</div>
-      </main>
-    </div>
   );
 }

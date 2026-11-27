@@ -265,6 +265,7 @@ export class PrismaContactStore implements ContactStore {
   }): Promise<ContactRecord> {
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await authorizeTenantWrite(tx, i.organizationId, i.actorUserId, 'contact:create');
         const existing = await tx.contact.findUnique({
           where: {
             organizationId_phoneE164: {
@@ -366,6 +367,7 @@ export class PrismaContactStore implements ContactStore {
   }): Promise<'DELETED' | 'NOT_FOUND' | 'SUPPRESSED' | 'HAS_RECIPIENTS'> {
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await authorizeTenantWrite(tx, i.organizationId, i.actorUserId, 'contact:update');
         const contact = await tx.contact.findUnique({
           where: { organizationId_id: { organizationId: i.organizationId, id: i.contactId } },
           select: { id: true, suppressedAt: true },
@@ -400,6 +402,7 @@ export class PrismaContactStore implements ContactStore {
     source: string; purpose: 'voice_calling'; evidenceReference: string;
   }): Promise<ContactRecord | undefined> {
     return this.prisma.$transaction(async (tx) => {
+      await authorizeTenantWrite(tx, i.organizationId, i.actorUserId, 'contact:update');
       const changed = await tx.contact.updateMany({
         where: { organizationId: i.organizationId, id: i.contactId, voiceConsentAt: null },
         data: { voiceConsentAt: i.consentedAt, voiceConsentSource: i.source,
@@ -514,6 +517,7 @@ export class PrismaContactStore implements ContactStore {
     reason: string;
   }): Promise<ContactRecord | undefined> {
     return this.prisma.$transaction(async (tx) => {
+      await authorizeTenantWrite(tx, i.organizationId, i.actorUserId, 'contact:update');
       const result = await tx.contact.updateMany({
         where: { organizationId: i.organizationId, id: i.contactId, suppressedAt: null },
         data: { suppressedAt: new Date(), suppressionReason: i.reason },
@@ -543,6 +547,7 @@ export class PrismaContactStore implements ContactStore {
     mapping: Readonly<Record<string, string>>;
   }) {
     const row = await this.prisma.$transaction(async (tx) => {
+      await authorizeTenantWrite(tx, i.organizationId, i.actorUserId, 'contact:import');
       const rec = await tx.contactImport.create({
         data: {
           organizationId: i.organizationId,
@@ -572,6 +577,7 @@ export class PrismaContactStore implements ContactStore {
   async processImportBatch(i: ProcessImportBatchInput) {
     return this.prisma.$transaction(
       async (tx) => {
+        await authorizeTenantWrite(tx, i.organizationId, i.actorUserId, 'contact:import');
         const imp = await tx.contactImport.findUnique({
           where: { organizationId_id: { organizationId: i.organizationId, id: i.importId } },
           include: { batches: true },
@@ -816,6 +822,7 @@ export class PrismaContactStore implements ContactStore {
   }
   async completeImport(i: { organizationId: string; actorUserId: string; importId: string }) {
     return this.prisma.$transaction(async (tx) => {
+      await authorizeTenantWrite(tx, i.organizationId, i.actorUserId, 'contact:import');
       const n = await tx.contactImport.updateMany({
         where: { organizationId: i.organizationId, id: i.importId, status: 'OPEN' },
         data: { status: 'COMPLETED', completedAt: new Date() },

@@ -1,4 +1,5 @@
-import Link from 'next/link';
+﻿import Link from 'next/link';
+import { useId } from 'react';
 
 export type BillingOperator = { platformRole: string };
 
@@ -364,6 +365,66 @@ export function BillingAuditTable({ events }: { events: AuditEventRow[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+export type WalletAdjustmentPreview = {
+  organizationId: string;
+  organizationName: string;
+  amountMinor: string;
+  currency: string;
+  reason: string;
+};
+
+/**
+ * Accessible confirmation for a paid, append-only wallet mutation.
+ *
+ * The page opens this after local validation and only sends the request after
+ * the operator confirms. The reason shown here is the same text that becomes
+ * audit evidence, so the confirmation cannot disagree with what is recorded.
+ */
+export function WalletAdjustmentConfirmation({
+  preview,
+  busy,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  preview: WalletAdjustmentPreview;
+  busy: boolean;
+  error: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const titleId = useId();
+  const detailId = useId();
+  return (
+    <div
+      className="audit-confirm"
+      role="alertdialog"
+      aria-labelledby={titleId}
+      aria-describedby={detailId}
+    >
+      <h3 id={titleId}>Confirm wallet adjustment</h3>
+      <p id={detailId} className="footnote">
+        This writes an append-only ledger entry and its audit evidence. A later correction
+        must be a compensating entry; history is never edited.
+      </p>
+      <dl>
+        <dt>Organization</dt><dd>{preview.organizationName}</dd>
+        <dt>Amount</dt><dd>{preview.amountMinor} {preview.currency} (minor units)</dd>
+        <dt>Reason</dt><dd>{preview.reason}</dd>
+      </dl>
+      {error && <p className="notice form-error" role="alert">{error}</p>}
+      <div className="button-row">
+        <button type="button" className="danger-button" disabled={busy} onClick={onConfirm}>
+          {busy ? 'Recording…' : 'Confirm adjustment'}
+        </button>
+        <button type="button" className="quiet-button" disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

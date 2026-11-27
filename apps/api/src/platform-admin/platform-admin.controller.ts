@@ -47,17 +47,26 @@ export class PlatformAdminController {
   @UseGuards(SessionGuard, PlatformGuard, CsrfGuard)
   @RequirePlatformPermission('platform:admin:manage')
   grantRole(
-    @Body() body: { readonly userId?: unknown; readonly role?: unknown },
+    @Body()
+    body: {
+      readonly userId?: unknown;
+      readonly role?: unknown;
+      readonly reason?: { readonly reasonCode?: unknown; readonly justification?: unknown };
+    },
     @CurrentPrincipal() principal: Principal,
   ) {
-    return this.admin.grantRole(principal.userId, body.userId, body.role);
+    return this.admin.grantRole(principal.userId, body.userId, body.role, body.reason);
   }
 
   @Post('roles/:userId/revoke')
   @HttpCode(HttpStatus.OK)
   @UseGuards(SessionGuard, PlatformGuard, CsrfGuard)
   @RequirePlatformPermission('platform:admin:manage')
-  revokeRole(@Param('userId') userId: string, @CurrentPrincipal() principal: Principal) {
-    return this.admin.revokeRole(principal.userId, userId);
+  revokeRole(
+    @Param('userId') userId: string,
+    @Body() body: { readonly reason?: { readonly reasonCode?: unknown; readonly justification?: unknown } },
+    @CurrentPrincipal() principal: Principal,
+  ) {
+    return this.admin.revokeRole(principal.userId, userId, body.reason);
   }
 }

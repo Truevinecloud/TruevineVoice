@@ -49,6 +49,7 @@ import type { MembershipRole } from './prisma-types.js';
 import { DATABASE_CLIENT } from '../tokens.js';
 
 import type { SecurityStores, SecurityTransaction } from './security-transaction.js';
+import { PrismaCustomRoleStore } from './prisma-custom-role.store.js';
 type TransactionClient = Pick<
   PrismaClient,
   | 'user'
@@ -61,6 +62,9 @@ type TransactionClient = Pick<
   | 'platformRoleAssignment'
   | 'securityAuditEvent'
   | 'identityAuditEvent'
+  | 'customRole'
+  | 'rolePermission'
+  | 'roleAssignment'
   | '$queryRaw'
 >;
 export type SecurityDatabase = TransactionClient & {
@@ -69,7 +73,7 @@ export type SecurityDatabase = TransactionClient & {
 @Injectable()
 export class PrismaSecurityTransaction implements SecurityTransaction {
   constructor(@Inject(DATABASE_CLIENT) private readonly database: SecurityDatabase) {}
-  run<T>(work: (stores: SecurityStores) => Promise<T>): Promise<T> {
+  run<T>(work: (stores: SecurityStores) => Promise<T>, _options?: { readonly isolationLevel: import('@truevine/database').Prisma.TransactionIsolationLevel }): Promise<T> {
     return this.database.$transaction(async (tx) => {
       const client: SecurityDatabase = {
         user: tx.user,
@@ -82,6 +86,9 @@ export class PrismaSecurityTransaction implements SecurityTransaction {
         platformRoleAssignment: tx.platformRoleAssignment,
         securityAuditEvent: tx.securityAuditEvent,
         identityAuditEvent: tx.identityAuditEvent,
+        customRole: tx.customRole,
+        rolePermission: tx.rolePermission,
+        roleAssignment: tx.roleAssignment,
         $queryRaw: tx.$queryRaw.bind(tx),
         $transaction: (callback) => callback(tx),
       };
@@ -89,6 +96,7 @@ export class PrismaSecurityTransaction implements SecurityTransaction {
         auth: new PrismaAuthStore(client),
         organizations: new PrismaOrganizationStore(client),
         audit: new PrismaAuditStore(client),
+        customRoles: new PrismaCustomRoleStore(client),
         lockUser: async (id) => {
           await tx.$queryRaw`SELECT id FROM users WHERE id = ${id}::uuid FOR UPDATE`;
         },

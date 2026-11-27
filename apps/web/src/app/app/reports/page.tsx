@@ -1,8 +1,10 @@
+import { selectMembership } from '../../../lib/organization-context';
 import { redirect } from 'next/navigation';
 
 import { fetchCampaignStatusReport } from '../../../lib/org-api';
 import { currentSession, hasPermission } from '../../../lib/session';
 import { EmptyState, PageHeader, SectionCard } from '../AppUI';
+import { AnalyticsDashboard } from './analytics-dashboard';
 
 /**
  * A read-only status report built from campaign records.
@@ -21,13 +23,7 @@ export default async function ReportsPage({
   if (!session.me.termsAccepted) redirect('/accept-terms');
 
   const params = await searchParams;
-  const requested = Array.isArray(params.organization)
-    ? params.organization[0]
-    : params.organization;
-  const membership =
-    requested === undefined
-      ? session.me.memberships[0]
-      : session.me.memberships.find((entry) => entry.organizationId === requested);
+  const membership = selectMembership(session.me.memberships, params.organization);
 
   if (!membership || !hasPermission(membership, 'reporting:read')) {
     return (
@@ -48,7 +44,7 @@ export default async function ReportsPage({
       <PageHeader
         title="Reports"
         eyebrow={membership.organizationName}
-        description="Campaign inventory summary. This report counts campaign records only; it does not measure calls or delivery."
+        description="Campaign inventory summary and live call analytics. Inventory counts records; the analytics section reads attempts, outcomes and exact spend from the authenticated API."
       />
       {report === null ? (
         <p className="notice notice-error" role="alert">
@@ -96,10 +92,9 @@ export default async function ReportsPage({
           </p>
         </SectionCard>
       )}
-      <p className="field-hint">
-        Call attempts, delivery outcomes, and performance metrics are not available yet. No figures
-        on this page are estimated.
-      </p>
+      <div id="call-analytics">
+        <AnalyticsDashboard key={membership.organizationId} organizationId={membership.organizationId} />
+      </div>
     </>
   );
 }

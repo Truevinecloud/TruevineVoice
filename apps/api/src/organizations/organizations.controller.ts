@@ -296,6 +296,7 @@ export class OrganizationsController {
       organizationId: membership.organization.id,
       organizationSlug: membership.organization.slug,
       organizationName: membership.organization.name,
+      organizationStatus: membership.organization.suspendedAt ? 'SUSPENDED' : 'ACTIVE',
       // The database enum and the registry role are the same vocabulary; the
       // mapping is explicit so a future divergence fails to compile rather than
       // silently looking up `undefined` permissions.

@@ -37,6 +37,18 @@
     "20261024180000_audio_assets_w3_02",
     "20261025100000_audio_usage_trigger_error_mapping",
     "20261025110000_campaign_builder_w3_03",
-    "20261030120000_payment_provider_configuration"
+    "20261030120000_payment_provider_configuration",
+    "20261107120000_payment_intent_foundation",
+    "20261119134000_rbac_015_custom_roles",
+    "20261120120000_audio_storage_bytea_w3_04",
+    "20261120130000_voice_provider_configuration",
+    "20261122120000_voice_callback_receipts",
+    "20261122121200_campaign_call_initiation_operation",
+    "20261122150000_durable_call_initiation_reconciliation",
+    "20261123110000_audio_usage_campaign_set_null",
+    "20261123120000_usage_settlement_w5_01",
+    "20261124130000_w601_campaign_reliability",
+    "20261125120000_w504_sms_fallback_operations",
+    "20261126000000_w504_sms_fallback_entitlement"
   ]
 }

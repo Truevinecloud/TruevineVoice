@@ -19,9 +19,11 @@ class FakeMediaRecorder {
   mimeType = 'audio/webm;codecs=opus';
   ondataavailable: ((event: { data: Blob }) => void) | null = null;
   onstop: (() => void) | null = null;
-  constructor(_stream: MediaStream, _options?: MediaRecorderOptions) {}
-  start(): void {}
+  state: RecordingState = 'inactive';
+  constructor(readonly stream: MediaStream, _options?: MediaRecorderOptions) {}
+  start(): void { this.state = 'recording'; }
   stop(): void {
+    this.state = 'inactive';
     this.ondataavailable?.({
       data: new Blob([Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3])], { type: this.mimeType }),
     });
@@ -113,5 +115,17 @@ describe('audio library UI', () => {
       expect.stringMatching(/^Recording /),
       expect.any(String),
     );
+  });
+
+  it('discards an active recording and stops its microphone on organization changes', async () => {
+    const stop = vi.fn();
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValueOnce({ getTracks: () => [{ stop }] } as unknown as MediaStream);
+    await act(async () => {
+      [...container.querySelectorAll('button')].find((item) => item.textContent === 'Start recording')!.click();
+    });
+    await act(async () => root.render(<AudioLibrary key="tenant-b" organizationId="tenant-b" canCreate />));
+    expect(stop).toHaveBeenCalled();
+    expect(api.upload).not.toHaveBeenCalled();
+    expect(api.request).toHaveBeenCalledWith('/organizations/tenant-b/audio-assets');
   });
 });

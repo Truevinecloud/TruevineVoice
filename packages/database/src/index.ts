@@ -21,6 +21,13 @@ import { PrismaClient } from './generated/prisma/client.js';
 export { PrismaPg };
 export type { PrismaClient };
 export type { Prisma } from './generated/prisma/client.js';
+export {
+  campaignDispatchLockReference,
+  lockCampaignDispatch,
+  lockWalletBalance,
+  walletBalanceLockReference,
+  type LockableClient,
+} from './dispatch-locks.js';
 
 /**
  * The database's enum vocabularies, as types only.
@@ -62,13 +69,16 @@ export interface QueryableClient {
  */
 export function createDatabaseClient(
   connectionString: string,
-  options: { log?: Array<'warn' | 'error'> } = {},
+  options: { log?: Array<'warn' | 'error'>; transactionTimeoutMs?: number } = {},
 ): PrismaClient {
   return new PrismaClient({
     adapter: new PrismaPg({ connectionString }),
     // Credential-producing operator commands use [] so ORM diagnostics cannot
     // print identity creation arguments. Existing callers retain default logging.
     log: options.log ?? (process.env['LOG_LEVEL'] === 'debug' ? ['warn', 'error'] : ['error']),
+    ...(options.transactionTimeoutMs !== undefined
+      ? { transactionOptions: { timeout: options.transactionTimeoutMs } }
+      : {}),
   });
 }
 

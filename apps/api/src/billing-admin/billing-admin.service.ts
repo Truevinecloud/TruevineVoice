@@ -7,6 +7,7 @@ import {
 } from '@truevine/auth';
 
 import type { AuditStore } from '../auth/auth.store.js';
+import { mutationAudit } from '../auth/sensitive-audit.js';
 import { AUDIT_STORE } from '../auth/tokens.js';
 import type { AuditorAuditEventRecord, AuditorStore } from '../audit/audit.store.js';
 import { AUDITOR_STORE } from '../audit/tokens.js';
@@ -284,51 +285,25 @@ export class BillingAdminService {
             ? (response as { error?: { code?: string } }).error?.code
             : undefined;
         if (code === 'insufficient_wallet_balance') {
-          await this.audit.recordIdentity({
+          // The ledger transaction rolled back, so this refusal is written
+          // afterwards. A failed denial write must not mask the original
+          // refusal, but it is still attempted so the trail records the try.
+          await this.recordRefusedAdjustment(
             actorUserId,
-            action: 'platform.billing.wallet_adjusted',
-            outcome: 'DENIED',
-            metadata: {
-              organizationId,
-              amountMinor: amountMinor.toString(),
-              currency,
-              reason,
-              failure: 'insufficient_wallet_balance',
-            },
-          });
-          await this.audit.record({
             organizationId,
-            actorUserId,
-            action: 'platform.billing.wallet_adjusted',
-            scope: 'PLATFORM',
-            outcome: 'DENIED',
-            targetType: 'wallet',
-            targetId: organizationId,
-            metadata: { amountMinor: amountMinor.toString(), currency, reason, failure: 'insufficient_wallet_balance' },
-          });
+            amountMinor,
+            currency,
+            reason,
+            'insufficient_wallet_balance',
+          );
         }
       }
       throw error;
     }
 
-    await this.recordIdentity(actorUserId, 'platform.billing.wallet_adjusted', {
-      organizationId,
-      amountMinor: amountMinor.toString(),
-      currency,
-    });
-
-    // Also record org-scoped security audit event for financial action.
-    await this.audit.record({
-      organizationId,
-      actorUserId,
-      action: 'platform.billing.wallet_adjusted',
-      scope: 'PLATFORM',
-      outcome: 'SUCCESS',
-      targetType: 'wallet',
-      targetId: result.entry.id,
-      metadata: { amountMinor: amountMinor.toString(), currency, reason },
-    });
-
+    // The store writes the success evidence for a newly created entry inside
+    // the ledger transaction. An idempotent replay deliberately writes nothing,
+    // so a retry cannot look like a second adjustment.
     return {
       entry: {
         id: result.entry.id,
@@ -340,6 +315,46 @@ export class BillingAdminService {
       },
       created: result.created,
     };
+  }
+
+  private async recordRefusedAdjustment(
+    actorUserId: string,
+    organizationId: string,
+    amountMinor: bigint,
+    currency: string,
+    reason: string,
+    reasonCode: string,
+  ): Promise<void> {
+    const metadata = mutationAudit({
+      targetType: 'wallet',
+      targetId: organizationId,
+      before: null,
+      change: { amountMinor: amountMinor.toString(), currency, reason },
+      after: null,
+      reasonCode,
+    });
+    try {
+      await this.audit.recordIdentity({
+        actorUserId,
+        action: 'platform.billing.wallet_adjusted',
+        outcome: 'DENIED',
+        metadata,
+      });
+      await this.audit.record({
+        organizationId,
+        actorUserId,
+        action: 'platform.billing.wallet_adjusted',
+        scope: 'PLATFORM',
+        outcome: 'DENIED',
+        targetType: 'wallet',
+        targetId: organizationId,
+        metadata,
+      });
+    } catch {
+      // A refusal that was not recorded is still a refusal. Keep the original
+      // error visible and report the audit outage on stderr.
+      process.stderr.write('[audit] Refused wallet adjustment recording unavailable.\n');
+    }
   }
 
   private toOrganizationView(organization: {
