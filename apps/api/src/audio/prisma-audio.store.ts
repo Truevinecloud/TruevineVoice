@@ -134,6 +134,7 @@ export class PrismaAudioStore implements AudioStore {
             ttsProvider: input.ttsProvider,
             ttsVoice: input.ttsVoice,
             ttsCharacterCount: input.ttsCharacterCount,
+            storageBackend: input.storageBackend,
           },
         });
         await tx.audioAssetUsage.create({
