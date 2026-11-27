@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from './audit/audit.module.js';
+import { AnalyticsModule } from './analytics/analytics.module.js';
 import { AudioModule } from './audio/audio.module.js';
 import { BillingAdminModule } from './billing-admin/billing-admin.module.js';
 import { AppConfigModule } from './config/app-config.module.js';

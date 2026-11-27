@@ -40,7 +40,7 @@ export class PostgresqlAudioStorage implements AudioObjectStore {
 
       // 3. FETCH EXISTING BLOB (for delta calculation)
       const existingBlob = await tx.audioBlob.findUnique({
-        where: { audio_blobs_org_asset_key: { organizationId, assetId } },
+        where: { organizationId_assetId: { organizationId, assetId } },
         select: { byteSize: true },
       });
 
@@ -83,7 +83,7 @@ export class PostgresqlAudioStorage implements AudioObjectStore {
 
       // 6. UPSERT BLOB
       await tx.audioBlob.upsert({
-        where: { audio_blobs_org_asset_key: { organizationId, assetId } },
+        where: { organizationId_assetId: { organizationId, assetId } },
         create: {
           organizationId,
           id: randomUUID(),
@@ -113,7 +113,7 @@ export class PostgresqlAudioStorage implements AudioObjectStore {
     const { organizationId, assetId } = this.parseKey(key);
 
     const blob = await this.prisma.audioBlob.findUnique({
-      where: { audio_blobs_org_asset_key: { organizationId, assetId } },
+      where: { organizationId_assetId: { organizationId, assetId } },
     });
 
     if (!blob) throw new Error('Object not found');
@@ -129,7 +129,7 @@ export class PostgresqlAudioStorage implements AudioObjectStore {
 
       // 2. FETCH EXISTING BLOB (for quota delta)
       const existingBlob = await tx.audioBlob.findUnique({
-        where: { audio_blobs_org_asset_key: { organizationId, assetId } },
+        where: { organizationId_assetId: { organizationId, assetId } },
         select: { byteSize: true },
       });
 
@@ -137,7 +137,7 @@ export class PostgresqlAudioStorage implements AudioObjectStore {
 
       // 2. DELETE BLOB
       await tx.audioBlob.delete({
-        where: { audio_blobs_org_asset_key: { organizationId, assetId } },
+        where: { organizationId_assetId: { organizationId, assetId } },
       });
 
       // 3. UNLINK FROM ASSET — NEVER mark as S3 if no S3 object

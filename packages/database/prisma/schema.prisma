@@ -170,6 +170,7 @@ model User {
   platformOwnerBootstrap PlatformOwnerBootstrap?
   campaignsCreated     Campaign[]
   paymentProviderConfigurations PaymentProviderConfiguration[] @relation("PaymentProviderConfiguredBy")
+  organizationAudioQuotas OrganizationAudioQuota[]
 
   @@map("users")
 }
@@ -469,6 +470,7 @@ model Membership {
   audioAssetsCreated AudioAsset[]
   audioAssetOperations AudioAssetOperation[]
   audioAssetUsage AudioAssetUsage[]
+  roleAssignments RoleAssignment[]
 
   @@id([organizationId, userId])
   @@unique([userId, organizationId])
@@ -594,6 +596,9 @@ model Organization {
   audioAssets AudioAsset[]
   audioAssetOperations AudioAssetOperation[]
   audioAssetUsage AudioAssetUsage[]
+  audioBlobs AudioBlob[]
+  audioQuota OrganizationAudioQuota?
+  customRoles CustomRole[]
 
   @@map("organizations")
 }
@@ -621,6 +626,7 @@ model AudioAsset {
   campaigns Campaign[]
   operations AudioAssetOperation[]
   usage AudioAssetUsage[]
+  audioBlobs AudioBlob[]
   @@id([organizationId, id])
   @@unique([organizationId, storageKey])
   @@index([organizationId, createdAt, id])
@@ -1082,7 +1088,7 @@ model AudioBlob {
   organizationId String   @map("organization_id") @db.Uuid
   id             String   @default(uuid()) @db.Uuid
   assetId        String   @map("asset_id") @db.Uuid
-  content        Bytes    @db.Bytea
+  content        Bytes
   contentType    String   @map("content_type") @db.VarChar(64)
   byteSize       BigInt   @map("byte_size") @db.BigInt
   checksumSha256 String   @map("checksum_sha256") @db.Char(64)

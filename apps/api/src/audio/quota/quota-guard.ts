@@ -45,7 +45,7 @@ export class AudioQuotaGuard {
 
       // 3. FETCH EXISTING BLOB (for delta calculation)
       const existingBlob = await tx.audioBlob.findUnique({
-        where: { audio_blobs_org_asset_key: { organizationId, assetId } },
+        where: { organizationId_assetId: { organizationId, assetId } },
         select: { byteSize: true },
       });
 
