@@ -7,9 +7,7 @@ import {
   createCpuSampler,
   boundedCollection,
   DEFAULT_COLLECTION_TIMEOUT_MS,
-  type CpuStatCounters,
   type NetworkSample,
-  type ResourceSnapshot,
 } from './resource-collector.js';
 
 // ------------------------------------------------------------------

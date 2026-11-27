@@ -43,8 +43,8 @@ describe('ObservabilityService (worker)', () => {
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics as any,
-      redis as any,
+      queueMetrics as unknown as QueueMetricsService,
+      redis as unknown as Redis,
     );
 
     await service.onModuleInit();
@@ -65,8 +65,8 @@ describe('ObservabilityService (worker)', () => {
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics,
-      redis,
+      queueMetrics as unknown as QueueMetricsService,
+      redis as unknown as Redis,
     );
 
     await service.onModuleInit();
@@ -90,8 +90,8 @@ describe('ObservabilityService (worker)', () => {
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics,
-      redis,
+      queueMetrics as unknown as QueueMetricsService,
+      redis as unknown as Redis,
     );
 
     await service.onModuleInit();
@@ -152,8 +152,8 @@ describe('ObservabilityService (worker)', () => {
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics,
-      redis,
+      queueMetrics as unknown as QueueMetricsService,
+      redis as unknown as Redis,
     );
 
     // Should not throw even though initialize fails
@@ -172,8 +172,8 @@ describe('ObservabilityService (worker)', () => {
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics,
-      redis,
+      queueMetrics as unknown as QueueMetricsService,
+      redis as unknown as Redis,
     );
 
     service.onModuleDestroy();

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { ObservabilityController } from './observability.controller.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { PlatformGuard } from '../auth/organization.guard.js';
-import { ObservabilityService } from './observability.service.js';
 
 function mockObservabilityService() {
   return {
