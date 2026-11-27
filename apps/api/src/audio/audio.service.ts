@@ -253,16 +253,6 @@ export class AudioService {
     const id = randomUUID();
     const extension = input.mimeType === 'audio/mpeg' ? 'mp3' : input.mimeType.slice(6);
     const storageKey = `${input.organizationId}/audio/${id}.${extension}`;
-    try {
-      await this.objects.putObject({
-        key: storageKey,
-        body: input.bytes,
-        contentType: input.mimeType,
-      });
-    } catch {
-      await this.markFailed(input.organizationId, input.actorUserId, input.idempotencyKey);
-      throw audioProviderUnavailable();
-    }
 
     const asset: NewAudioAsset = {
       organizationId: input.organizationId,
@@ -280,15 +270,43 @@ export class AudioService {
       ttsCharacterCount: input.ttsCharacterCount,
       idempotencyKey: input.idempotencyKey,
       requestFingerprint: input.requestFingerprint,
+      storageBackend: 'POSTGRESQL',
     };
 
     try {
-      return this.toView(await this.store.completeOperation(asset));
+      await this.store.completeOperation(asset);
     } catch (error) {
-      await this.objects.deleteObject(storageKey).catch(() => undefined);
       await this.markFailed(input.organizationId, input.actorUserId, input.idempotencyKey);
       throw error;
     }
+
+    try {
+      await this.objects.putObject({
+        key: storageKey,
+        body: input.bytes,
+        contentType: input.mimeType,
+      });
+    } catch {
+      await this.objects.deleteObject(storageKey).catch(() => undefined);
+      await this.markFailed(input.organizationId, input.actorUserId, input.idempotencyKey);
+      throw audioProviderUnavailable();
+    }
+
+    return this.toView({
+      id,
+      name: input.name,
+      source: input.source,
+      mimeType: input.mimeType,
+      storageKey,
+      checksumSha256: this.sha256(input.bytes),
+      byteSize: BigInt(input.bytes.byteLength),
+      durationMs: input.durationMs,
+      ttsProvider: input.ttsProvider,
+      ttsVoice: input.ttsVoice,
+      ttsCharacterCount: input.ttsCharacterCount,
+      createdAt: new Date(),
+      campaignCount: 0,
+    });
   }
 
   private async markFailed(

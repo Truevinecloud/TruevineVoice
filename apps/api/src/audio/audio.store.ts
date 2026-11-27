@@ -35,6 +35,7 @@ export interface NewAudioAsset {
   readonly ttsCharacterCount: number | null;
   readonly idempotencyKey: string;
   readonly requestFingerprint: string;
+  readonly storageBackend: 'POSTGRESQL' | 'S3';
 }
 
 export type BeginAudioOperationResult =
