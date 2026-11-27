@@ -8,6 +8,12 @@ function buildService(ping: () => Promise<unknown>): WorkerReadinessService {
     environment: 'test',
     version: '0.1.0-test',
     redisUrl: 'redis://stub:6379',
+    databaseUrl: 'postgresql://stub:5432/test',
+    workerConcurrency: 1,
+    maxRetryAttempts: 1,
+    retryBackoffMs: 100,
+    rateLimitMax: 1,
+    rateLimitDurationMs: 1000,
     healthTimeoutMs: 50,
     serviceName: 'truevine-voice-worker',
   };
