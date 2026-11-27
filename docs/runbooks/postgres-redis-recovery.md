@@ -1,6 +1,6 @@
 # PostgreSQL and Redis recovery runbook
 
-Target: Ubuntu VPS `169.58.162.143`, application root `/var/www/TruevineVoice`.
+Target: Ubuntu VPS `77.216.129.196`, application root `/var/www/TruevineVoice`.
 Companion to [`production-deployment.md`](./production-deployment.md), which
 covers releasing application code. This runbook covers the two datastores.
 

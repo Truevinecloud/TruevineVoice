@@ -93,6 +93,117 @@ describe('production deployment approval gate', () => {
   });
 });
 
+describe('VPS host validation', () => {
+  it('accepts the new Contabo VPS IP', () => {
+    expect(deploymentWorkflow).toMatch(
+      /test\s+"\$SSH_HOST"\s*=\s*'77\.216\.129\.196'/,
+    );
+  });
+
+  it('rejects the previous VPS IP, keeping host validation fail-closed', () => {
+    expect(deploymentWorkflow).not.toMatch(
+      /169\.58\.162\.143/,
+    );
+  });
+
+  it('rejects an arbitrary incorrect IP', () => {
+    expect(deploymentWorkflow).not.toMatch(
+      /test\s+"\$SSH_HOST"\s*=\s*'192\.0\.2\.1'/,
+    );
+    expect(deploymentWorkflow).not.toMatch(
+      /test\s+"\$SSH_HOST"\s*=\s*'10\.0\.0\.1'/,
+    );
+  });
+
+  it('rejects an empty host value', () => {
+    expect(deploymentWorkflow).not.toMatch(
+      /test\s+"\$SSH_HOST"\s*=\s*''/,
+    );
+    expect(deploymentWorkflow).not.toMatch(
+      /test\s+"\$SSH_HOST"\s*=\s*""/,
+    );
+  });
+});
+
+describe('release SHA validation', () => {
+  it('requires a full 40-character lowercase hex SHA input', () => {
+    expect(deploymentWorkflow).toMatch(
+      /release_sha:[\s\S]*?required:\s*true[\s\S]*?type:\s*string/,
+    );
+    expect(deploymentWorkflow).toMatch(
+      /\[0-9a-f\]\{40\}/,
+    );
+  });
+
+  it('rejects an invalid release SHA format', () => {
+    expect(deploymentWorkflow).not.toMatch(
+      /test\s+"\$DEPLOY_SHA"\s*=\s*'[^a-f0-9]'/,
+    );
+    expect(deploymentWorkflow).toMatch(
+      /\[0-9a-f\]\{40\}/,
+    );
+  });
+});
+
+describe('deployment authorization gate', () => {
+  it('requires manual dispatch with explicit production authorization', () => {
+    expect(deploymentWorkflow).toMatch(/workflow_dispatch:\s*\n\s+inputs:/);
+    expect(deploymentWorkflow).toMatch(/inputs\.authorize_production\s*==\s*true/);
+  });
+
+  it('requires DEPLOYMENT_READY to be true', () => {
+    expect(deploymentWorkflow).toMatch(
+      /vars\.DEPLOYMENT_READY\s*==\s*'true'/,
+    );
+  });
+
+  it('requires production environment approval', () => {
+    expect(deploymentWorkflow).toMatch(/environment:\s*production/);
+  });
+});
+
+describe('CI gate verification', () => {
+  it('verifies all four successful CI jobs for the release SHA', () => {
+    expect(deploymentWorkflow).toMatch(/selectSuccessfulCiRun\([\s\S]*?RELEASE_SHA/);
+    expect(deploymentWorkflow).toMatch(/head_sha=\$RELEASE_SHA/);
+  });
+
+  it('refuses a failed CI run', () => {
+    expect(deploymentWorkflow).toMatch(/assertCiJobs/);
+  });
+
+  it('refuses unless the SHA is still the tip of main', () => {
+    expect(deploymentWorkflow).toMatch(/latest.*RELEASE_SHA/);
+    expect(deploymentWorkflow).toMatch(/release_sha is no longer the exact tip of main/);
+  });
+});
+
+describe('SSH host verification', () => {
+  it('preserves strict SSH host key verification', () => {
+    expect(deploymentWorkflow).toMatch(/StrictHostKeyChecking=yes/);
+    expect(deploymentWorkflow).toMatch(/UserKnownHostsFile/);
+    expect(deploymentWorkflow).toMatch(/SSH_KNOWN_HOSTS/);
+  });
+
+  it('uses batch mode and a connect timeout', () => {
+    expect(deploymentWorkflow).toMatch(/BatchMode=yes/);
+    expect(deploymentWorkflow).toMatch(/ConnectTimeout=20/);
+  });
+});
+
+describe('deployment credential requirements', () => {
+  it('requires all SSH credentials to be present', () => {
+    expect(deploymentWorkflow).toMatch(/SSH_HOST:.*secrets\.VPS_SSH_HOST/);
+    expect(deploymentWorkflow).toMatch(/SSH_USER:.*secrets\.VPS_SSH_USER/);
+    expect(deploymentWorkflow).toMatch(/SSH_KEY:.*secrets\.VPS_SSH_KEY/);
+    expect(deploymentWorkflow).toMatch(/SSH_KNOWN_HOSTS:.*secrets\.VPS_SSH_KNOWN_HOSTS/);
+  });
+
+  it('requires a non-root deployment user', () => {
+    expect(deploymentWorkflow).toMatch(/test "\$SSH_USER" != root/);
+  });
+});
+
 describe('manual deployment CI run selection', () => {
   const repository = 'Truevinecloud/TruevineVoice';
   const successfulPush = {
