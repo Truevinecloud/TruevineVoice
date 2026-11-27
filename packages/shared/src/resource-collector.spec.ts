@@ -73,7 +73,6 @@ function mockProcStatCpu(counters: {
   const softirq = counters.softirq ?? 0;
   const steal = counters.steal ?? 0;
   const total = counters.user + counters.nice + counters.system + counters.idle + iowait + irq + softirq + steal;
-  const work = total - counters.idle - iowait;
   const line = `cpu ${counters.user} ${counters.nice} ${counters.system} ${counters.idle} ${iowait} ${irq} ${softirq} ${steal}\n`;
   mockReadFile.mockImplementation((path: string) => {
     if (path === '/proc/stat') return Promise.resolve(line);
@@ -703,7 +702,6 @@ describe('Sustained threshold detection', () => {
     // Multiple consecutive breaches over sustained period should trigger
 
     const readings = [70, 72, 75, 78, 80, 82, 85, 88]; // CPU loadPercent rising
-    const warningThreshold = 75;
     const criticalThreshold = 85;
     const sustainedForMs = 120_000; // 2 minutes
     const collectionIntervalMs = 30_000; // 30 seconds
@@ -790,7 +788,6 @@ describe('Sustained threshold detection', () => {
   });
 
   it('storage exhaustion projection', () => {
-    const totalBytes = 100_000_000_000; // 100 GB
     const freeBytes = 15_000_000_000; // 15 GB free
     const growthRateBytesPerHour = 2_000_000_000; // 2 GB/hr
 

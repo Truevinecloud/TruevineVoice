@@ -15,6 +15,7 @@
  */
 
 import process from 'node:process';
+import { URL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { hashPassword } from '@truevine/auth/passwords';
 import { createDatabaseClient } from '@truevine/database';

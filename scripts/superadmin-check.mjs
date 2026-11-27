@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { fetch } from 'node:fetch';
 const creds = JSON.parse(readFileSync('.qa-credentials/org-qa-credentials.json','utf8'));
 const info = creds['qa-super-admin@example.invalid'];
 const webBase = 'http://localhost:3000/api';
