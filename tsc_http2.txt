@@ -1,0 +1,16 @@
+apps/api/src/payments/top-up-integration.module.ts(31,42): error TS2345: Argument of type '{ $queryRaw: unknown; $executeRaw: unknown; $transaction: unknown; }' is not assignable to parameter of type 'TopUpDatabase'.
+  Types of property '$transaction' are incompatible.
+    Type 'unknown' is not assignable to type '<T>(body: (tx: TopUpSql) => Promise<T>) => Promise<T>'.
+apps/api/src/payments/top-up-integration.service.spec.ts(108,31): error TS2339: Property 'intents' does not exist on type '{ service: TopUpIntegrationService; billing: BillingService; paymentIntents: PaymentIntentsService; prisma: PrismaClient; reconciliation: TopUpReconciliation; }'.
+apps/api/src/payments/top-up-integration.service.spec.ts(122,12): error TS2304: Cannot find name 'paymentIntents'.
+apps/api/src/payments/top-up-integration.service.spec.ts(146,12): error TS2304: Cannot find name 'paymentIntents'.
+apps/api/src/payments/top-up-integration.service.spec.ts(153,55): error TS2345: Argument of type '{ amountMinor: string; id: string; currency: string; status: "PENDING"; createdAt: Date; }' is not assignable to parameter of type '{ id: string; amountMinor: string; currency: string; status: "PENDING"; createdAt: string; }'.
+  Types of property 'createdAt' are incompatible.
+    Type 'Date' is not assignable to type 'string'.
+apps/api/src/payments/top-up-integration.service.ts(85,11): error TS2322: Type 'string' is not assignable to type 'Date'.
+apps/api/src/payments/top-up-integration.service.ts(121,9): error TS2322: Type 'string' is not assignable to type 'Date'.
+apps/api/src/payments/top-up-integration.service.ts(123,15): error TS2352: Conversion of type '{ provider: "SYNTHETIC_SANDBOX"; environment: "SANDBOX"; providerReference: string; id: string; organizationId: string; purpose: string; amountMinor: string; currency: string; status: PaymentIntentStatus; idempotencyKey: string; createdAt: string; updatedAt: string; }' to type 'PaymentIntentRecord' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Types of property 'amountMinor' are incompatible.
+    Type 'string' is not comparable to type 'bigint'.
+apps/api/src/payments/top-up-payment-e2e.spec.ts(78,43): error TS2345: Argument of type 'PrismaBillingStore' is not assignable to parameter of type 'BillingService'.
+  Type 'PrismaBillingStore' is missing the following properties from type 'BillingService': store, wallet, billing, topUpView, text

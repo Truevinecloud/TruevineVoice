@@ -1,0 +1,1 @@
+curl.exe -c cookies2.txt -b cookies2.txt -v -H "x-truevine-csrf: r5gdnxGaZOAeYYDHA9v5karmIh3-608bcbVLOdOb-wE" -X POST -H "Content-Type: application/json" -d @group.json "http://localhost:3001/organizations/b0311c4e-5cef-4a9b-91cc-0f7c6d94ae3d/contact-groups"

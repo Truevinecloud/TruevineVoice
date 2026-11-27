@@ -1,0 +1,13 @@
+﻿
+> @truevine/api@0.1.0 test
+> vitest run test/audio.http.spec.ts --testTimeout 30000
+
+
+ RUN  v5.0.3 F:/TruevineVoice/apps/api
+
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  02:45:44
+   Duration  17.35s (import 80%, transform 13%, tests 7%)
+

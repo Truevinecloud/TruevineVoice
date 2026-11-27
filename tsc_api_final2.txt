@@ -1,0 +1,4 @@
+apps/api/src/payments/top-up-payment-e2e.spec.ts(55,52): error TS2345: Argument of type '{ $queryRaw: unknown; $executeRaw: unknown; $transaction: unknown; }' is not assignable to parameter of type 'TopUpDatabase'.
+  Types of property '$transaction' are incompatible.
+    Type 'unknown' is not assignable to type '<T>(body: (tx: TopUpSql) => Promise<T>) => Promise<T>'.
+apps/api/src/payments/top-up-payment-e2e.spec.ts(124,22): error TS2554: Expected 2 arguments, but got 1.

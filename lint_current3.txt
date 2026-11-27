@@ -1,0 +1,16 @@
+﻿
+> truevine-voice@0.1.0 lint
+> eslint .
+
+
+F:\TruevineVoice\apps\admin\src\app\billing\page.tsx
+  127:6  warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+F:\TruevineVoice\scripts\testing\w402-enqueue-smoke.mjs
+   93:9   error  'job' is already defined                                                              no-redeclare
+   95:5   error  'jobExists' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  105:5   error  'jobExists' is not defined                                                            no-undef
+  105:18  error  'jobState' is not defined                                                             no-undef
+
+✖ 5 problems (4 errors, 1 warning)
+

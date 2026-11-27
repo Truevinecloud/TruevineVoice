@@ -1,0 +1,19 @@
+﻿
+> @truevine/api@0.1.0 test
+> vitest run sms-fallback-eligibility.service.spec.ts sms-fallback-orchestration.service.spec.ts sms-fallback.controller.spec.ts synthetic-sms-adapter.spec.ts --testTimeout 30000
+
+
+ RUN  v5.0.3 F:/TruevineVoice/apps/api
+
+[32m[Nest] 17412  - [39m11/26/2026, 6:21:55 AM [32m    LOG[39m [38;5;3m[SyntheticSmsAdapter] [39m[32mSynthetic SMS dispatch: org=org-1 campaign=camp-1 recipient=recipient-1 idempotencyKey=org-1:camp-1:recipient-1:attempt-1[39m
+[32m[Nest] 17412  - [39m11/26/2026, 6:21:55 AM [32m    LOG[39m [38;5;3m[SyntheticSmsAdapter] [39m[32mSynthetic SMS dispatch: org=org-1 campaign=camp-1 recipient=recipient-1 idempotencyKey=org-1:camp-1:recipient-1:attempt-2[39m
+[32m[Nest] 17412  - [39m11/26/2026, 6:21:55 AM [32m    LOG[39m [38;5;3m[SyntheticSmsAdapter] [39m[32mSynthetic SMS dispatch: org=org-1 campaign=camp-1 recipient=recipient-1 idempotencyKey=org-1:camp-1:recipient-1:attempt-3[39m
+[32m[Nest] 17412  - [39m11/26/2026, 6:21:55 AM [32m    LOG[39m [38;5;3m[SyntheticSmsAdapter] [39m[32mSynthetic SMS dispatch: org=org-1 campaign=camp-1 recipient=recipient-1 idempotencyKey=org-1:camp-1:recipient-1:attempt-4[39m
+[32m[Nest] 17412  - [39m11/26/2026, 6:21:55 AM [32m    LOG[39m [38;5;3m[SyntheticSmsAdapter] [39m[32mSynthetic SMS dispatch: org=org-1 campaign=camp-1 recipient=recipient-1 idempotencyKey=org-1:camp-1:recipient-1:attempt-5[39m
+[32m[Nest] 17412  - [39m11/26/2026, 6:21:55 AM [32m    LOG[39m [38;5;3m[SyntheticSmsAdapter] [39m[32mSynthetic SMS dispatch: org=org-1 campaign=camp-1 recipient=recipient-1 idempotencyKey=org-1:camp-1:recipient-1:attempt-6[39m
+
+ Test Files  4 passed (4)
+      Tests  47 passed (47)
+   Start at  06:21:30
+   Duration  26.32s (import 91%, transform 8%, worker 1%)
+

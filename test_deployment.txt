@@ -1,0 +1,24 @@
+﻿
+> truevine-voice@0.1.0 test:deployment
+> vitest run --config infrastructure/vitest.config.mts && npm run test:db-verify && npm run test:backup
+
+
+ RUN  v5.1.1 F:/TruevineVoice
+
+
+ Test Files  18 passed (18)
+      Tests  381 passed | 3 skipped (384)
+   Start at  03:05:29
+   Duration  42.95s (import 50%, transform 33%, tests 17%)
+
+
+> truevine-voice@0.1.0 test:db-verify
+> node infrastructure/scripts/run-db-verify-tests.mjs
+
+SKIP: db-verify runtime tests are POSIX/Linux only (the recovery procedures they cover only run on the Ubuntu VPS).
+
+> truevine-voice@0.1.0 test:backup
+> node infrastructure/scripts/run-backup-tests.mjs
+
+SKIP: backup runtime tests are POSIX/Linux only (the backup job runs on the Ubuntu VPS).
+      Static coverage of the same invariants still ran: infrastructure/backup/backup.spec.ts

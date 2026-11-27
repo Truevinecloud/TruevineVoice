@@ -1,0 +1,17 @@
+﻿
+> @truevine/worker@0.1.0 test
+> vitest run
+
+
+ RUN  v5.0.3 F:/TruevineVoice/apps/worker
+
+[32m[Nest] 19784  - [39m11/26/2026, 2:45:26 AM [32m    LOG[39m [38;5;3m[WorkerReadinessService] [39m[32mredis reachable=down latencyMs=1[39m
+[33m[Nest] 3044  - [39m11/26/2026, 2:45:26 AM [33m   WARN[39m [38;5;3m[CampaignExecutionProcessor] [39m[33mMissing campaign execution org/camp[39m
+[32m[Nest] 3044  - [39m11/26/2026, 2:45:26 AM [32m    LOG[39m [38;5;3m[CampaignExecutionProcessor] [39m[32mCampaign execution eligible: org/camp[39m
+[32m[Nest] 3044  - [39m11/26/2026, 2:45:26 AM [32m    LOG[39m [38;5;3m[CampaignExecutionProcessor] [39m[32mCampaign execution eligible: org/camp[39m
+
+ Test Files  11 passed (11)
+      Tests  67 passed (67)
+   Start at  02:45:07
+   Duration  18.95s (import 80%, transform 18%, tests 1%, worker 1%)
+

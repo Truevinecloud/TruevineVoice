@@ -1,0 +1,37 @@
+﻿
+> truevine-voice@0.1.0 typecheck
+> npm run build:packages && npm run typecheck --workspaces --if-present
+
+
+> truevine-voice@0.1.0 build:packages
+> npm run build --workspace @truevine/shared && npm run build --workspace @truevine/auth && npm run build --workspace @truevine/messaging && npm run build --workspace @truevine/database && npm run build --workspace @truevine/queue && npm run build --workspace @truevine/domain && npm run build --workspace @truevine/telephony && npm run build --workspace @truevine/audio
+
+
+> @truevine/shared@0.1.0 build
+> tsc --build tsconfig.build.json
+
+src/alert.ts(66,7): error TS2322: Type '"ok"' is not assignable to type 'AlertSeverity'.
+src/alert.ts(194,7): error TS2322: Type '"ok"' is not assignable to type 'AlertSeverity'.
+src/index.ts(14,1): error TS2308: Module './metrics.js' has already exported a member named 'HostResourceSample'. Consider explicitly re-exporting to resolve the ambiguity.
+src/logging.ts(61,7): error TS2862: Type 'Partial<T>' is generic and can only be indexed for reading.
+src/logging.ts(64,5): error TS2862: Type 'Partial<T>' is generic and can only be indexed for reading.
+src/resources.ts(58,32): error TS18048: 'load1' is possibly 'undefined'.
+src/resources.ts(59,12): error TS2322: Type 'number | undefined' is not assignable to type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/resources.ts(59,19): error TS2322: Type 'number | undefined' is not assignable to type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/resources.ts(59,26): error TS2322: Type 'number | undefined' is not assignable to type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+node.exe : npm error Lifecycle script `build` failed with error:
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm error Lifec...led with error::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm error code 1
+npm error path F:\TruevineVoice\packages\shared
+npm error workspace @truevine/shared@0.1.0
+npm error location F:\TruevineVoice\packages\shared
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c tsc --build tsconfig.build.json

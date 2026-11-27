@@ -1,0 +1,9 @@
+
+ RUN  v5.1.1 F:/TruevineVoice
+
+
+ Test Files  1 skipped (1)
+      Tests  4 skipped (4)
+   Start at  06:54:08
+   Duration  843ms (import 85%, transform 14%, worker 2%)
+

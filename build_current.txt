@@ -1,0 +1,63 @@
+﻿
+> truevine-voice@0.1.0 build
+> npm run build:packages && npm run build:apps
+
+
+> truevine-voice@0.1.0 build:packages
+> npm run build --workspace @truevine/shared && npm run build --workspace @truevine/auth && npm run build --workspace @truevine/messaging && npm run build --workspace @truevine/database && npm run build --workspace @truevine/queue && npm run build --workspace @truevine/domain && npm run build --workspace @truevine/telephony && npm run build --workspace @truevine/audio
+
+
+> @truevine/shared@0.1.0 build
+> tsc --build tsconfig.build.json
+
+
+> @truevine/auth@0.1.0 build
+> tsc --build tsconfig.build.json
+
+
+> @truevine/messaging@0.1.0 build
+> tsc --build tsconfig.build.json
+
+
+> @truevine/database@0.1.0 build
+> tsc --build tsconfig.build.json
+
+
+> @truevine/queue@0.1.0 build
+> tsc --build tsconfig.build.json
+
+
+> @truevine/domain@0.1.0 build
+> tsc --build tsconfig.build.json
+
+
+> @truevine/telephony@0.1.0 build
+> tsc --build tsconfig.build.json
+
+
+> @truevine/audio@0.1.0 build
+> tsc --build tsconfig.build.json
+
+
+> truevine-voice@0.1.0 build:apps
+> npm run build --workspace @truevine/api && npm run build --workspace @truevine/worker && npm run build --workspace @truevine/web && npm run build --workspace @truevine/admin
+
+
+> @truevine/api@0.1.0 build
+> nest build
+
+
+> @truevine/worker@0.1.0 build
+> nest build
+
+
+> @truevine/web@0.1.0 build
+> next build
+
+▲ Next.js 16.4.5 (Turbopack)
+- Environments: .env.local
+✓ Running next.config.ts took 13.2s
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 53s
+  Running TypeScript ...

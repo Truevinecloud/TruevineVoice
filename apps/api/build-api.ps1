@@ -1,0 +1,1 @@
+node F:\TruevineVoice\node_modules\typescript\lib\tsc.js -p tsconfig.json

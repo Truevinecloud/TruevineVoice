@@ -1,0 +1,2 @@
+apps/api/src/payments/top-up-payment-e2e.spec.ts(27,46): error TS2304: Cannot find name 'SyntheticCallbackPayload'.
+apps/api/src/payments/top-up-payment-e2e.spec.ts(27,79): error TS2304: Cannot find name 'SyntheticCallbackPayload'.
