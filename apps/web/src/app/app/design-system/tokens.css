@@ -1,0 +1,150 @@
+/* ==========================================================================
+   Truevine Voice — Common Semantic Token Convention (Customer Portal)
+   ==========================================================================
+   These semantic tokens follow the common design-system token convention.
+   Customer theme values preserve the existing green brand and light canvas.
+   This file is consumed by apps/web only and imported directly by
+   apps/web/src/app/globals.css. apps/admin maintains an independent copy
+   with its own theme values; the two files share a convention, not an
+   implementation.
+   Do not change package manifests — this file lives inside apps/web.
+   ========================================================================== */
+
+/* ---------- Color semantics ---------- */
+:root {
+  /* Surface colors */
+  --ds-color-bg: #f6f7f9;            /* page canvas */
+  --ds-color-fg: #14181f;            /* primary text */
+  --ds-color-card: #ffffff;          /* card surface */
+  --ds-color-card-border: #dfe3e8;   /* card border */
+  --ds-color-canvas: #f5f7fa;        /* app shell canvas */
+  --ds-color-panel: #fff;            /* panel surface (sidebar/cards) */
+
+  /* Text semantics */
+  --ds-color-muted: #5b6472;         /* secondary text */
+  --ds-color-ink: #182230;           /* strong text (app shell) */
+  --ds-color-line: #e3e8ef;          /* subtle divider (app shell) */
+
+  /* Brand semantics (customer green) */
+  --ds-color-brand: #0f6757;         /* primary brand */
+  --ds-color-brand-dark: #0c4f45;    /* brand hover/active */
+  --ds-color-brand-soft: #e7f4f0;    /* brand tint background */
+
+  /* Status semantics */
+  --ds-color-success: #176345;       /* success text/icon */
+  --ds-color-success-bg: #e4f4ec;    /* success chip background */
+  --ds-color-warning: #8a5b0c;       /* warning text/icon */
+  --ds-color-warning-bg: #fff3d9;    /* warning chip background */
+  --ds-color-danger: #9f302c;        /* danger text/icon */
+  --ds-color-danger-bg: #ffebe9;     /* danger chip background */
+  --ds-color-info: #2d5798;          /* info text/icon */
+  --ds-color-info-bg: #e7f0ff;       /* info chip background */
+
+  /* Marketing homepage (preserve existing mk-* tokens, do not touch) */
+  --ds-marketing-green-950: #06281e;
+  --ds-marketing-green-900: #0a3d2e;
+  --ds-marketing-green-800: #0e4a38;
+  --ds-marketing-green-700: #14624a;
+  --ds-marketing-gold-300: #ffd76e;
+  --ds-marketing-gold-400: #f6c445;
+  --ds-marketing-gold-500: #e5ae1c;
+}
+
+/* ---------- Spacing scale ---------- */
+:root {
+  --ds-space-1: 0.25rem;
+  --ds-space-2: 0.5rem;
+  --ds-space-3: 0.75rem;
+  --ds-space-4: 1rem;
+  --ds-space-5: 1.25rem;
+  --ds-space-6: 1.5rem;
+  --ds-space-8: 2rem;
+  --ds-space-10: 2.5rem;
+  --ds-space-12: 3rem;
+}
+
+/* ---------- Border radius ---------- */
+:root {
+  --ds-radius-sm: 0.55rem;
+  --ds-radius-md: 0.65rem;
+  --ds-radius-lg: 0.75rem;
+  --ds-radius-xl: 0.85rem;
+  --ds-radius-full: 9999px;
+}
+
+/* ---------- Focus indicators (WCAG 2.2 AA) ---------- */
+:root {
+  --ds-focus-outline: 3px solid;
+  --ds-focus-offset: 2px;
+  --ds-focus-customer-color: #1d4ed8;
+  --ds-focus-admin-color: #f0b429;
+}
+
+/* ---------- Transitions / motion ---------- */
+:root {
+  --ds-transition-fast: 120ms ease;
+  --ds-transition-base: 160ms ease;
+  --ds-transition-slow: 240ms ease;
+  --ds-animation-duration-base: 160ms;
+}
+
+/* ---------- Z-index scale ---------- */
+:root {
+  --ds-z-dropdown: 10;
+  --ds-z-sticky: 20;
+  --ds-z-drawer: 30;
+  --ds-z-backdrop: 34;
+  --ds-z-toast: 40;
+}
+
+/* ---------- Media queries (breakpoints) ---------- */
+/* Kept app-specific; not unified arbitrarily per W1-11 requirement 10. */
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ds-transition-fast: 0ms;
+    --ds-transition-base: 0ms;
+    --ds-transition-slow: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- Compatibility aliases (preserve existing app variable names) ---------- */
+/* These map the existing --app-* tokens onto the shared semantic tokens so
+   existing component CSS continues to work without changes. */
+.app-shell {
+  --app-ink: var(--ds-color-ink);
+  --app-muted: var(--ds-color-muted);
+  --app-line: var(--ds-color-line);
+  --app-panel: var(--ds-color-panel);
+  --app-canvas: var(--ds-color-canvas);
+  --app-brand: var(--ds-color-brand);
+  --app-brand-dark: var(--ds-color-brand-dark);
+  --app-brand-soft: var(--ds-color-brand-soft);
+}
+
+/* Marketing page aliases (preserve mk-* tokens, additive only) */
+.mk-page {
+  --tv-green-950: var(--ds-marketing-green-950);
+  --tv-green-900: var(--ds-marketing-green-900);
+  --tv-green-800: var(--ds-marketing-green-800);
+  --tv-green-700: var(--ds-marketing-green-700);
+  --tv-gold-300: var(--ds-marketing-gold-300);
+  --tv-gold-400: var(--ds-marketing-gold-400);
+  --tv-gold-500: var(--ds-marketing-gold-500);
+  --tv-ink: var(--ds-color-ink);
+  --tv-on-green: #ffffff;
+  --tv-on-green-muted: rgba(255, 255, 255, 0.78);
+  --tv-on-green-faint: rgba(255, 255, 255, 0.62);
+  --tv-hairline: rgba(255, 255, 255, 0.1);
+  --tv-card: rgba(255, 255, 255, 0.06);
+  --tv-card-border: rgba(255, 255, 255, 0.12);
+}
