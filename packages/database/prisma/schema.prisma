@@ -1015,6 +1015,8 @@ model CallEvent {
 enum AudioStorageBackend {
   S3
   POSTGRESQL
+
+  @@map("audio_storage_backend")
 }
 
 /// Whether a role is a built-in system role or a tenant-created custom role.
