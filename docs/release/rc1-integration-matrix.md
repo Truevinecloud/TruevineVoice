@@ -4,15 +4,15 @@
 
 This document records integration and disposable-environment evidence only. It does not
 merge, deploy, migrate a production target, activate a provider/payment path, or change an
-account. Source checks cover committed `b343dd1...` content plus the uncommitted RC
-reconciliation changes listed in “Local validation evidence” below.
+account. Source checks cover validated RC commit `41dc08356f74ab864b250084bbfa51ae1d2ce9fc`;
+any later commit on the branch is documentation-only.
 
 | Item | Value | Evidence |
 | --- | --- | --- |
 | Deployed `origin/main` baseline | `8fcb5527165de77ad1e2ac585c54a5a53c5217b9` | `git rev-parse origin/main` |
 | PR #129 head | `253df1df5ed746f72df87b71f9c016aa3acc03a4` | object present locally; `git log` |
 | PR #131 head | `51137024e089390c31cf6b557a0fa29f8d948dac` | object present locally; `git log` |
-| Integration branch | `integration/production-release-rc1` at `b343dd1a5d67f1098f599b9de7ddbf5165099cdb` | `git status --short --branch`, `git log`; ahead 17 commits |
+| Integration branch | `integration/production-release-rc1`, validated at `41dc08356f74ab864b250084bbfa51ae1d2ce9fc` | `git status --short --branch`, `git log`; 18 commits ahead of `origin/main` at validation; branch pushed and PR #132 opened |
 | PR #130 | Payment-intent manifest approval already on deployed main | `git show 8fcb552:.../migrations-reviewed.json` includes `20261107120000_payment_intent_foundation` |
 
 ## Provenance decisions
@@ -96,6 +96,7 @@ Verified with `git log --oneline --no-merges origin/main..HEAD` (oldest first).
 | `61f744a` | Completed effective-permission and callback configuration contracts. |
 | `71e8186` | Restored shared UI exports and corrected web analytics gating. |
 | `b343dd1` | Mapped the Prisma enum to the reviewed SQL identifier `audio_storage_backend`; no migration was edited. |
+| `41dc083` | Reconciled final validation fixes: RBAC projection, analytics viewer contract, worker observability snapshot, transport-aware rollout cookie verification and release evidence documents. |
 
 ## Static wiring facts
 

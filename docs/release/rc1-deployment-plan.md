@@ -1,14 +1,15 @@
 # RC1 deployment plan (preparation only)
 
-This plan prepares a controlled release. **No merge, push, deployment, migration,
-provider activation, payment activation or live Voice/SMS action has been performed.**
+This plan prepares a controlled release. **No merge, deployment, migration, provider
+activation, payment activation or live Voice/SMS action has been performed.** Only the
+`integration/production-release-rc1` branch was pushed; release PR #132 is open.
 
 ## 1. Verified deployment baseline
 
 | Fact | Value / evidence |
 | --- | --- |
 | Verified `origin/main` | `8fcb5527165de77ad1e2ac585c54a5a53c5217b9` (`git rev-parse origin/main`) |
-| Integration branch | `integration/production-release-rc1`, HEAD `b343dd1a5d67f1098f599b9de7ddbf5165099cdb`, ahead 17 (`git status --short --branch`) |
+| Integration branch | `integration/production-release-rc1`, validated RC commit `41dc08356f74ab864b250084bbfa51ae1d2ce9fc`, 18 commits ahead at validation; pushed; PR #132 open |
 | Deployment workflow | `.github/workflows/deploy.yml` — `workflow_dispatch` only; requires full 40-character `release_sha` and `authorize_production=true` (lines 3-15, 39-47) |
 | Exact SHA enforcement | Checked-out SHA, `RELEASE_SHA` and `DEPLOY_SHA` must match; main tip must equal release SHA (`.github/workflows/deploy.yml:55-89`) |
 | CI prerequisite | Completed successful main-push CI for that exact SHA; all required `ci.yml` jobs asserted (`.github/workflows/deploy.yml:68-84`) |
@@ -22,8 +23,8 @@ provider activation, payment activation or live Voice/SMS action has been perfor
 | --- | --- | --- | --- |
 | 1 | Finish local validation on the integration SHA: `npm run prisma:validate`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, plus disposable E2E suites. | `docs/release/rc1-integration-matrix.md` “Local validation evidence”; all commands exit `0` except the two explicitly reported warnings/failures below. | Yes |
 | 2 | Reconcile the migration plan and FK validation item (`docs/release/rc1-migration-plan.md`). | Disposable schema/SQL/FK reconciliation is DONE; controlled-environment and owner evidence remain PENDING. | Partially — controlled approval pending |
-| 3 | Push **only** `integration/production-release-rc1`. Do not push to `main` or any other branch. | Operator action, not performed here. | No |
-| 4 | Open/update the authoritative release PR with the integration matrix, migration plan and config/accounts plan attached. | Release/merge approval gate. | No |
+| 3 | Push **only** `integration/production-release-rc1`. Do not push to `main` or any other branch. | `git push -u origin integration/production-release-rc1`; new remote branch created. | Yes |
+| 4 | Open/update the authoritative release PR with the integration matrix, migration plan and config/accounts plan attached. | PR #132 opened against `main`; links to all four documents in the PR body. | Yes |
 | 5 | Owner approves the RC, exact SHA and migration plan. | All gates in `docs/release/rc1-config-and-accounts.md` section 3. | No |
 | 6 | Merge via the normal PR path to `main`; record the exact merge SHA. | No direct push, force-push or history rewrite. | No |
 | 7 | Verify main CI is green at the exact merge SHA (all four required jobs). | `.github/workflows/deploy.yml:68-84`; no PR artifact is deployable. | No |
@@ -49,7 +50,7 @@ provider activation, payment activation or live Voice/SMS action has been perfor
 | --- | --- |
 | Do not merge | No PR merge was performed; merge requires owner approval. |
 | Do not deploy | No `workflow_dispatch` was triggered; deployment requires exact SHA plus explicit authorization. |
-| Do not apply migrations | No local, staging or production migration was executed by this work. |
+| Do not apply migrations | No migration was executed against a non-disposable target. Disposable rehearsals are documented in `rc1-migration-plan.md`. |
 | Do not activate providers or payments | No Africa's Talking, payment, email, synthetic payment, charging or reconciliation activation. |
 | Do not activate live Voice/SMS | Campaign execution and SMS modules are unregistered in the RC tree; flags remain at safe defaults. |
 | Do not change accounts | No creation, invitation, password reset, role change or provider account action. |

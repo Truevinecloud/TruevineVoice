@@ -94,7 +94,7 @@ created for this rehearsal. Controlled-environment and approval iterations remai
 
 | Step | Action / command by reference | Evidence field |
 | --- | --- | --- |
-| 1 | Record exact release identity: branch `integration/production-release-rc1`, candidate HEAD `b343dd1...`, target main SHA to be determined at merge. Confirm `origin/main` is `8fcb552...` before merge. | PENDING — run in disposable environment |
+| 1 | Record exact release identity: branch `integration/production-release-rc1`, validated RC commit `41dc083...`, target main SHA to be determined at merge. Confirm `origin/main` is `8fcb552...` before merge. | DONE for the validated RC commit; merge SHA remains PENDING |
 | 2 | Preflight backup using the reviewed backup/restore procedure at `docs/runbooks/postgres-redis-recovery.md`; verify a non-zero, restorable archive before any migration discussion. Do not restore over production. | PENDING — run in disposable environment |
 | 3 | Baseline status: `npm run prisma:migrate:status` against the intended controlled target; record the 22 baseline migrations as applied and confirm no unexpected pending or failed rows. Never print connection strings. | PENDING — run in disposable environment |
 | 4 | Fresh isolated DB apply: apply all 33 migrations to a new disposable database via `npm run prisma:migrate:deploy` with a privately supplied disposable `DATABASE_URL`; confirm zero pending migrations. | DONE in disposable DB `truevine_rc1_fresh` — exit `0`, all 33 applied (`artifacts/migrate-fresh.log`). |
