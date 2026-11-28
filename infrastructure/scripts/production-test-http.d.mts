@@ -4,7 +4,7 @@ export interface PrivateHttpClient {
   hasSecureSession(): boolean;
   snapshot(): () => Promise<void>;
 }
-export function privateHttpClient(origin: string, transport?: typeof fetch, controls?: { expiresAt?: string; intervalMs?: number }): PrivateHttpClient;
+export function privateHttpClient(origin: string, transport?: typeof fetch, controls?: { expiresAt?: string; intervalMs?: number; secureCookies?: boolean }): PrivateHttpClient;
 export function executePrivateHttp(approval: unknown, credentials: unknown, options?: unknown, dependencies?: unknown): Promise<{
   operationId: string;
   ownerInitialized?: boolean;
