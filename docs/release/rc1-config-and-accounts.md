@@ -77,7 +77,7 @@ review cannot inspect production identities. No literal account identifiers are 
 | Gate | Scope | Required before | Status |
 | --- | --- | --- | --- |
 | Release / merge | Exact RC SHA, authoritative release PR, main CI | Merge to `main` | PENDING |
-| Migration execution | 11 new SQL files, 33-entry manifest, FK drift resolution, backup evidence | `workflow_dispatch` activation | PENDING |
+| Migration execution | 11 new SQL files, 33-entry review allow-list, exact pending names, FK drift resolution, verified backup/recovery evidence; execution only inside protected workflow | `workflow_dispatch` activation | PENDING |
 | Callback ingress | `AT_CALLBACK_API_KEY`, callback module registration, receipt handling | Any callback endpoint exposure | PENDING |
 | Charging policy | Usage settlement, ledger effects, SMS billing authorization | Any charge/credit/refund path | PENDING |
 | Synthetic payments | `W502_*` flags and verification key handling | Any synthetic reconciliation run | PENDING |
@@ -85,7 +85,12 @@ review cannot inspect production identities. No literal account identifiers are 
 | Admin exposure | `OPERATIONS_ADMIN`, auditor routes, voice-provider settings routes | Any production admin access change | PENDING |
 | Repository hygiene | `.env.example` gap, no committed credential-like artifacts, no secrets in logs | Release approval | PENDING |
 
-No gate is recorded as approved here.
+The manifest gate is a review allow-list, not execution authority or evidence of
+live application. CI uses disposable databases only; production migration
+execution is limited to the protected deployment workflow after all gates. Code
+rollback does not reverse SQL. Database restoration requires separate explicit
+approval and is never performed over live production as part of preflight or
+deployment. No gate is recorded as approved here.
 
 ## 4. Repository-hygiene validation evidence
 

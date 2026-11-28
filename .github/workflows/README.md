@@ -68,8 +68,9 @@ Each job runs `npm ci` independently and in parallel.
 - **`prisma:generate` runs in every job that compiles or executes code.**
   `packages/database/src/generated/` is gitignored, so `npm ci` does not produce
   it and `build:packages` fails without it.
-- **`prisma migrate deploy` is never run here.** It is a controlled-environment
-  command and must not execute on a pull request.
+- **Production `prisma migrate deploy` is never run here.** PR and `main` CI
+  use disposable databases only. Migration rehearsals in CI apply to those
+  ephemeral databases and have no access to production configuration.
 - **E2E uses `docker compose`, not `services:`.** The infrastructure E2E tests
   assert that _this project's_ Compose stack owns the configured host ports, via
   `docker compose port`. A `services:` container has no Compose project and would
@@ -137,7 +138,19 @@ content and stable PM2 processes. Failed activation restores the previous
 release; the job stays failed. Builds do not modify the active release.
 
 Complete the [production runbook](../../docs/runbooks/production-deployment.md)
+and the RC1 production preflight
+([`docs/runbooks/rc1-production-preflight.md`](../../docs/runbooks/rc1-production-preflight.md))
 before setting `DEPLOYMENT_READY=true`. Required secrets are `VPS_SSH_HOST`,
 `VPS_SSH_USER`, `VPS_SSH_KEY`, and `VPS_SSH_KNOWN_HOSTS`; optional variable
 `VPS_SSH_PORT` defaults to 22. Production configuration stays on the VPS.
-Reviewed migrations run through `prisma migrate deploy` after the build and before PM2 activation. Migration failure leaves the active release untouched. No automatic Nginx changes, database resets or release pruning.
+
+`infrastructure/migrations-reviewed.json` is a review allow-list only; it does
+not authorize production migration execution. Production migrations run only
+inside this protected deployment workflow, after the exact-SHA/main-CI check,
+manual `authorize_production=true`, environment review, explicit migration
+approval, and verified backup/recovery evidence. `deploy.mjs` runs
+`prisma migrate deploy` after the build and before PM2 activation; a migration
+failure prevents activation and leaves the active release untouched. No
+operator-run manual migration, Nginx change, database reset, reset-style
+Prisma command, direct data edit, or release pruning. Code rollback does not
+reverse SQL; restoration of a database requires separate explicit approval.

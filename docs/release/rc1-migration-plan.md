@@ -63,11 +63,15 @@ intentionally skipped: deployed main already has that PR #130 entry.
 
 | Statement | Evidence |
 | --- | --- |
-| The manifest permits code to deploy; it is not permission to execute migrations. | `infrastructure/migrations-reviewed.json:3-17`, especially lines 14-17. |
-| CI applies migrations only to a runner-local disposable database, never production. | `.github/workflows/ci.yml:204-215`. |
-| The deployment activation path applies reviewed SQL before PM2 activation. | `infrastructure/scripts/deploy.mjs:248-286` calls `npm run prisma:migrate:deploy`; README lines 548-556 and `docs/runbooks/production-deployment.md:416-427`. |
-| Activation requires explicit reconciliation/approval first. | `docs/runbooks/production-deployment.md:393-404`, 424-427; `docs/adr/0011-reviewed-deployment-migrations.md`. |
+| The manifest is a review allow-list that permits code to deploy. It never applies SQL and is not permission to execute a production migration. | `infrastructure/migrations-reviewed.json` `$comment`; `infrastructure/scripts/deploy.mjs` `assertReviewedMigrations`. |
+| PR and `main` CI apply migrations only to runner-local disposable databases, never production. | `.github/workflows/ci.yml`; `.github/workflows/README.md` `ci.yml` design notes. |
+| Production migrations run only inside the protected deployment workflow, after exact-SHA/main-CI verification, `workflow_dispatch` with `authorize_production=true`, environment review, explicit migration approval and verified backup/recovery evidence. | `.github/workflows/deploy.yml`; `.github/workflows/README.md` `deploy.yml`; `docs/runbooks/production-deployment.md`. |
+| `deploy.mjs` applies reviewed migrations before PM2 activation in that workflow; migration failure prevents activation and leaves the active release untouched. | `infrastructure/scripts/deploy.mjs` `migrateReviewedRelease`/`activate`; `docs/adr/0011-reviewed-deployment-migrations.md`. |
+| Code rollback does not reverse SQL. Restoring a database requires separate explicit approval and never overwrites live production as part of deployment or preflight. | `docs/runbooks/production-deployment.md` rollback section; `docs/adr/0011-reviewed-deployment-migrations.md`. |
 | This plan does not authorize or execute activation. | No owner approval is recorded here; all evidence fields remain PENDING. |
+
+The detailed W5-01 SQL review and its `PENDING` owner-approval fields are in
+[`docs/release/rc1-w5-01-migration-approval.md`](./rc1-w5-01-migration-approval.md).
 
 ## 3. Known schema/SQL reconciliation items
 
@@ -106,6 +110,14 @@ created for this rehearsal. Controlled-environment and approval iterations remai
 | 10 | Post-deploy status: `npm run prisma:migrate:status`; confirm no pending or failed migrations and no hand-edited history. | PENDING — controlled environment only |
 | 11 | Health/route verification: `npm run deploy:verify -- <config-path> <SHA>` plus `/health` and `/` checks from another machine per `docs/runbooks/production-deployment.md:446-449`. | PENDING — controlled environment only |
 | 12 | Monitor PM2, `/health`, public routes, migration ledger and error rates; keep the prior compatible READY release available for code rollback. | PENDING — controlled environment only |
+
+The currently deployed release contains only its own migration files, so its
+`prisma migrate status` cannot identify migrations introduced by the newer RC1
+schema. Before approval, derive the exact pending names from the reviewed
+candidate manifest minus the live `_prisma_migrations` ledger, and require the
+result to match the 11 RC1 entries above. The exact commands are in
+[`docs/runbooks/rc1-production-preflight.md`](../runbooks/rc1-production-preflight.md).
+Do not infer pending names from source files in the deployed release alone.
 
 ### Synthetic tenant data checks
 

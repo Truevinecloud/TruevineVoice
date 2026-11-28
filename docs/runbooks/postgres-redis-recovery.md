@@ -348,11 +348,14 @@ Run both with `npm run test:deployment`.
 ### Rolling back after a schema change
 
 The protected deployment applies approved migrations with `prisma migrate deploy`
-using the shared production configuration before activation (ADR 0011). The manifest
-gates which migrations may run. Require a rehearsed backup before approval.
-Code rollback never reverses SQL. Prisma records applied
+using the shared production configuration before activation (ADR 0011). The
+manifest is a review allow-list for which migration directories may exist in a
+deployable tree; it does not authorize execution. Production migrations run only
+inside the protected workflow after its gates, including verified backup and
+recovery evidence. Code rollback never reverses SQL. Prisma records applied
 migrations in `_prisma_migrations`; a restore returns that table to its
-pre-migration state.
+pre-migration state but is a separate destructive operation requiring its own
+explicit approval and never runs over live production under this runbook.
 
 ### Redis
 
