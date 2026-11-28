@@ -67,12 +67,16 @@ bindings. No database or Redis port should be publicly reachable. Do not run the
 repository's development Compose file in production: its credentials are public
 placeholders. Keep existing production databases, volumes and credentials.
 
-The repository defines no admin hostname or Nginx configuration. The admin app
-sets its own `/admin` basePath and listens on `127.0.0.1:3002`. Publishing it
-requires a reviewed Nginx change (see `infrastructure/nginx/`) and an
-authentication decision. When `adminAccess` is `public`, the admin app is
-served at `https://voice.truevinecloud.online/admin` behind Nginx with
-rate limiting and security headers. The admin app uses platform authentication
+The approved Admin portal is
+`https://admin.voice.truevinecloud.online/admin` on its own dedicated virtual
+host. The admin app sets its own `/admin` basePath and listens on
+`127.0.0.1:3002`; Nginx proxies it only from that host. That host allows only
+the approved operator address `102.209.111.186/32`, denies all other IPv4 and
+IPv6 clients, rejects client-supplied forwarding headers, and forces
+`Cache-Control: no-store` on Admin API responses. Its checked-in contract is
+`infrastructure/nginx/admin.voice.truevinecloud.online.conf`. Never copy the
+customer template over that virtual host or remove its allow/deny rules; the
+customer host blocks `/admin`. The admin app uses platform authentication
 (session cookies, CSRF tokens, and `PLATFORM_OWNER` role enforcement).
 
 Node must be exactly `24.19.0`, npm exactly `11.17.0`. Install those through the
@@ -362,18 +366,24 @@ only the confirmed customer's existing location needs to proxy to
 traffic is not served from the API's own route: it uses `/api/*` on the customer
 host, which must proxy to the web app (`127.0.0.1:3000`) so the app's
 same-origin proxy forwards it to the NestJS service and applies its route
-allowlist. The API has no `/api` prefix of its own. Do not silently expose admin
-or invent another domain.
+allowlist. The API has no `/api` prefix of its own. Admin is reachable only on
+the approved dedicated host `admin.voice.truevinecloud.online`; the customer
+host returns 404 for `/admin`. Do not silently expose admin or invent another
+domain.
 
 Before any separately reviewed Nginx change, back up the exact relevant config
 privately, run `sudo nginx -t`, and only then `sudo systemctl reload nginx`.
-Preserve certificate renewal configuration and other virtual hosts. No Nginx
-configuration is overwritten by the pipeline.
+Preserve certificate renewal configuration and other virtual hosts. Never
+overwrite or remove `/etc/nginx/sites-available/admin.voice.truevinecloud.online`:
+keep `allow 102.209.111.186/32;`, `deny all;`, forwarding-header rejection,
+loopback-only upstreams and the Admin API no-store header. The deployment
+pipeline never writes, reloads or deletes any Nginx configuration or Let's
+Encrypt state; no Nginx configuration is overwritten by the pipeline.
 
 | Service            | Binding                                         | Public route                                                                                 |
 | ------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | Customer Next.js   | `127.0.0.1:3000`                                | `https://voice.truevinecloud.online/`                                                        |
-| Admin Next.js      | `127.0.0.1:3002`                                | None; internal only, loopback/SSH tunnel (no admin auth exists)                              |
+| Admin Next.js      | `127.0.0.1:3002`                                | `https://admin.voice.truevinecloud.online/admin`, restricted to `102.209.111.186/32`         |
 | NestJS API         | `127.0.0.1:<apiPort>` (default 3001)            | `GET /health`; browser API traffic via `/api/*` on the customer host, proxied to the web app |
 | NestJS worker      | No HTTP port                                    | None; PM2 stability plus API Redis health are verified                                       |
 | PostgreSQL / Redis | Existing private/loopback endpoints from `.env` | None                                                                                         |
