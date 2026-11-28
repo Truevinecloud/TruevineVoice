@@ -50,7 +50,6 @@ function importedSpecifiers(source: string): string[] {
 const KNOWN_PROVIDER_SDKS = [
   'africastalking',
   "africa's talking",
-  'africas-talking',
   'africastalking-js',
   'twilio',
 ];

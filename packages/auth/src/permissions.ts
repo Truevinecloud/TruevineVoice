@@ -52,6 +52,10 @@ export const ORGANIZATION_PERMISSIONS = [
   'billing:update',
   'wallet:read',
   'reporting:read',
+  'campaign:launch',
+  'campaign:pause',
+  'campaign:resume',
+  'campaign:cancel',
 ] as const;
 
 export type OrganizationPermission = (typeof ORGANIZATION_PERMISSIONS)[number];
@@ -131,6 +135,10 @@ export const ORGANIZATION_ROLE_PERMISSIONS: Readonly<
     'campaign:create',
     'campaign:update',
     'campaign:delete',
+    'campaign:launch',
+    'campaign:pause',
+    'campaign:resume',
+    'campaign:cancel',
     'audio:read',
     'audio:create',
     'contact:read',
@@ -149,6 +157,10 @@ export const ORGANIZATION_ROLE_PERMISSIONS: Readonly<
     'campaign:create',
     'campaign:update',
     'campaign:delete',
+    'campaign:launch',
+    'campaign:pause',
+    'campaign:resume',
+    'campaign:cancel',
     'audio:read',
     'audio:create',
     'contact:read',

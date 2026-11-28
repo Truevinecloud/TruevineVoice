@@ -8,6 +8,12 @@ const assert = (condition, context = '') => { if (!condition) throw new Error(`P
  * responses fail closed. Cookies/body data never leave this private client. */
 export function privateHttpClient(origin, transport = fetch, controls = {}) {
   const jar = new Map();
+  // `Secure` is an application-environment contract, not a property of the
+  // rehearsal URL: loopback rehearsals run with the app in `test`, which
+  // deliberately omits `Secure` even behind a local HTTPS proxy, while
+  // production must set it. Callers that know the approved environment pass
+  // the expectation explicitly; direct callers default to HTTPS origins.
+  const secureCookies = controls.secureCookies ?? new URL(origin).protocol === 'https:';
   let sessionAttributes = false;
   async function call(method, path, body) {
     assert((path === '/health' || path.startsWith('/api/')) && !path.includes('?') && !path.includes('#'));
@@ -28,11 +34,11 @@ export function privateHttpClient(origin, transport = fetch, controls = {}) {
       const value = pair.slice(index + 1);
       if (!['tv_csrf', 'tv_session'].includes(name)) continue;
       assert(!/;\s*domain=/i.test(cookie));
-      if (name === 'tv_csrf' && value) assert(/;\s*secure(?:;|$)/i.test(cookie) &&
+      if (name === 'tv_csrf' && value) assert(/;\s*secure(?:;|$)/i.test(cookie) === secureCookies &&
         !/;\s*httponly(?:;|$)/i.test(cookie) && /;\s*samesite=lax(?:;|$)/i.test(cookie) && /;\s*path=\/(?:;|$)/i.test(cookie));
       if (value === '') jar.delete(name); else jar.set(name, value);
       if (name === 'tv_session' && value) {
-        sessionAttributes = /;\s*secure(?:;|$)/i.test(cookie) && /;\s*httponly(?:;|$)/i.test(cookie) &&
+        sessionAttributes = /;\s*secure(?:;|$)/i.test(cookie) === secureCookies && /;\s*httponly(?:;|$)/i.test(cookie) &&
           /;\s*samesite=lax(?:;|$)/i.test(cookie) && /;\s*path=\/(?:;|$)/i.test(cookie);
       }
     }
@@ -82,7 +88,8 @@ export async function executePrivateHttp(approval, credentials, options = {}, de
   assert(['initialize', 'http'].includes(approval.action));
   const inspect = dependencies.inspect ?? executeRollout;
   const state = await inspect(approval, credentials, options, dependencies);
-  const controls = { expiresAt: approval.expiresAt, intervalMs: approval.environment === 'production' ? 1000 : 0 };
+  const controls = { expiresAt: approval.expiresAt, intervalMs: approval.environment === 'production' ? 1000 : 0,
+    secureCookies: approval.environment === 'production' };
   const health = await privateHttpClient(origin, dependencies.transport, controls).call('GET', '/health');
   assert(health.status === 200 && health.payload?.version === approval.releaseSha && health.payload?.environment === approval.environment);
   if (approval.action === 'initialize') {

@@ -422,66 +422,114 @@ describe('RBAC-008 platform billing admin PostgreSQL safety', () => {
     expect(entries).toHaveLength(1);
   });
 
-  it('records exact audit evidence for success and rejected adjustments', async () => {
-    const key = randomUUID();
-    const beforeSuccess = await database.securityAuditEvent.count({
-      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', outcome: 'SUCCESS' },
-    });
-    const beforeDenied = await database.securityAuditEvent.count({
-      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', outcome: 'DENIED' },
-    });
-
-    await store.adjustWallet({
-      organizationId: ORG_A,
-      actorUserId: ACTOR,
-      amountMinor: 100n,
+  it('commits before/change/after evidence atomically with the ledger entry', async () => {
+    const before = await balance(database, ORG_A, 'UGX');
+    const result = await service.adjustWallet(ACTOR, ORG_A, {
+      amountMinor: '100',
       currency: 'UGX',
       reason: 'Audit success',
       idempotencyKey: randomUUID(),
     });
 
-    await store.adjustWallet({
-      organizationId: ORG_A,
-      actorUserId: ACTOR,
-      amountMinor: 100n,
-      currency: 'UGX',
-      reason: 'Audit success service',
-      idempotencyKey: key,
+    const success = await database.securityAuditEvent.findFirst({
+      where: {
+        organizationId: ORG_A,
+        action: 'platform.billing.wallet_adjusted',
+        outcome: 'SUCCESS',
+        targetId: result.entry.id,
+      },
+    });
+    expect(success).not.toBeNull();
+    expect(success!.metadata).toMatchObject({
+      auditVersion: 1,
+      target: { type: 'wallet_entry', id: result.entry.id },
+      before: { currency: 'UGX', balanceMinor: before.toString() },
+      change: { currency: 'UGX', amountMinor: '100' },
+      after: { currency: 'UGX', balanceMinor: (before + 100n).toString() },
+      reasonCode: 'wallet_adjustment',
+      reasonSource: 'server',
     });
 
-    const successServiceResult = await service.adjustWallet(ACTOR, ORG_A, {
-      amountMinor: '100',
-      currency: 'UGX',
-      reason: 'Audit success service',
-      idempotencyKey: key,
+    // The identity trail carries the same evidence so an operator-level review
+    // can answer "what did this actor change?" without joining the tenant trail.
+    const identity = await database.identityAuditEvent.findFirst({
+      where: { actorUserId: ACTOR, action: 'platform.billing.wallet_adjusted', outcome: 'SUCCESS' },
+      orderBy: { occurredAt: 'desc' },
     });
-    expect(successServiceResult.created).toBe(false);
+    expect(identity?.metadata).toMatchObject({
+      target: { type: 'wallet_entry', id: result.entry.id },
+      change: { amountMinor: '100' },
+      reasonCode: 'wallet_adjustment',
+    });
+  });
+
+  it('writes one success record for the first request and none for a replay', async () => {
+    const key = randomUUID();
+    const input = {
+      amountMinor: '100' as const,
+      currency: 'UGX',
+      reason: 'Audit replay',
+      idempotencyKey: key,
+    };
+    const first = await service.adjustWallet(ACTOR, ORG_A, input);
+    const successWhere = {
+      organizationId: ORG_A,
+      action: 'platform.billing.wallet_adjusted',
+      outcome: 'SUCCESS' as const,
+      targetId: first.entry.id,
+    };
+    const identityWhere = {
+      actorUserId: ACTOR,
+      action: 'platform.billing.wallet_adjusted',
+      outcome: 'SUCCESS' as const,
+    };
+
+    const securityCount = await database.securityAuditEvent.count({ where: successWhere });
+    const identityCount = await database.identityAuditEvent.count({ where: identityWhere });
+
+    const replay = await service.adjustWallet(ACTOR, ORG_A, input);
+    expect(replay.created).toBe(false);
+    expect(replay.entry.id).toBe(first.entry.id);
+
+    // A retry must not look like a second adjustment to an auditor.
+    expect(await database.securityAuditEvent.count({ where: successWhere })).toBe(securityCount);
+    expect(await database.identityAuditEvent.count({ where: identityWhere })).toBe(identityCount);
+  });
+
+  it('records a refusal with a reason code and creates neither an entry nor a success record', async () => {
+    const key = randomUUID();
+    const beforeSuccess = await database.securityAuditEvent.count({
+      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', outcome: 'SUCCESS' },
+    });
 
     await expect(
       service.adjustWallet(ACTOR, ORG_A, {
         amountMinor: '-999999999',
         currency: 'UGX',
         reason: 'Insufficient balance',
-        idempotencyKey: randomUUID(),
+        idempotencyKey: key,
       }),
     ).rejects.toBeDefined();
 
-    const afterSuccess = await database.securityAuditEvent.count({
-      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', outcome: 'SUCCESS' },
-    });
-    const afterDenied = await database.securityAuditEvent.count({
-      where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', outcome: 'DENIED' },
-    });
+    expect(await database.walletEntry.count({ where: { reference: `billing-adjustment:${key}` } })).toBe(0);
+    expect(
+      await database.securityAuditEvent.count({
+        where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', outcome: 'SUCCESS' },
+      }),
+    ).toBe(beforeSuccess);
 
-    expect(afterSuccess).toBeGreaterThanOrEqual(beforeSuccess + 1);
-    expect(afterDenied).toBeGreaterThanOrEqual(beforeDenied + 1);
-
-    const deniedEvents = await database.securityAuditEvent.findMany({
+    const denied = await database.securityAuditEvent.findFirst({
       where: { organizationId: ORG_A, action: 'platform.billing.wallet_adjusted', outcome: 'DENIED' },
       orderBy: { occurredAt: 'desc' },
-      take: 1,
     });
-    expect(deniedEvents[0]?.metadata).toMatchObject({ failure: 'insufficient_wallet_balance' });
+    expect(denied?.metadata).toMatchObject({
+      auditVersion: 1,
+      target: { type: 'wallet', id: ORG_A },
+      before: null,
+      after: null,
+      change: { amountMinor: '-999999999', currency: 'UGX' },
+      reasonCode: 'insufficient_wallet_balance',
+    });
   });
 
   it('keeps ledger totals equal to the sum of committed entries after concurrent operations', async () => {

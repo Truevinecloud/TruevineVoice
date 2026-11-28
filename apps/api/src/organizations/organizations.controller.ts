@@ -17,6 +17,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   Inject,
   Param,
@@ -39,7 +40,7 @@ import type { Request } from 'express';
 import { ipPrefixOf } from '../auth/cookies.js';
 import {
   ORGANIZATION_ROLES,
-  ORGANIZATION_ROLE_PERMISSIONS,
+  type OrganizationPermission,
   type OrganizationRole,
 } from '@truevine/auth';
 
@@ -288,22 +289,61 @@ export class OrganizationsController {
     return { ok: true };
   }
 
+  /**
+   * A partial permission snapshot must never be returned: the client would hide
+   * controls the server still enforces, or show controls the server denies.
+   * Map the infrastructure failure to a safe 503 without echoing its cause.
+   */
+  private async effectivePermissionsOrUnavailable(
+    organizationId: string,
+    role: OrganizationRole,
+  ): Promise<readonly OrganizationPermission[]> {
+    try {
+      return await this.organizations.effectivePermissions(organizationId, role);
+    } catch {
+      throw new HttpException(
+        {
+          error: {
+            code: 'permissions_unavailable',
+            message: 'Effective permissions are temporarily unavailable.',
+          },
+        },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+  }
+
   /** Builds the membership list `GET /me` returns, including each role's permissions. */
   private async membershipSummaries(userId: string): Promise<readonly MembershipSummary[]> {
     const memberships = await this.organizations.membershipsFor(userId);
 
-    return memberships.map((membership) => ({
-      organizationId: membership.organization.id,
-      organizationSlug: membership.organization.slug,
-      organizationName: membership.organization.name,
-      // The database enum and the registry role are the same vocabulary; the
-      // mapping is explicit so a future divergence fails to compile rather than
-      // silently looking up `undefined` permissions.
-      role: membership.role as OrganizationRole,
-      // Sent explicitly so the client's navigation matches what the server will
-      // actually permit. The server never trusts these values - they are for
-      // presentation only, and every request is re-checked by the guard.
-      permissions: ORGANIZATION_ROLE_PERMISSIONS[membership.role as OrganizationRole],
-    }));
+    const summaries = await Promise.all(
+      memberships.map(async (membership) => {
+        const suspended = membership.organization.suspendedAt !== null;
+        const organizationStatus: 'ACTIVE' | 'SUSPENDED' = suspended ? 'SUSPENDED' : 'ACTIVE';
+        const permissions = suspended
+          ? []
+          : await this.effectivePermissionsOrUnavailable(
+              membership.organization.id,
+              membership.role as OrganizationRole,
+            );
+        return {
+          organizationId: membership.organization.id,
+          organizationSlug: membership.organization.slug,
+          organizationName: membership.organization.name,
+          organizationStatus,
+          // The database enum and the registry role are the same vocabulary; the
+          // mapping is explicit so a future divergence fails to compile rather than
+          // silently looking `undefined` permissions.
+          role: membership.role as OrganizationRole,
+          // Sent explicitly so the client's navigation matches what the server will
+          // actually permit. The server never trusts these values - they are for
+          // presentation only, and every request is re-checked by the guard.
+          permissions,
+        };
+      }),
+    );
+
+    return summaries;
   }
 }

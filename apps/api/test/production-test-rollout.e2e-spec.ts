@@ -320,8 +320,11 @@ describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
     if (privateDirectory) expect((await runSignedLinuxCli('verify')).accountCount).toBe(11);
     // Synthetic custodians accept real terms through HTTP; no direct insertion
     // or automatic terms acceptance is included in the production verifier.
+    // The application under test is configured with environment `test`, so it
+    // omits `Secure` even when the CI rehearsal reaches it through HTTPS.
+    const cookieControls = { secureCookies: false };
     for (const account of ROLLOUT_ACCOUNTS) {
-      const client = privateHttpClient(origin);
+      const client = privateHttpClient(origin, undefined, cookieControls);
       await client.call('GET', '/api/auth/terms');
       expect((await client.call('POST', '/api/auth/sign-in', { email: account.email, password: passwords[account.email] })).status).toBe(200);
       expect((await client.call('POST', '/api/auth/terms/accept')).status).toBe(204);
@@ -333,7 +336,7 @@ describe('isolated real PostgreSQL + native HTTP rollout rehearsal', () => {
       : await executePrivateHttp(http.approval, credentials, {}, http.dependencies);
     expect(verified.accounts).toHaveLength(11);
     const disable = inputs('disable');
-    const stale = privateHttpClient(origin);
+    const stale = privateHttpClient(origin, undefined, cookieControls);
     await stale.call('GET', '/api/auth/terms');
     await stale.call('POST', '/api/auth/sign-in', { email: 'qa-viewer@truevoice.com', password: passwords['qa-viewer@truevoice.com'] });
     const checkStale = stale.snapshot();

@@ -6,7 +6,7 @@ import { loadEnvFiles } from '@truevine/shared';
 import express from 'express';
 
 import { AppModule } from './app.module.js';
-import { loadApiConfig } from './config/api.config.js';
+import { databaseNameOf, loadApiConfig } from './config/api.config.js';
 
 /**
  * API entry point.
@@ -35,6 +35,11 @@ async function bootstrap(): Promise<void> {
     `listening on http://${config.host}:${config.port} ` +
       `(env=${config.environment}, version=${config.version})`,
   );
+  // The database name is logged, the connection string never is: it carries the
+  // password. An operator needs to be able to tell from the boot log which
+  // database this process is serving, because "signed in yesterday, 401 today"
+  // is usually the API having started against a different database.
+  logger.log(`database: ${databaseNameOf(config.databaseUrl)}`);
   logger.log('health endpoint: GET /health');
 }
 

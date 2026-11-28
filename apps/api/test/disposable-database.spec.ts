@@ -1,12 +1,33 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   assertConnectedToDisposableDatabase,
   assertDisposableDatabase,
   isDisposableDatabaseName,
   isLoopbackHostname,
+  ISOLATED_QA_DATABASE,
   type DisposableDatabase,
 } from './disposable-database.js';
+
+afterEach(() => vi.unstubAllEnvs());
+
+describe('pinned RBAC isolated QA mode', () => {
+  const url = `postgresql://test:test@127.0.0.1:55432/${ISOLATED_QA_DATABASE}`;
+  it('requires explicit opt-in for the named QA database', () => {
+    vi.stubEnv('RBAC_ISOLATED_QA', '');
+    expect(() => assertDisposableDatabase(url, 'test')).toThrow();
+    vi.stubEnv('RBAC_ISOLATED_QA', '1');
+    expect(assertDisposableDatabase(url, 'test').name).toBe(ISOLATED_QA_DATABASE);
+  });
+  it('refuses development, other databases, routing overrides and non-test environments in QA mode', () => {
+    vi.stubEnv('RBAC_ISOLATED_QA', '1');
+    for (const name of ['truevine_voice', 'postgres', 'rbac_security_1740000000000_4321_empty']) {
+      expect(() => assertDisposableDatabase(url.replace(ISOLATED_QA_DATABASE, name), 'test')).toThrow();
+    }
+    expect(() => assertDisposableDatabase(url, 'production')).toThrow();
+    expect(() => assertDisposableDatabase(url + '?host=other', 'test')).toThrow();
+  });
+});
 
 /**
  * The guard exists so that a test suite cannot be pointed at production by an

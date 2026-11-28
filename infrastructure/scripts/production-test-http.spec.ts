@@ -28,17 +28,17 @@ function fixture() {
     const headers = new Headers();
     const response = (status, payload) => new Response(payload === undefined ? null : JSON.stringify(payload), { status, headers });
     if (path === '/health') return response(200, { version: approval.releaseSha, environment: approval.environment });
-    if (path === '/api/auth/terms') { headers.append('set-cookie', `tv_csrf=${randomBytes(32).toString('base64url')}; Secure; SameSite=Lax; Path=/`); return response(200, { version: 'test' }); }
+    if (path === '/api/auth/terms') { headers.append('set-cookie', `tv_csrf=${randomBytes(32).toString('base64url')}; SameSite=Lax; Path=/`); return response(200, { version: 'test' }); }
     if (path === '/api/auth/sign-in') {
       const body = JSON.parse(options.body);
       if (credentials.passwords[body.email] !== body.password) return response(401, { error: { code: 'invalid_credentials' } });
       const id = randomBytes(32).toString('base64url');
       sessions.set(id, ROLLOUT_ACCOUNTS.find(item => item.email === body.email));
-      headers.append('set-cookie', `tv_session=${id}; Secure; HttpOnly; SameSite=Lax; Path=/`);
+      headers.append('set-cookie', `tv_session=${id}; HttpOnly; SameSite=Lax; Path=/`);
       return response(200, { ok: true });
     }
     if (!account) return response(401, { error: { code: 'session_revoked' } });
-    if (path === '/api/auth/sign-out') { sessions.delete(sessionId); headers.append('set-cookie', 'tv_session=; Secure; HttpOnly; SameSite=Lax; Path=/'); return response(204); }
+    if (path === '/api/auth/sign-out') { sessions.delete(sessionId); headers.append('set-cookie', 'tv_session=; HttpOnly; SameSite=Lax; Path=/'); return response(204); }
     if (path === '/api/me') return response(200, { email: account.email, termsAccepted: true,
       platformRole: account.scope === 'platform' ? account.role : null,
       memberships: account.scope === 'organization' ? [{ organizationId: state.organizationId, role: account.role, permissions: ORGANIZATION_ROLE_PERMISSIONS[account.role] }] : [] });
@@ -71,7 +71,7 @@ describe('private rollout HTTP verifier', () => {
     f.transport.mockImplementation(async (url, options) => {
       const response = await original(url, options);
       const path = new URL(url).pathname;
-      if (problem === 'insecure-csrf' && path === '/api/auth/terms') return new Response('{}', { headers: { 'set-cookie': 'tv_csrf=synthetic; Secure; HttpOnly; SameSite=Lax; Path=/' } });
+      if (problem === 'insecure-csrf' && path === '/api/auth/terms') return new Response('{}', { headers: { 'set-cookie': 'tv_csrf=synthetic; HttpOnly; SameSite=Lax; Path=/' } });
       if (problem === 'release-health' && path === '/health') return new Response('{"version":"wrong","environment":"test"}');
       if (problem === 'throttle' && path === '/api/auth/sign-in') return new Response('{}', { status: 429 });
       if (problem === 'insecure-cookie' && path === '/api/auth/sign-in' && response.status === 200) {
@@ -88,6 +88,16 @@ describe('private rollout HTTP verifier', () => {
     });
     await expect(executePrivateHttp(f.approval, f.credentials, {}, f.dependencies)).rejects.toThrow();
   });
+  it('requires Secure cookies only when the approved environment is production', async () => {
+    const secureCookie = () => new Response('{}', { headers: { 'set-cookie': 'tv_csrf=synthetic; Secure; SameSite=Lax; Path=/' } });
+    const loopbackCookie = () => new Response('{}', { headers: { 'set-cookie': 'tv_csrf=synthetic; SameSite=Lax; Path=/' } });
+    await expect(privateHttpClient('https://voice.truevinecloud.online', secureCookie, { secureCookies: true }).call('GET', '/api/auth/terms'))
+      .resolves.toMatchObject({ status: 200 });
+    await expect(privateHttpClient('https://127.0.0.1:3100', secureCookie, { secureCookies: false }).call('GET', '/api/auth/terms'))
+      .rejects.toThrow();
+    await expect(privateHttpClient('http://127.0.0.1:3100', loopbackCookie, { secureCookies: false }).call('GET', '/api/auth/terms'))
+      .resolves.toMatchObject({ status: 200 });
+  });
   it('refuses redirects and credential-bearing URL paths', async () => {
     const transport = vi.fn(async () => new Response(null, { status: 302, headers: { location: 'https://other.invalid' } }));
     const client = privateHttpClient('https://voice.truevinecloud.online', transport);
@@ -101,7 +111,7 @@ describe('private rollout HTTP verifier', () => {
     const raw = randomBytes(32).toString('base64url');
     const transport = vi.fn(async (url, options) => {
       if (new URL(url).pathname === '/health') return new Response(JSON.stringify({ version: f.approval.releaseSha, environment: f.approval.environment }));
-      if (new URL(url).pathname === '/api/auth/terms') return new Response('{}', { headers: { 'set-cookie': 'tv_csrf=synthetic; Secure; SameSite=Lax; Path=/' } });
+      if (new URL(url).pathname === '/api/auth/terms') return new Response('{}', { headers: { 'set-cookie': 'tv_csrf=synthetic; SameSite=Lax; Path=/' } });
       const body = JSON.parse(options.body);
       expect(body.token === raw).toBe(true);
       expect(body.newPassword === f.credentials.passwords[f.approval.email]).toBe(true);

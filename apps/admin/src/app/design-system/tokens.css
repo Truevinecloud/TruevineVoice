@@ -1,0 +1,127 @@
+/* ==========================================================================
+   Truevine Voice — Common Semantic Token Convention (Administration Portal)
+   ==========================================================================
+   These semantic tokens follow the common design-system token convention.
+   Admin theme values preserve the existing amber brand and dark canvas.
+   This file is consumed by apps/admin only and imported directly by
+   apps/admin/src/app/globals.css. apps/web maintains an independent copy
+   with its own theme values; the two files share a convention, not an
+   implementation.
+   Do not change package manifests — this file lives inside apps/admin.
+   ========================================================================== */
+
+/* ---------- Color semantics ---------- */
+:root {
+  /* Surface colors */
+  --ds-color-bg: #14161a;            /* page canvas */
+  --ds-color-fg: #eef0f3;            /* primary text */
+  --ds-color-card: #1c1f25;          /* card surface */
+  --ds-color-card-border: #2f343c;   /* card border */
+  --ds-color-canvas: #14161a;        /* app shell canvas */
+  --ds-color-panel: #1c1f25;         /* panel surface (sidebar/cards) */
+
+  /* Text semantics */
+  --ds-color-muted: #a0a8b4;         /* secondary text */
+  --ds-color-ink: #eef0f3;           /* strong text (app shell) */
+  --ds-color-line: #2f343c;          /* subtle divider (app shell) */
+
+  /* Brand semantics (admin amber) */
+  --ds-color-brand: #f0b429;         /* primary brand */
+  --ds-color-brand-dark: #d9a01e;    /* brand hover/active */
+  --ds-color-brand-soft: #2a2414;    /* brand tint background */
+
+  /* Status semantics */
+  --ds-color-success: #8de0ae;       /* success text/icon */
+  --ds-color-success-bg: #1b2e23;    /* success chip background */
+  --ds-color-warning: #f0b429;       /* warning text/icon */
+  --ds-color-warning-bg: #2a2414;    /* warning chip background */
+  --ds-color-danger: #ff6b6b;        /* danger text/icon */
+  --ds-color-danger-bg: #2e1b1b;     /* danger chip background */
+  --ds-color-info: #8de0ae;          /* info text/icon */
+  --ds-color-info-bg: #1b2e23;       /* info chip background */
+}
+
+/* ---------- Spacing scale ---------- */
+:root {
+  --ds-space-1: 0.25rem;
+  --ds-space-2: 0.5rem;
+  --ds-space-3: 0.75rem;
+  --ds-space-4: 1rem;
+  --ds-space-5: 1.25rem;
+  --ds-space-6: 1.5rem;
+  --ds-space-8: 2rem;
+  --ds-space-10: 2.5rem;
+  --ds-space-12: 3rem;
+}
+
+/* ---------- Border radius ---------- */
+:root {
+  --ds-radius-sm: 0.45rem;
+  --ds-radius-md: 0.6rem;
+  --ds-radius-lg: 0.75rem;
+  --ds-radius-xl: 0.85rem;
+  --ds-radius-full: 9999px;
+}
+
+/* ---------- Focus indicators (WCAG 2.2 AA) ---------- */
+:root {
+  --ds-focus-outline: 3px solid;
+  --ds-focus-offset: 3px;
+  --ds-focus-customer-color: #1d4ed8;
+  --ds-focus-admin-color: #f0b429;
+}
+
+/* ---------- Transitions / motion ---------- */
+:root {
+  --ds-transition-fast: 120ms ease;
+  --ds-transition-base: 160ms ease;
+  --ds-transition-slow: 240ms ease;
+  --ds-animation-duration-base: 160ms;
+}
+
+/* ---------- Z-index scale ---------- */
+:root {
+  --ds-z-dropdown: 10;
+  --ds-z-sticky: 20;
+  --ds-z-drawer: 30;
+  --ds-z-backdrop: 34;
+  --ds-z-toast: 40;
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ds-transition-fast: 0ms;
+    --ds-transition-base: 0ms;
+    --ds-transition-slow: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- Compatibility aliases (preserve existing app variable names) ---------- */
+/* These map the existing admin --card-* and --muted-* tokens onto the shared
+   semantic tokens so existing component CSS continues to work without changes. */
+.platform-admin-shell {
+  --page-bg: var(--ds-color-bg);
+  --page-fg: var(--ds-color-fg);
+  --card-bg: var(--ds-color-card);
+  --card-border: var(--ds-color-card-border);
+  --muted-fg: var(--ds-color-muted);
+  --accent: var(--ds-color-brand);
+}
+
+.platform-app-shell {
+  --page-bg: var(--ds-color-bg);
+  --page-fg: var(--ds-color-fg);
+  --card-bg: var(--ds-color-card);
+  --card-border: var(--ds-color-card-border);
+  --muted-fg: var(--ds-color-muted);
+  --accent: var(--ds-color-brand);
+}

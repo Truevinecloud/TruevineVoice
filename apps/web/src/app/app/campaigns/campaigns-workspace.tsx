@@ -34,11 +34,13 @@ export function CampaignsWorkspace({
   initialCampaigns,
   canUpdate,
   canDelete,
+  canReadReports,
 }: {
   readonly organizationId: string;
   readonly initialCampaigns: readonly Campaign[];
   readonly canUpdate: boolean;
   readonly canDelete: boolean;
+  readonly canReadReports: boolean;
 }): React.JSX.Element {
   const [campaigns, setCampaigns] = useState<readonly Campaign[]>(initialCampaigns);
   const [groups, setGroups] = useState<readonly CampaignGroup[]>([]);
@@ -171,6 +173,7 @@ export function CampaignsWorkspace({
       assets={assets}
       canUpdate={canUpdate}
       canDelete={canDelete}
+      canReadReports={canReadReports}
       onEdit={() => {
         setMode('edit');
         setError('');

@@ -8,6 +8,7 @@ Operational procedures for Truevine Voice: what to do when something breaks.
 | [Production test-account rollout — review draft](./production-test-account-rollout.md) | Proposed inventory, independent approvals, bootstrap, private password initialization, deployment and retirement; no execution authorized |
 | [Production HTTP acceptance — not run](./production-test-account-http-checklist.md) | Eleven-account actual sign-in, role and tenant checks, safe evidence and missing feature limits |
 | [QA Owner recovery](./qa-owner-recovery.md) | Operator-only replacement activation link for the existing QA Owner |
+| [Local QA sign-in](./local-qa-authentication.md) | Signing in as the two existing QA accounts; database, cookie, session and 401 triage |
 | [Production deployment](./production-deployment.md) | Releasing application code, verification, rollback |
 | [Support-access audit failure monitoring](./support-access-audit-alerting.md) | Event collection, alerting requirements and verification evidence |
 | [First Platform Owner bootstrap](./platform-owner-bootstrap.md) | Approval, private activation, one-time claim and interrupted execution |

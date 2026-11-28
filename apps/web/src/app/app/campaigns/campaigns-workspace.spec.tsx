@@ -82,7 +82,11 @@ async function choose(id: string, value: string): Promise<void> {
 
 async function mount(
   campaigns: readonly Campaign[],
-  options: { readonly canUpdate?: boolean; readonly canDelete?: boolean } = {},
+  options: {
+    readonly canUpdate?: boolean;
+    readonly canDelete?: boolean;
+    readonly canReadReports?: boolean;
+  } = {},
 ): Promise<void> {
   await act(async () => {
     root.render(
@@ -91,6 +95,7 @@ async function mount(
         initialCampaigns={campaigns}
         canUpdate={options.canUpdate ?? true}
         canDelete={options.canDelete ?? true}
+        canReadReports={options.canReadReports ?? false}
       />,
     );
   });

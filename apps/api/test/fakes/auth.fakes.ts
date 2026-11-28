@@ -1,4 +1,6 @@
 import type { SecurityTransaction, SecurityStores } from '../../src/auth/security-transaction.js';
+import { FakeCustomRoleStore } from '../../src/custom-roles/custom-role.fakes.js';
+export { FakeCustomRoleStore };
 /**
  * In-memory fakes for the authentication stores.
  *
@@ -336,6 +338,10 @@ export class FakeOrganizationStore implements OrganizationStore {
     return { ok: true };
   }
 
+  async readCustomOrganizationGrants(_organizationId: string): Promise<readonly string[]> {
+    return [];
+  }
+
   async transferOwnership(
     organizationId: string,
     expectedCurrentOwnerId: string,
@@ -557,10 +563,11 @@ export class FakeSecurityTransaction implements SecurityTransaction {
     private readonly auth: FakeAuthStore,
     private readonly organizations: FakeOrganizationStore,
     private readonly audit: FakeAuditStore,
+    private readonly customRoles: FakeCustomRoleStore,
   ) {
     organizations.authStore = auth;
   }
-  async run<T>(work: (stores: SecurityStores) => Promise<T>): Promise<T> {
+  async run<T>(work: (stores: SecurityStores) => Promise<T>, _options?: { readonly isolationLevel: import('@truevine/database').Prisma.TransactionIsolationLevel }): Promise<T> {
     const snapshots = [this.auth, this.organizations, this.audit].map((store) =>
       structuredClone({ ...store }),
     );
@@ -569,6 +576,7 @@ export class FakeSecurityTransaction implements SecurityTransaction {
         auth: this.auth,
         organizations: this.organizations,
         audit: this.audit,
+        customRoles: this.customRoles,
         lockUser: async () => {},
         lockOrganization: async () => {},
       });

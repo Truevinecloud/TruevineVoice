@@ -17,6 +17,7 @@ import { OrganizationsService } from '../src/organizations/organizations.service
 import type { RateLimiter } from '../src/auth/rate-limiter.js';
 import {
   FakeAuditStore,
+  FakeCustomRoleStore,
   FakeSecurityTransaction,
   FakeAuthStore,
   FakeOrganizationStore,
@@ -59,7 +60,7 @@ function buildAuthService(limiter: RateLimiter = permissiveLimiter) {
     3,
     60_000,
     30_000,
-    new FakeSecurityTransaction(auth, new FakeOrganizationStore(), audit),
+    new FakeSecurityTransaction(auth, new FakeOrganizationStore(), audit, new FakeCustomRoleStore()),
   );
 
   return { auth, audit, service };
@@ -501,7 +502,7 @@ describe('OrganizationsService delegation', () => {
       email,
       WEB_BASE,
       TERMS,
-      new FakeSecurityTransaction(auth, organizations, audit),
+      new FakeSecurityTransaction(auth, organizations, audit, new FakeCustomRoleStore()),
       permissiveLimiter,
     );
   });
@@ -785,7 +786,7 @@ describe('OrganizationsService invitations', () => {
       email,
       WEB_BASE,
       TERMS,
-      new FakeSecurityTransaction(auth, organizations, audit),
+      new FakeSecurityTransaction(auth, organizations, audit, new FakeCustomRoleStore()),
       permissiveLimiter,
     );
     seedOwner(auth, organizations, { role: 'ADMIN' });
@@ -887,7 +888,7 @@ describe('OrganizationsService invitations', () => {
       5,
       60_000,
       30_000,
-      new FakeSecurityTransaction(auth, organizations, audit),
+      new FakeSecurityTransaction(auth, organizations, audit, new FakeCustomRoleStore()),
     );
     await expect(authService.signIn(created.email, GOOD_PASSWORD, CONTEXT)).resolves.toMatchObject({
       sessionToken: expect.any(String),
@@ -946,7 +947,7 @@ describe('OrganizationsService invitations', () => {
       email,
       WEB_BASE,
       TERMS,
-      new FakeSecurityTransaction(auth, organizations, audit),
+      new FakeSecurityTransaction(auth, organizations, audit, new FakeCustomRoleStore()),
       denyingLimiter,
     );
     await expect(
@@ -1067,7 +1068,7 @@ describe('OrganizationsService ownership transfer', () => {
       new NullEmailSender(),
       WEB_BASE,
       TERMS,
-      new FakeSecurityTransaction(auth, organizations, audit),
+      new FakeSecurityTransaction(auth, organizations, audit, new FakeCustomRoleStore()),
       permissiveLimiter,
     );
     seedOwner(auth, organizations);

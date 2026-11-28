@@ -30,7 +30,9 @@ import {
   delegableRoles,
   generateToken,
   hashToken,
+  isMutating,
   isSafeAuditMetadata,
+  ORGANIZATION_ROLE_PERMISSIONS,
   passwordTooWeak,
   type OrganizationPermission,
   type OrganizationRole,
@@ -92,6 +94,7 @@ export interface MembershipSummary {
   readonly organizationId: string;
   readonly organizationSlug: string;
   readonly organizationName: string;
+  readonly organizationStatus: 'ACTIVE' | 'SUSPENDED';
   readonly role: OrganizationRole;
   readonly permissions: readonly OrganizationPermission[];
 }
@@ -968,6 +971,21 @@ export class OrganizationsService {
   /** The roles `role` is permitted to grant. Drives the invitation form's options. */
   delegableRolesFor(role: OrganizationRole): readonly OrganizationRole[] {
     return delegableRoles(role);
+  }
+
+  /**
+   * Effective permissions for a membership: role permissions plus mutating
+   * custom organization grants. Read-only custom grants are excluded because
+   * read access is governed by the role alone.
+   */
+  async effectivePermissions(
+    organizationId: string,
+    role: OrganizationRole,
+  ): Promise<readonly OrganizationPermission[]> {
+    const rolePermissions = ORGANIZATION_ROLE_PERMISSIONS[role];
+    const customGrants = await this.organizationStore.readCustomOrganizationGrants(organizationId);
+    const mutatingGrants = customGrants.filter((permission) => isMutating(permission as OrganizationPermission)) as readonly OrganizationPermission[];
+    return [...new Set([...rolePermissions, ...mutatingGrants])];
   }
 
   private throwForMembershipFailure(reason: string): never {

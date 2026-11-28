@@ -20,6 +20,9 @@ coverage/
 # Generated Prisma client (regenerate with `npm run prisma:generate`)
 packages/database/src/generated/
 
+# Local validation artifacts (logs, isolated infrastructure overrides)
+/artifacts/
+
 # Logs
 logs/
 !apps/admin/src/app/technical/logs/
