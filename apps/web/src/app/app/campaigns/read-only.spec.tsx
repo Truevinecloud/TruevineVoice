@@ -100,7 +100,7 @@ describe('read-only Viewer campaign and report pages', () => {
     expect(mocks.campaigns).toHaveBeenCalledWith('org-a');
   });
 
-  it('renders only the campaign status report returned for the authorized tenant', async () => {
+  it('renders the authorized tenant status report and read-only analytics', async () => {
     mocks.session.mockResolvedValue(session());
     mocks.report.mockResolvedValue({ total: 5, draft: 2, active: 1, completed: 2 });
 
@@ -113,7 +113,14 @@ describe('read-only Viewer campaign and report pages', () => {
     expect(markup).toContain('Campaign inventory summary');
     expect(markup).toContain('<dd>5</dd>');
     expect(markup).toContain('Drafts are prepared records');
-    expect(markup).not.toMatch(/<form|<button|Launch|Edit|Delete/);
+    // Analytics filters, paging and CSV export are read-only operations and
+    // are deliberately available to a Viewer with reporting:read. Campaign
+    // mutation controls must still be absent.
+    expect(markup).toContain('Call analytics');
+    expect(markup).toContain('class="analytics-filters"');
+    expect(markup).toContain('Apply filters');
+    expect(markup).toContain('Download CSV');
+    expect(markup).not.toMatch(/Launch|Edit|Delete|Pause|Resume|Cancel/);
     expect(mocks.report).toHaveBeenCalledWith('org-a');
   });
 

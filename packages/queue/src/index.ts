@@ -6,9 +6,9 @@
  * - Redis/BullMQ carries asynchronous work and short-lived coordination state.
  *   It is NEVER the authoritative store for business data. Anything that must
  *   survive Redis being flushed lives in PostgreSQL.
- * - No business queues are declared yet. This module only provides connection
- *   construction plus the options required by BullMQ, so that queues can be
- *   added later without re-inventing connection handling.
+ * - Queue producers and processors are declared in dedicated modules and
+ *   imported explicitly. This barrel only exposes the shared connection,
+ *   callback-job, campaign-execution and read-only metrics primitives.
  */
 
 import type { RedisOptions } from 'bullmq';
@@ -113,3 +113,7 @@ export async function probeRedis(
 }
 
 export type { Redis };
+
+export * from './callback-jobs.js';
+export * from './campaign-execution.js';
+export * from './queue-metrics.js';

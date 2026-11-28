@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 export function OrganizationAccessDenied(): React.JSX.Element {
   return (
@@ -41,15 +41,17 @@ export function SectionCard({
   actions,
   children,
   className = '',
+  style,
 }: {
   readonly title?: string;
   readonly description?: string;
   readonly actions?: ReactNode;
   readonly children: ReactNode;
   readonly className?: string;
+  readonly style?: CSSProperties;
 }): React.JSX.Element {
   return (
-    <section className={`card-section ${className}`.trim()}>
+    <section className={`card-section ${className}`.trim()} style={style}>
       {(title || description || actions) && (
         <header className="card-section__header">
           <div>
@@ -93,6 +95,54 @@ export function StatusBadge({
   readonly tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'info';
 }): React.JSX.Element {
   return <span className={`status-badge status-badge--${tone}`}>{children}</span>;
+}
+
+export function Tag({
+  children,
+  variant = 'neutral',
+}: {
+  readonly children: ReactNode;
+  readonly variant?: 'neutral' | 'system' | 'custom';
+}): React.JSX.Element {
+  return <span className={`tag tag--${variant}`}>{children}</span>;
+}
+
+export function ConfirmDialog({
+  title,
+  message,
+  confirmLabel = 'Confirm',
+  confirmVariant = 'primary',
+  busy = false,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  readonly title: string;
+  readonly message: ReactNode;
+  readonly confirmLabel?: string;
+  readonly confirmVariant?: 'primary' | 'secondary' | 'danger';
+  readonly busy?: boolean;
+  readonly error?: string;
+  readonly onConfirm: () => void | Promise<void>;
+  readonly onCancel: () => void;
+}): React.JSX.Element {
+  return (
+    <div className="dialog-backdrop" role="presentation">
+      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+        <h2 id="confirm-dialog-title">{title}</h2>
+        <p>{message}</p>
+        {error && <p className="notice notice-error" role="alert">{error}</p>}
+        <div className="dialog__actions">
+          <Button variant="secondary" disabled={busy} onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant={confirmVariant} disabled={busy} onClick={() => void onConfirm()}>
+            {confirmLabel}
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 export function Button({

@@ -538,6 +538,17 @@ model Campaign {
   audioAssetId String? @map("audio_asset_id") @db.Uuid
   /// Set by platform emergency stop. Customer role mutations cannot clear it.
   emergencyStoppedAt DateTime? @map("emergency_stopped_at") @db.Timestamptz(3)
+  /// Durable dispatch state. Separate from the customer-facing status so an
+  /// emergency stop cannot be undone by a stale status write.
+  dispatchState String @default("RUNNING") @map("dispatch_state") @db.VarChar(16)
+  dispatchEpoch Int @default(0) @map("dispatch_epoch")
+  pausedAt DateTime? @map("paused_at") @db.Timestamptz(3)
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(3)
+  dispatchStopReason String? @map("dispatch_stop_reason") @db.VarChar(40)
+  /// W5-04 SMS fallback is disabled until both the organization and campaign
+  /// opt in. Unknown contact consent denies dispatch.
+  smsFallbackEnabled Boolean @default(false) @map("sms_fallback_enabled")
+  smsFallbackMessage String? @map("sms_fallback_message")
   /// Provenance. `RESTRICT` rather than `SET NULL`: a campaign without a
   /// recorded creator is not a state this codebase can produce, and no
   /// user-deletion path exists that would need the softer constraint.
@@ -551,10 +562,12 @@ model Campaign {
   audienceGroups CampaignAudienceGroup[]
   audioAsset AudioAsset? @relation(fields: [audioOrganizationId, audioAssetId], references: [organizationId, id], onDelete: Restrict)
   audioUsageEvents AudioAssetUsage[]
+  smsFallbacks SmsFallbackOperation[]
   createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
 
   @@id([organizationId, id])
   @@index([organizationId])
+  @@index([organizationId, dispatchState], map: "campaigns_dispatch_state_idx")
   @@map("campaigns")
 }
 
@@ -576,6 +589,9 @@ model Organization {
   /// delete it (ADR 0009), so "delete" would fail for exactly the organizations
   /// most likely to need closing.
   suspendedAt DateTime? @map("suspended_at") @db.Timestamptz(3)
+  /// Platform-admin-granted W5-04 entitlement. Disabled by default; campaign
+  /// fallback cannot be enabled until this is true.
+  smsEntitled Boolean @default(false) @map("sms_entitled")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -599,6 +615,8 @@ model Organization {
   audioBlobs AudioBlob[]
   audioQuota OrganizationAudioQuota?
   customRoles CustomRole[]
+  smsFallbacks SmsFallbackOperation[]
+  voiceUsageQuotes VoiceUsageQuote[]
 
   @@map("organizations")
 }
@@ -671,7 +689,7 @@ model AudioAssetUsage {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   asset AudioAsset @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
   actor Membership @relation(fields: [organizationId, actorUserId], references: [organizationId, userId], onDelete: Restrict)
-  campaign Campaign? @relation(fields: [organizationId, campaignId], references: [organizationId, id], onDelete: Restrict)
+  campaign Campaign? @relation(fields: [organizationId, campaignId], references: [organizationId, id], onDelete: SetNull)
   @@id([organizationId, id])
   @@index([organizationId, assetId, createdAt])
   @@map("audio_asset_usage")
@@ -689,6 +707,8 @@ model WalletEntry {
   paymentIntentId String? @map("payment_intent_id") @db.Uuid
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   paymentIntent PaymentIntent? @relation(fields: [organizationId, paymentIntentId], references: [organizationId, id], onDelete: Restrict)
+  voiceUsageEvents VoiceUsageEvent[]
+  voiceUsageReversals VoiceUsageReversal[]
   @@id([organizationId, id])
   @@unique([organizationId, reference])
   @@unique([organizationId, paymentIntentId])
@@ -725,11 +745,12 @@ model PaymentIntent {
   environment String? @db.VarChar(16)
   providerReference String? @map("provider_reference") @db.VarChar(200)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   walletEntries WalletEntry[]
   attempts PaymentAttempt[]
-  providerEvents PaymentProviderEvent[]
+  providerEvents PaymentProviderEvent[] @relation("PaymentEventByOrganizationAndIntent")
+  providerEventsById PaymentProviderEvent[] @relation("PaymentEventByIntentId")
   @@id([id])
   @@unique([organizationId, id])
   @@unique([organizationId, idempotencyKey])
@@ -749,7 +770,7 @@ model PaymentAttempt {
   requestFingerprint String @map("request_fingerprint") @db.VarChar(128)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
-  paymentIntent PaymentIntent @relation(fields: [organizationId, paymentIntentId], references: [organizationId, id], onDelete: Restrict)
+  paymentIntent PaymentIntent @relation(fields: [organizationId, paymentIntentId], references: [organizationId, id], onDelete: Restrict, map: "payment_attempts_payment_intent_id_fkey")
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   @@id([id])
   @@unique([paymentIntentId, attemptNo])
@@ -769,10 +790,11 @@ model PaymentProviderEvent {
   verified Boolean @default(false)
   payloadRedacted Json? @map("payload_redacted")
   receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
-  paymentIntent PaymentIntent? @relation(fields: [organizationId, paymentIntentId], references: [organizationId, id], onDelete: SetNull)
+  paymentIntent PaymentIntent? @relation("PaymentEventByOrganizationAndIntent", fields: [organizationId, paymentIntentId], references: [organizationId, id], onDelete: SetNull, map: "payment_provider_events_organization_id_payment_intent_id_fkey")
+  paymentIntentById PaymentIntent? @relation("PaymentEventByIntentId", fields: [paymentIntentId], references: [id], onDelete: SetNull, map: "payment_provider_events_payment_intent_id_fkey")
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   @@id([id])
-  @@unique([provider, environment, providerEventId])
+  @@unique([provider, environment, providerEventId], map: "payment_provider_events_provider_environment_provider_event_id_")
   @@index([organizationId, receivedAt])
   @@map("payment_provider_events")
 }
@@ -801,6 +823,8 @@ model Contact {
   voiceConsentVerifiedById String? @map("voice_consent_verified_by_user_id") @db.Uuid
   suppressedAt DateTime? @map("suppressed_at") @db.Timestamptz(3)
   suppressionReason String? @map("suppression_reason") @db.VarChar(120)
+  /// W5-04 SMS consent. Null means unknown and denies fallback dispatch.
+  smsConsent Boolean? @map("sms_consent")
   createdById String? @map("created_by_user_id") @db.Uuid
   destination String @db.VarChar(16)
   label String @default("") @db.VarChar(200)
@@ -845,8 +869,8 @@ model ContactGroupMember {
   groupId String @map("group_id") @db.Uuid
   contactId String @map("contact_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  group ContactGroup @relation(fields: [organizationId, groupId], references: [organizationId, id], onDelete: Cascade)
-  contact Contact @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: Cascade)
+  group ContactGroup @relation(fields: [organizationId, groupId], references: [organizationId, id], onDelete: Cascade, map: "contact_group_members_group_fkey")
+  contact Contact @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: Cascade, map: "contact_group_members_contact_fkey")
   @@id([organizationId, groupId, contactId])
   @@index([organizationId, contactId])
   @@map("contact_group_members")
@@ -902,7 +926,7 @@ model ContactImportBatch {
   rejectedCount Int @map("rejected_count")
   warningCount Int @map("warning_count")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  contactImport ContactImport @relation(fields: [organizationId, importId], references: [organizationId, id], onDelete: Cascade)
+  contactImport ContactImport @relation(fields: [organizationId, importId], references: [organizationId, id], onDelete: Cascade, map: "contact_import_batches_import_fkey")
   @@id([organizationId, importId, batchNumber])
   @@map("contact_import_batches")
 }
@@ -918,6 +942,7 @@ model CampaignRecipient {
   campaign Campaign @relation(fields: [organizationId, campaignId], references: [organizationId, id], onDelete: Restrict)
   contact Contact @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: Restrict)
   attempts CallAttempt[]
+  smsFallbacks SmsFallbackOperation[]
   @@id([organizationId, id])
   @@unique([organizationId, campaignId, contactId])
   @@unique([organizationId, campaignId, id])
@@ -951,6 +976,16 @@ enum CallAttemptState {
   TIMEOUT
 }
 
+/// Durable state of a paid call initiation. Terminal states are the only ones
+/// permitted to clear `reconciliationRequired`, enforced by database trigger.
+enum CallInitiationReconciliationStatus {
+  NOT_STARTED
+  INVOKING
+  CONFIRMED
+  FAILED_BEFORE_PROVIDER
+  UNKNOWN
+}
+
 model CallAttempt {
   organizationId String @map("organization_id") @db.Uuid
   id String @default(uuid()) @db.Uuid
@@ -969,6 +1004,10 @@ model CallAttempt {
   redials CallAttempt[] @relation("Redial")
   operations CallOperation[]
   events CallEvent[]
+  reconciliation CallInitiationReconciliation?
+  dispatchReservation CampaignDispatchReservation?
+  smsFallbacks SmsFallbackOperation[]
+  callbackBindings VoiceCallbackBinding[]
   @@id([organizationId, id])
   @@unique([organizationId, executionId, recipientId, attemptNumber])
   @@unique([organizationId, executionId, recipientId, id])
@@ -1088,7 +1127,7 @@ model PaymentProviderConfiguration {
 /// PostgreSQL BYTEA audio storage. One blob per audio asset, org-scoped.
 model AudioBlob {
   organizationId String   @map("organization_id") @db.Uuid
-  id             String   @default(uuid()) @db.Uuid
+  id             String   @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   assetId        String   @map("asset_id") @db.Uuid
   content        Bytes
   contentType    String   @map("content_type") @db.VarChar(64)
@@ -1096,12 +1135,12 @@ model AudioBlob {
   checksumSha256 String   @map("checksum_sha256") @db.Char(64)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  asset        AudioAsset @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  asset        AudioAsset @relation(fields: [organizationId, assetId], references: [organizationId, id], onDelete: Restrict, onUpdate: NoAction)
 
   @@id([organizationId, id])
   @@unique([organizationId, assetId])
-  @@index([organizationId, byteSize])
+  @@index([organizationId, byteSize], map: "idx_audio_blobs_org_size")
   @@map("audio_blobs")
 }
 
@@ -1114,8 +1153,8 @@ model OrganizationAudioQuota {
   updatedAt          DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
   updatedByUserId    String?  @map("updated_by_user_id") @db.Uuid
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  updatedBy    User?      @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  updatedBy    User?      @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@map("organization_audio_quota")
 }
@@ -1123,14 +1162,14 @@ model OrganizationAudioQuota {
 /// Tenant-created custom role within one organization.
 model CustomRole {
   organizationId String      @map("organization_id") @db.Uuid
-  id             String      @default(uuid()) @db.Uuid
+  id             String      @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name           String      @db.VarChar(120)
   description    String?
   type           RoleType    @default(CUSTOM)
   createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime    @db.Timestamptz(3) @updatedAt
+  updatedAt      DateTime    @map("updated_at") @db.Timestamptz(3) @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, map: "custom_roles_organization_exists")
   permissions  RolePermission[]
   assignments  RoleAssignment[]
 
@@ -1167,4 +1206,202 @@ model RoleAssignment {
   @@id([organizationId, roleId, userId])
   @@index([organizationId, userId])
   @@map("role_assignments")
+}
+
+/// Durable reconciliation state for a paid call initiation. Rows are immutable
+/// in identity and follow a guarded state machine in PostgreSQL.
+model CallInitiationReconciliation {
+  organizationId        String                             @map("organization_id") @db.Uuid
+  attemptId             String                             @map("attempt_id") @db.Uuid
+  status                CallInitiationReconciliationStatus @default(NOT_STARTED)
+  reconciliationRequired Boolean                           @default(true) @map("reconciliation_required")
+  createdAt             DateTime                           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime                           @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  attempt CallAttempt @relation(fields: [organizationId, attemptId], references: [organizationId, id], onUpdate: NoAction, map: "call_initiation_reconciliations_attempt_fkey")
+
+  @@id([organizationId, attemptId])
+  @@index([organizationId, reconciliationRequired, updatedAt], map: "call_initiation_reconciliations_required_idx")
+  @@map("call_initiation_reconciliations")
+}
+
+/// Non-ledger budget reservation held for one dispatch attempt. A reservation
+/// is evidence for a spending decision; only wallet entries move money.
+model CampaignDispatchReservation {
+  organizationId String   @map("organization_id") @db.Uuid
+  id             String   @db.Uuid
+  attemptId      String   @map("attempt_id") @db.Uuid
+  amountMinor    BigInt   @map("amount_minor")
+  currency       String   @db.VarChar(3)
+  state          String   @default("HELD") @db.VarChar(16)
+  policyVersion  String   @map("policy_version") @db.VarChar(64)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  attempt CallAttempt @relation(fields: [organizationId, attemptId], references: [organizationId, id], onUpdate: NoAction, map: "campaign_dispatch_reservations_attempt_fkey")
+
+  @@id([organizationId, id])
+  @@unique([organizationId, attemptId], map: "campaign_dispatch_reservations_attempt_key")
+  @@index([organizationId, state], map: "campaign_dispatch_reservations_state_idx")
+  @@map("campaign_dispatch_reservations")
+}
+
+/// One logical SMS fallback per campaign recipient. The voice attempt is kept
+/// for traceability but is not part of the uniqueness key.
+model SmsFallbackOperation {
+  organizationId    String   @map("organization_id") @db.Uuid
+  id                String   @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  campaignId        String   @map("campaign_id") @db.Uuid
+  recipientId       String   @map("recipient_id") @db.Uuid
+  voiceAttemptId    String   @map("voice_attempt_id") @db.Uuid
+  phoneE164         String   @map("phone_e164") @db.VarChar(16)
+  message           String
+  idempotencyKey    String   @map("idempotency_key") @db.VarChar(200)
+  status            String   @default("PENDING") @db.VarChar(16)
+  providerReference String?  @map("provider_reference") @db.VarChar(200)
+  reconciled        Boolean  @default(false)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  campaign   Campaign          @relation(fields: [organizationId, campaignId], references: [organizationId, id], map: "sms_fallback_operations_org_campaign_id_fkey")
+  organization Organization   @relation(fields: [organizationId], references: [id], map: "sms_fallback_operations_org_organization_id_fkey")
+  recipient  CampaignRecipient @relation(fields: [organizationId, recipientId], references: [organizationId, id], map: "sms_fallback_operations_org_recipient_id_fkey")
+  voiceAttempt CallAttempt     @relation(fields: [organizationId, voiceAttemptId], references: [organizationId, id], map: "sms_fallback_operations_org_voice_attempt_id_fkey")
+
+  @@id([organizationId, id])
+  @@unique([organizationId, campaignId, recipientId], map: "sms_fallback_operations_org_campaign_recipient_key")
+  @@index([organizationId, status, createdAt], map: "sms_fallback_operations_org_status_created_idx")
+  @@map("sms_fallback_operations")
+}
+
+/// Links an untrusted provider callback to the tenant call attempt it proves.
+model VoiceCallbackBinding {
+  source         String @db.VarChar(64)
+  sessionId      String @map("session_id") @db.VarChar(160)
+  organizationId String @map("organization_id") @db.Uuid
+  attemptId      String @map("attempt_id") @db.Uuid
+
+  attempt CallAttempt     @relation(fields: [organizationId, attemptId], references: [organizationId, id], onUpdate: NoAction, map: "voice_callback_bindings_organization_id_attempt_id_fkey")
+  quotes  VoiceUsageQuote[]
+  events  VoiceUsageEvent[]
+
+  @@id([source, sessionId])
+  @@unique([source, sessionId, organizationId, attemptId], map: "voice_callback_bindings_full_key")
+  @@map("voice_callback_bindings")
+}
+
+/// Durable, immutable record of a processed provider callback receipt.
+model VoiceCallbackReceipt {
+  id             String           @id @db.Uuid
+  source         String           @db.VarChar(64)
+  sessionId      String           @map("session_id") @db.VarChar(160)
+  eventKey       String           @map("event_key") @db.VarChar(64)
+  requestedState CallAttemptState @map("requested_state")
+  occurredAt     DateTime         @map("occurred_at") @db.Timestamptz(3)
+  receivedAt     DateTime         @default(now()) @map("received_at") @db.Timestamptz(3)
+  nextRunAt      DateTime         @default(now()) @map("next_run_at") @db.Timestamptz(3)
+  attempts       Int              @default(0)
+  status         String           @default("pending") @db.VarChar(16)
+  outcome        String?          @db.VarChar(32)
+
+  @@unique([source, eventKey])
+  @@index([source, sessionId, status], map: "voice_callback_receipts_binding_idx")
+  @@index([status, nextRunAt, id], map: "voice_callback_receipts_due_idx")
+  @@map("voice_callback_receipts")
+}
+
+/// Platform-owned provider status. Credentials are encrypted at rest and no
+/// customer-facing endpoint may read this table.
+model VoiceProviderConfiguration {
+  environment  String    @id @db.VarChar(10)
+  username     String    @db.VarChar(128)
+  voiceNumber  String    @map("voice_number") @db.VarChar(16)
+  ciphertext   String
+  enabled      Boolean   @default(false)
+  checkedAt    DateTime? @map("checked_at") @db.Timestamptz(3)
+  checkResult  String?   @map("check_result") @db.VarChar(11)
+  version      Int       @default(1)
+
+  @@map("voice_provider_configurations")
+}
+
+/// Immutable price quote for one completed call. Customer charge is exact
+/// integer minor units; provider cost is evidence, never a chargeable amount.
+model VoiceUsageQuote {
+  organizationId        String   @map("organization_id") @db.Uuid
+  id                    String   @db.Uuid
+  source                String   @db.VarChar(64)
+  sessionId             String   @map("session_id") @db.VarChar(160)
+  attemptId             String   @map("attempt_id") @db.Uuid
+  billedSeconds         Int      @map("billed_seconds")
+  ratePerSecondMinor    BigInt   @map("rate_per_second_minor")
+  customerChargeMinor   BigInt   @map("customer_charge_minor")
+  currency              String   @db.VarChar(3)
+  providerCostMinor     BigInt?  @map("provider_cost_minor")
+  providerCostCurrency  String?  @map("provider_cost_currency") @db.VarChar(3)
+  pricingVersion        String   @map("pricing_version") @db.VarChar(64)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization       @relation(fields: [organizationId], references: [id], map: "voice_usage_quotes_organization_fkey")
+  binding      VoiceCallbackBinding @relation(fields: [source, sessionId, organizationId, attemptId], references: [source, sessionId, organizationId, attemptId], map: "voice_usage_quotes_binding_fkey")
+  event        VoiceUsageEvent?
+
+  @@id([organizationId, id])
+  @@unique([organizationId, attemptId], map: "voice_usage_quotes_attempt_key")
+  @@unique([source, sessionId], map: "voice_usage_quotes_session_key")
+  @@index([organizationId, createdAt, id], map: "voice_usage_quotes_organization_created_idx")
+  @@map("voice_usage_quotes")
+}
+
+/// Immutable settlement event. The paired wallet debit is the only balance
+/// change; this row is the evidence that authorises and reconciles that debit.
+model VoiceUsageEvent {
+  organizationId        String           @map("organization_id") @db.Uuid
+  id                    String           @db.Uuid
+  attemptId             String           @map("attempt_id") @db.Uuid
+  source                String           @db.VarChar(64)
+  sessionId             String           @map("session_id") @db.VarChar(160)
+  receiptEventKey       String           @map("receipt_event_key") @db.VarChar(64)
+  quoteId               String           @map("quote_id") @db.Uuid
+  debitEntryId          String           @map("debit_entry_id") @db.Uuid
+  billedSeconds         Int              @map("billed_seconds")
+  ratePerSecondMinor    BigInt           @map("rate_per_second_minor")
+  customerChargeMinor   BigInt           @map("customer_charge_minor")
+  currency              String           @db.VarChar(3)
+  providerCostMinor     BigInt?          @map("provider_cost_minor")
+  providerCostCurrency  String?          @map("provider_cost_currency") @db.VarChar(3)
+  pricingVersion        String           @map("pricing_version") @db.VarChar(64)
+  state                 CallAttemptState
+  occurredAt            DateTime         @map("occurred_at") @db.Timestamptz(3)
+  createdAt             DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  binding   VoiceCallbackBinding @relation(fields: [source, sessionId, organizationId, attemptId], references: [source, sessionId, organizationId, attemptId], map: "voice_usage_events_binding_fkey")
+  debit     WalletEntry          @relation(fields: [organizationId, debitEntryId], references: [organizationId, id], map: "voice_usage_events_debit_fkey")
+  quote     VoiceUsageQuote      @relation(fields: [organizationId, quoteId], references: [organizationId, id], map: "voice_usage_events_quote_fkey")
+  reversal  VoiceUsageReversal?
+
+  @@id([organizationId, id])
+  @@unique([organizationId, receiptEventKey], map: "voice_usage_events_event_key_key")
+  @@unique([organizationId, quoteId], map: "voice_usage_events_quote_key")
+  @@unique([source, receiptEventKey], map: "voice_usage_events_source_event_key_key")
+  @@index([organizationId, createdAt, id], map: "voice_usage_events_organization_created_idx")
+  @@map("voice_usage_events")
+}
+
+/// Immutable compensating record for a settled call. The paired wallet credit
+/// is an append-only ledger entry; historical settlement rows are never edited.
+model VoiceUsageReversal {
+  organizationId String   @map("organization_id") @db.Uuid
+  id             String   @db.Uuid
+  usageEventId   String   @map("usage_event_id") @db.Uuid
+  creditEntryId  String   @map("credit_entry_id") @db.Uuid
+  reason         String   @db.VarChar(200)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  usage  VoiceUsageEvent @relation(fields: [organizationId, usageEventId], references: [organizationId, id], map: "voice_usage_reversals_usage_fkey")
+  credit WalletEntry     @relation(fields: [organizationId, creditEntryId], references: [organizationId, id], map: "voice_usage_reversals_credit_fkey")
+
+  @@id([organizationId, id])
+  @@unique([organizationId, usageEventId], map: "voice_usage_reversals_usage_key")
+  @@map("voice_usage_reversals")
 }

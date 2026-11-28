@@ -8,7 +8,7 @@ import Link from 'next/link';
  * of them takes an organization id.
  */
 
-export type SettingsSection = 'overview' | 'payments';
+export type SettingsSection = 'overview' | 'payments' | 'voice-providers';
 
 export function SettingsHeader({ title }: { title: string }) {
   return (
@@ -25,6 +25,8 @@ export function SettingsHeader({ title }: { title: string }) {
 }
 
 export function SettingsNav({ current }: { current: SettingsSection }) {
+  // Voice provider settings are intentionally not linked here until platform
+  // owner approval; the page remains reachable only by direct navigation.
   const sections: Array<{ key: SettingsSection; href: string; label: string }> = [
     { key: 'overview', href: '/settings', label: 'Settings' },
     { key: 'payments', href: '/settings/payments', label: 'Payment integrations' },

@@ -9,7 +9,7 @@ const { INVENTORY_DIGEST, ROLLOUT_ACCOUNTS } = await import(rolloutPath);
 function fixture() {
   const credentials = { version: 1, reference: 'CREDENTIALS-TEST', passwords: Object.fromEntries(ROLLOUT_ACCOUNTS.map(account => [account.email, randomBytes(24).toString('base64url')])) };
   const environment = { TEST_ACCOUNT_ROLLOUT_ENABLED: '1', NODE_ENV: 'test', APP_VERSION: 'a'.repeat(40), ROLLOUT_E2E_DISPOSABLE: '1',
-    DATABASE_URL: 'postgresql://127.0.0.1/truevine_bootstrap_test_0123456789abcdef', WEB_PUBLIC_URL: 'http://127.0.0.1:3100' };
+    DATABASE_URL: 'postgresql://127.0.0.1/truevine_bootstrap_test_0123456789abcdef', WEB_PUBLIC_URL: 'https://127.0.0.1:3100' };
   const approval = { version: 1, action: 'http', environment: 'test', releaseSha: environment.APP_VERSION, provisioningReleaseSha: environment.APP_VERSION,
     operationId: randomUUID(), bootstrapOperationId: randomUUID(), provisionOperationId: randomUUID(), inventoryDigest: INVENTORY_DIGEST, credentialReference: 'CREDENTIALS-TEST',
     email: 'qa-platform-owner@truevoice.com', actorUserId: randomUUID(), preservedAdmin: { userId: randomUUID(), organizationId: randomUUID() },

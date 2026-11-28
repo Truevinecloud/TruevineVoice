@@ -157,13 +157,9 @@ async function mountDetail(canReadReports: boolean): Promise<void> {
         assets={[] as readonly CampaignAudioAsset[]}
         canUpdate={false}
         canDelete={false}
-        canPause={false}
-        canResume={false}
-        canCancel={false}
         canReadReports={canReadReports}
         onEdit={vi.fn()}
         onDeleted={vi.fn()}
-        onDispatchChange={vi.fn()}
         onClose={vi.fn()}
       />,
     );

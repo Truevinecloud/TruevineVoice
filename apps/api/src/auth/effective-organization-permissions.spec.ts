@@ -38,10 +38,18 @@ describe('effective organization permissions', () => {
     expect(unavailable).not.toHaveBeenCalled();
     await expect(checkEffectiveOrganizationPermission('VIEWER', 'campaign:create', unavailable))
       .resolves.toBe('custom_grants_unavailable');
-    const launchGrant = vi.fn().mockResolvedValue(['campaign:launch']);
+    // Lifecycle permissions are built into CAMPAIGN_MANAGER, so they are
+    // allowed without consulting custom grants. A custom grant must still be
+    // unable to delegate a non-delegable permission such as billing:update.
+    const builtInLaunch = vi.fn();
     await expect(
-      checkEffectiveOrganizationPermission('CAMPAIGN_MANAGER', 'campaign:launch', launchGrant),
+      checkEffectiveOrganizationPermission('CAMPAIGN_MANAGER', 'campaign:launch', builtInLaunch),
+    ).resolves.toBe('allowed');
+    expect(builtInLaunch).not.toHaveBeenCalled();
+    const billingGrant = vi.fn().mockResolvedValue(['billing:update']);
+    await expect(
+      checkEffectiveOrganizationPermission('CAMPAIGN_MANAGER', 'billing:update', billingGrant),
     ).resolves.toBe('insufficient_permission');
-    expect(launchGrant).not.toHaveBeenCalled();
+    expect(billingGrant).not.toHaveBeenCalled();
   });
 });

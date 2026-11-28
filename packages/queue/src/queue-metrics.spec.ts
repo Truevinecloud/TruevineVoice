@@ -20,7 +20,7 @@ describe('queue metrics', () => {
 
   it('collects zero counts from an idle queue', async () => {
     const queue = makeFakeQueue();
-    const sample = await collectQueueDepth(queue as unknown as QueueType);
+    const sample = await collectQueueDepth(queue);
 
     expect(sample.queueName).toBe('test-queue');
     expect(sample.status).toBe('ok');
@@ -45,7 +45,7 @@ describe('queue metrics', () => {
       getWaiting: async () => [{ timestamp: Date.now() - 5000 }],
     });
 
-    const sample = await collectQueueDepth(queue as unknown as QueueType);
+    const sample = await collectQueueDepth(queue);
 
     expect(sample.waiting).toBe(10);
     expect(sample.active).toBe(3);
@@ -62,7 +62,7 @@ describe('queue metrics', () => {
       },
     });
 
-    const sample = await collectQueueDepth(queue as unknown as QueueType);
+    const sample = await collectQueueDepth(queue);
 
     expect(sample.status).toBe('degraded');
     expect(sample.error).toContain('connection lost');
@@ -77,7 +77,7 @@ describe('queue metrics', () => {
       },
     });
 
-    const sample = await collectQueueDepth(queue as unknown as QueueType);
+    const sample = await collectQueueDepth(queue);
 
     expect(sample.status).toBe('degraded');
     expect(sample.waiting).toBe(5);
@@ -86,11 +86,7 @@ describe('queue metrics', () => {
   });
 
   it('wrapReadOnly returns a read-only wrapper', () => {
-    const fakeQueue = {
-      name: 'wrapped-queue',
-      getWaiting: async () => [],
-      getJobCounts: async () => ({ waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0, paused: 0 }),
-    } as unknown as QueueType;
+    const fakeQueue = makeFakeQueue({ name: 'wrapped-queue' });
 
     const wrapped = wrapReadOnly(fakeQueue);
     expect(wrapped.name).toBe('wrapped-queue');
@@ -98,18 +94,3 @@ describe('queue metrics', () => {
     expect(typeof wrapped.getJobCounts).toBe('function');
   });
 });
-
-// Type alias for test compatibility: BullMQ Queue type not imported to avoid
-// dependency on ioredis in unit tests.
-type QueueType = {
-  name: string;
-  getWaiting(start: number, end: number): Promise<Array<{ readonly timestamp?: number }>>;
-  getJobCounts(): Promise<{
-    readonly waiting: number;
-    readonly active: number;
-    readonly delayed: number;
-    readonly failed: number;
-    readonly completed: number;
-    readonly paused: number;
-  }>;
-};

@@ -203,7 +203,7 @@ export class SmsFallbackOrchestrationService {
     // reservation mechanisms are established. Wallet balance alone is not
     // sufficient billing authorization for SMS dispatch. Enable only for
     // synthetic test environments via W504_SMS_BILLING_AUTHORIZED=true.
-    let billingAuthorized = process.env['W504_SMS_BILLING_AUTHORIZED'] === 'true';
+    const billingAuthorized = process.env['W504_SMS_BILLING_AUTHORIZED'] === 'true';
 
     return {
       organizationId: input.organizationId,
@@ -352,7 +352,7 @@ export class SmsFallbackOrchestrationService {
     organizationId: string,
     campaignId: string,
     recipientId: string,
-    voiceAttemptId: string,
+    _voiceAttemptId: string,
   ): Promise<{ status: string; fallbackId: string | null } | null> {
     // Identity is per campaign recipient; voiceAttemptId retained for traceability.
     const existing = await this.prisma.$queryRaw<{ id: string; status: string }[]>`

@@ -57,6 +57,7 @@ export default async function CampaignsPage({
           initialCampaigns={campaigns}
           canUpdate={hasPermission(membership, 'campaign:update')}
           canDelete={hasPermission(membership, 'campaign:delete')}
+          canReadReports={hasPermission(membership, 'reporting:read')}
         />
       )}
     </>

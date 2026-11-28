@@ -8,8 +8,6 @@
  * Unavailable metrics are represented as `undefined`, never as zero.
  */
 
-import type { Queue } from 'bullmq';
-
 import type {
   QueueDepthSample,
   QueueMetricsSnapshot,
@@ -27,6 +25,13 @@ type JobCounts = {
   paused: number;
 };
 
+/** The read-only surface required to sample a queue's depth. */
+export interface ReadOnlyQueue {
+  readonly name: string;
+  getWaiting(start: number, end: number): Promise<Array<{ readonly timestamp?: number }>>;
+  getJobCounts(): Promise<Record<string, number>>;
+}
+
 /**
  * Collects queue depth metrics for a single BullMQ queue.
  *
@@ -35,7 +40,7 @@ type JobCounts = {
  * `undefined` rather than throwing.
  */
 export async function collectQueueDepth(
-  queue: Queue,
+  queue: ReadOnlyQueue,
 ): Promise<QueueDepthSample> {
   let status: QueueDepthSample['status'] = 'ok';
   let error: QueueDepthSample['error'] | undefined;
@@ -94,7 +99,7 @@ export async function collectQueueDepth(
  * Collects queue depth metrics for multiple BullMQ queues.
  */
 export async function collectAllQueueDepths(
-  queues: Readonly<Queue[]>,
+  queues: readonly ReadOnlyQueue[],
 ): Promise<QueueMetricsSnapshot> {
   const queuesResult: Record<string, QueueDepthSample> = {};
   for (const queue of queues) {
@@ -113,16 +118,10 @@ export async function collectAllQueueDepths(
  * The wrapper exposes only read methods, making it impossible to accidentally
  * mutate queue state from observability code.
  */
-export interface ReadOnlyQueue {
-  readonly name: string;
-  getWaiting(start: number, end: number): Promise<Array<{ readonly timestamp?: number }>>;
-  getJobCounts(): Promise<JobCounts>;
-}
-
-export function wrapReadOnly(queue: Queue): ReadOnlyQueue {
+export function wrapReadOnly(queue: ReadOnlyQueue): ReadOnlyQueue {
   return {
     name: queue.name,
     getWaiting: (start: number, end: number) => queue.getWaiting(start, end),
-    getJobCounts: () => queue.getJobCounts() as Promise<JobCounts>,
+    getJobCounts: () => queue.getJobCounts(),
   };
 }

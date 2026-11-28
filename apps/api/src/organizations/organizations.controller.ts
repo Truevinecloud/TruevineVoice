@@ -17,6 +17,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   Inject,
   Param,
@@ -39,6 +40,7 @@ import type { Request } from 'express';
 import { ipPrefixOf } from '../auth/cookies.js';
 import {
   ORGANIZATION_ROLES,
+  type OrganizationPermission,
   type OrganizationRole,
 } from '@truevine/auth';
 
@@ -287,6 +289,30 @@ export class OrganizationsController {
     return { ok: true };
   }
 
+  /**
+   * A partial permission snapshot must never be returned: the client would hide
+   * controls the server still enforces, or show controls the server denies.
+   * Map the infrastructure failure to a safe 503 without echoing its cause.
+   */
+  private async effectivePermissionsOrUnavailable(
+    organizationId: string,
+    role: OrganizationRole,
+  ): Promise<readonly OrganizationPermission[]> {
+    try {
+      return await this.organizations.effectivePermissions(organizationId, role);
+    } catch {
+      throw new HttpException(
+        {
+          error: {
+            code: 'permissions_unavailable',
+            message: 'Effective permissions are temporarily unavailable.',
+          },
+        },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+  }
+
   /** Builds the membership list `GET /me` returns, including each role's permissions. */
   private async membershipSummaries(userId: string): Promise<readonly MembershipSummary[]> {
     const memberships = await this.organizations.membershipsFor(userId);
@@ -297,7 +323,7 @@ export class OrganizationsController {
         const organizationStatus: 'ACTIVE' | 'SUSPENDED' = suspended ? 'SUSPENDED' : 'ACTIVE';
         const permissions = suspended
           ? []
-          : await this.organizations.effectivePermissions(
+          : await this.effectivePermissionsOrUnavailable(
               membership.organization.id,
               membership.role as OrganizationRole,
             );

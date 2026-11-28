@@ -193,6 +193,7 @@ export class AlertEvaluationService {
   private timer: NodeJS.Timeout | undefined;
   private collecting = false;
   private lastEvaluations: AlertEvaluation[] = [];
+  private lastSamples: Record<string, MetricSamplePoint> = {};
   private readonly config: ObservabilityConfig;
   private readonly collectors: MetricCollector[];
   private readonly notifier: { notify(evaluation: AlertEvaluation): Promise<void> };
@@ -239,7 +240,7 @@ export class AlertEvaluationService {
   get state(): CollectionResult {
     return {
       timestamp: new Date().toISOString(),
-      samples: {},
+      samples: { ...this.lastSamples },
       evaluations: this.lastEvaluations,
       firing: this.lastEvaluations.filter((e) => e.state === 'firing'),
       recovering: this.lastEvaluations.filter((e) => e.state === 'recovering'),
@@ -303,6 +304,11 @@ export class AlertEvaluationService {
     const firing = evaluations.filter((e) => e.state === 'firing');
     const recovering = evaluations.filter((e) => e.state === 'recovering');
     const overallSeverity = this.overallSeverity(evaluations);
+
+    // Keep the most recent complete cycle available to read-only consumers
+    // such as the worker observability controller. A copy prevents callers
+    // from mutating the service's internal snapshot.
+    this.lastSamples = { ...samples };
 
     const result: CollectionResult = {
       timestamp: new Date().toISOString(),

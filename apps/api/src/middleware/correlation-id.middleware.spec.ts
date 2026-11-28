@@ -1,3 +1,4 @@
+import type { Request, Response } from 'express';
 import { describe, expect, it } from 'vitest';
 
 import { correlationIdMiddleware, CORRELATION_ID_HEADER } from './correlation-id.middleware.js';

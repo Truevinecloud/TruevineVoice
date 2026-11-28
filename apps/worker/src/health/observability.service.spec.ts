@@ -1,7 +1,10 @@
+import type { QueueDepthSample } from '@truevine/shared';
+import type { Redis } from 'ioredis';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkerConfig } from '../config/worker.config.js';
 import { ObservabilityService } from './observability.service.js';
+import type { QueueMetricsService } from './queue-metrics.service.js';
 
 const makeConfig = (overrides: Partial<WorkerConfig> = {}): WorkerConfig => ({
   environment: 'test',
@@ -18,9 +21,18 @@ const makeConfig = (overrides: Partial<WorkerConfig> = {}): WorkerConfig => ({
   ...overrides,
 });
 
-const makeQueueMetrics = (samples: any[] = []) => ({
+type QueueMetricsFake = {
+  readonly initialize: QueueMetricsService['initialize'];
+  readonly collect: QueueMetricsService['collect'];
+  readonly monitoredQueueCount: number;
+};
+
+const asQueueMetrics = (fake: QueueMetricsFake): QueueMetricsService =>
+  fake as unknown as QueueMetricsService;
+
+const makeQueueMetrics = (samples: QueueDepthSample[] = []): QueueMetricsFake => ({
   initialize: vi.fn(async () => undefined),
-  collect: vi.fn(async () => samples),
+  collect: vi.fn(async (): Promise<QueueDepthSample[]> => samples),
   monitoredQueueCount: samples.length,
 });
 
@@ -28,6 +40,8 @@ const makeRedis = () => ({
   ping: vi.fn(async () => 'PONG'),
   disconnect: vi.fn(async () => undefined),
 });
+
+const asRedis = (fake: ReturnType<typeof makeRedis>): Redis => fake as unknown as Redis;
 
 describe('ObservabilityService (worker)', () => {
   it('collects queue and host resource metrics', async () => {
@@ -48,11 +62,14 @@ describe('ObservabilityService (worker)', () => {
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics as any,
-      redis as any,
+      asQueueMetrics(queueMetrics),
+      asRedis(redis),
     );
 
     await service.onModuleInit();
+    // Periodic collection begins after the configured interval. Perform one
+    // explicit cycle so the read-only state snapshot has current samples.
+    await service.collectOnce();
 
     const state = service.state;
     expect(state.samples['queue.waiting']?.value).toBe(10);
@@ -70,8 +87,8 @@ describe('ObservabilityService (worker)', () => {
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics as any,
-      redis as any,
+      asQueueMetrics(queueMetrics),
+      asRedis(redis),
     );
 
     await service.onModuleInit();
@@ -95,8 +112,8 @@ describe('ObservabilityService (worker)', () => {
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics as any,
-      redis as any,
+      asQueueMetrics(queueMetrics),
+      asRedis(redis),
     );
 
     await service.onModuleInit();
@@ -127,16 +144,22 @@ describe('ObservabilityService (worker)', () => {
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics as any,
-      redis as any,
+      asQueueMetrics(queueMetrics),
+      asRedis(redis),
     );
 
     await service.onModuleInit();
 
     const state = await service.collectOnce();
-    // waiting=200 breaches critical threshold (100) for queue_depth_high
+    // waiting=200 breaches the critical threshold (100) for queue_depth_high,
+    // but that rule deliberately requires sustained, consecutive breaches
+    // before it transitions to `firing`. One cycle reports severity and the
+    // breach without pretending the alert has fired.
     expect(state.overallSeverity).toBe('critical');
-    expect(state.firing.length).toBeGreaterThan(0);
+    const depth = state.evaluations.find((e) => e.ruleName === 'queue_depth_high');
+    expect(depth?.breached).toBe(true);
+    expect(depth?.severity).toBe('critical');
+    expect(state.firing).toHaveLength(0);
 
     service.onModuleDestroy();
   });
@@ -149,13 +172,14 @@ describe('ObservabilityService (worker)', () => {
       collect: vi.fn(async () => {
         throw new Error('queue unavailable');
       }),
+      monitoredQueueCount: 1,
     };
     const redis = makeRedis();
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics as any,
-      redis as any,
+      asQueueMetrics(queueMetrics),
+      asRedis(redis),
     );
 
     // Should not throw even though initialize fails
@@ -174,8 +198,8 @@ describe('ObservabilityService (worker)', () => {
 
     const service = new ObservabilityService(
       makeConfig(),
-      queueMetrics as any,
-      redis as any,
+      asQueueMetrics(queueMetrics),
+      asRedis(redis),
     );
 
     service.onModuleDestroy();

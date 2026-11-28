@@ -12,6 +12,7 @@
 import { cookies } from 'next/headers';
 
 import { apiRequest } from './api-target';
+import type { RolesResponse } from './role-types';
 
 const SESSION_COOKIE = 'tv_session';
 
@@ -110,6 +111,16 @@ export async function fetchInvitations(
   organizationId: string,
 ): Promise<readonly Invitation[] | null> {
   return readJson<readonly Invitation[]>(`/organizations/${organizationId}/invitations`);
+}
+
+export async function fetchRoles(organizationId: string): Promise<RolesResponse | null> {
+  return readJson<RolesResponse>(`/organizations/${organizationId}/roles`);
+}
+
+export async function fetchOrganizationMembers(
+  organizationId: string,
+): Promise<readonly Member[] | null> {
+  return readJson<readonly Member[]>(`/organizations/${organizationId}/members`);
 }
 
 export async function fetchCampaigns(organizationId: string): Promise<readonly Campaign[] | null> {

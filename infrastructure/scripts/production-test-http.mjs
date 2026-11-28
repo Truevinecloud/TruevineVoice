@@ -8,6 +8,11 @@ const assert = (condition, context = '') => { if (!condition) throw new Error(`P
  * responses fail closed. Cookies/body data never leave this private client. */
 export function privateHttpClient(origin, transport = fetch, controls = {}) {
   const jar = new Map();
+  // `Secure` is a transport property, not an environment label: the app sets it
+  // for HTTPS origins and deliberately omits it on plain loopback HTTP so the
+  // browser does not discard the cookie. Verify exactly what this origin can
+  // deliver, rather than demanding HTTPS attributes from an HTTP rehearsal.
+  const secureCookies = new URL(origin).protocol === 'https:';
   let sessionAttributes = false;
   async function call(method, path, body) {
     assert((path === '/health' || path.startsWith('/api/')) && !path.includes('?') && !path.includes('#'));
@@ -28,11 +33,11 @@ export function privateHttpClient(origin, transport = fetch, controls = {}) {
       const value = pair.slice(index + 1);
       if (!['tv_csrf', 'tv_session'].includes(name)) continue;
       assert(!/;\s*domain=/i.test(cookie));
-      if (name === 'tv_csrf' && value) assert(/;\s*secure(?:;|$)/i.test(cookie) &&
+      if (name === 'tv_csrf' && value) assert(/;\s*secure(?:;|$)/i.test(cookie) === secureCookies &&
         !/;\s*httponly(?:;|$)/i.test(cookie) && /;\s*samesite=lax(?:;|$)/i.test(cookie) && /;\s*path=\/(?:;|$)/i.test(cookie));
       if (value === '') jar.delete(name); else jar.set(name, value);
       if (name === 'tv_session' && value) {
-        sessionAttributes = /;\s*secure(?:;|$)/i.test(cookie) && /;\s*httponly(?:;|$)/i.test(cookie) &&
+        sessionAttributes = /;\s*secure(?:;|$)/i.test(cookie) === secureCookies && /;\s*httponly(?:;|$)/i.test(cookie) &&
           /;\s*samesite=lax(?:;|$)/i.test(cookie) && /;\s*path=\/(?:;|$)/i.test(cookie);
       }
     }
