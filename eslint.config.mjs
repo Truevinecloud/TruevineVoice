@@ -73,21 +73,22 @@ export default tseslint.config(
   },
 
   // Node-side workspaces: API, worker, packages, build tooling.
-  {
+{
     files: [
-      'apps/api/**/*.ts',
-      'apps/worker/**/*.ts',
-      'packages/**/*.ts',
-      '*.mjs',
-      'infrastructure/**/*.mjs',
-      'infrastructure/**/*.ts',
-      '**/*.config.ts',
-      '**/*.config.mts',
+        'apps/api/**/*.ts',
+        'apps/worker/**/*.ts',
+        'packages/**/*.ts',
+        '*.mjs',
+        'scripts/testing/**/*.mjs',
+        'infrastructure/**/*.mjs',
+        'infrastructure/**/*.ts',
+        '**/*.config.ts',
+        '**/*.config.mts',
     ],
     languageOptions: {
-      globals: { ...globals.node },
+        globals: { ...globals.node },
     },
-  },
+},
 
   {
     files: ['infrastructure/pm2/**/*.js'],

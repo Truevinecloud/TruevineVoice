@@ -183,3 +183,47 @@ export function audioProviderUnavailable(): AuthError {
     503,
   );
 }
+
+/** Member not found in the caller's organization. */
+export function memberNotFound(): AuthError {
+  return new AuthError('member_not_found', 'No such member in this organization.', 404);
+}
+
+/** Role assignment failed validation. */
+export function roleAssigned(): AuthError {
+  return new AuthError('role_assigned', 'Role assignment conflict.', 409);
+}
+
+/** Role name conflicts with an existing role in the organization. */
+export function roleNameConflict(): AuthError {
+  return new AuthError('role_name_conflict', 'A role with this name already exists.', 409);
+}
+
+/** Role not found in the caller's organization. */
+export function roleNotFound(): AuthError {
+  return new AuthError('role_not_found', 'No such role in this organization.', 404);
+}
+
+/** Self-unassignment of owner role is not permitted. */
+export function selfUnassignment(): AuthError {
+  return new AuthError(
+    'self_unassignment',
+    'You cannot unassign yourself from the owner role.',
+    403,
+  );
+}
+
+/** System role is protected and cannot be modified. */
+export function systemRoleProtected(): AuthError {
+  return new AuthError('system_role_protected', 'System roles cannot be modified.', 403);
+}
+
+/** Role assignment failed. */
+export function assignmentFailed(): AuthError {
+  return new AuthError('assignment_failed', 'Role assignment failed.', 400);
+}
+
+/** Role assignment not found. */
+export function assignmentNotFound(): AuthError {
+  return new AuthError('role_assignment_not_found', 'Role assignment not found.', 404);
+}

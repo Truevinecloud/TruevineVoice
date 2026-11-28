@@ -24,3 +24,12 @@ export {
   createFakeVoiceAdapter,
   type FakeVoiceAdapterOptions,
 } from './adapters/fake/fake-voice.adapter.js';
+
+export {
+  CallbackReceipts,
+  type CallbackReceiptsOptions,
+} from './callback-receipts.js';
+
+export type { CallDatabase } from './call-event-persistence.js';
+
+export { CallPersistenceError } from './call-contract.js';

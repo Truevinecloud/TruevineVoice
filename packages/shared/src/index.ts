@@ -10,3 +10,18 @@ export * from './env.js';
 export * from './health.js';
 export * from './metrics.js';
 export * from './resource-collector.js';
+
+export {
+  AlertEvaluationService,
+  HostResourceCollector,
+  MetricCollector,
+  PaymentFailureCounter,
+  ProviderFailureCounter,
+} from './observability.js';
+
+export {
+  generateCorrelationId,
+  StructuredLogNotifier,
+} from './logging.js';
+
+export { CorrelationIdContext } from './correlation-id.js';

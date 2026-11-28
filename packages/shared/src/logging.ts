@@ -165,3 +165,32 @@ export class CorrelationIdContext {
     this.correlationId = undefined;
   }
 }
+
+/**
+ * Structured log notifier for alert evaluation results.
+ *
+ * Implements the notifier interface used by AlertEvaluationService: each firing
+ * or recovering evaluation is serialized as a structured log entry and written
+ * to stdout.
+ */
+export class StructuredLogNotifier {
+  async notify(evaluation: AlertEvaluation): Promise<void> {
+    const entry = buildLogEntry(
+      'observability',
+      evaluation.state === 'firing' ? 'error' : 'warn',
+      `Alert ${evaluation.ruleName}: ${evaluation.state} (severity: ${evaluation.severity}, value: ${evaluation.value ?? 'n/a'})`,
+      evaluation.ruleName,
+      {
+        ruleName: evaluation.ruleName,
+        severity: evaluation.severity,
+        state: evaluation.state,
+        value: evaluation.value,
+        threshold: evaluation.threshold,
+        breached: evaluation.breached,
+        consecutiveBreaches: evaluation.consecutiveBreaches,
+        suppressed: evaluation.suppressed,
+      },
+    );
+    console.log(serializeLogEntry(entry));
+  }
+}
