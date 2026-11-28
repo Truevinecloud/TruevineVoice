@@ -62,7 +62,6 @@ type TransactionClient = Pick<
   | 'securityAuditEvent'
   | 'identityAuditEvent'
   | 'customRole'
-  | 'customRoles'
   | 'rolePermission'
   | 'roleAssignment'
   | '$queryRaw'
@@ -86,6 +85,9 @@ export class PrismaSecurityTransaction implements SecurityTransaction {
         platformRoleAssignment: tx.platformRoleAssignment,
         securityAuditEvent: tx.securityAuditEvent,
         identityAuditEvent: tx.identityAuditEvent,
+        customRole: tx.customRole,
+        rolePermission: tx.rolePermission,
+        roleAssignment: tx.roleAssignment,
         $queryRaw: tx.$queryRaw.bind(tx),
         $transaction: (callback) => callback(tx),
       };
