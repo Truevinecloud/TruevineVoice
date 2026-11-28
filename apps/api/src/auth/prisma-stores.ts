@@ -61,6 +61,10 @@ type TransactionClient = Pick<
   | 'platformRoleAssignment'
   | 'securityAuditEvent'
   | 'identityAuditEvent'
+  | 'customRole'
+  | 'customRoles'
+  | 'rolePermission'
+  | 'roleAssignment'
   | '$queryRaw'
 >;
 export type SecurityDatabase = TransactionClient & {

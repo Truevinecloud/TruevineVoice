@@ -614,6 +614,8 @@ model AudioAsset {
   ttsProvider String? @map("tts_provider") @db.VarChar(64)
   ttsVoice String? @map("tts_voice") @db.VarChar(64)
   ttsCharacterCount Int? @map("tts_character_count")
+  audioBlob Bytes? @map("audio_blob") @db.Bytea
+  storageBackend String? @map("storage_backend") @db.VarChar(32)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   creator Membership @relation(fields: [organizationId, createdById], references: [organizationId, userId], onDelete: Restrict)
@@ -624,6 +626,101 @@ model AudioAsset {
   @@unique([organizationId, storageKey])
   @@index([organizationId, createdAt, id])
   @@map("audio_assets")
+}
+
+model CustomRole {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  name String @db.VarChar(120)
+  description String? @db.VarChar(500)
+  type String @map("type") @db.VarChar(32)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions RolePermission[]
+  assignments RoleAssignment[]
+  @@id([organizationId, id])
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("custom_roles")
+}
+
+model RolePermission {
+  organizationId String @map("organization_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+  permission String @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  role CustomRole @relation(fields: [organizationId, roleId], references: [organizationId, id], onDelete: Cascade)
+  @@id([organizationId, roleId, permission])
+  @@index([organizationId, roleId])
+  @@map("role_permissions")
+}
+
+model RoleAssignment {
+  organizationId String @map("organization_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  role CustomRole @relation(fields: [organizationId, roleId], references: [organizationId, id], onDelete: Cascade)
+  @@id([organizationId, roleId, userId])
+  @@index([organizationId, roleId])
+  @@index([organizationId, userId])
+  @@map("role_assignments")
+}
+
+model AudioBlob {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  audioId String @map("audio_id") @db.Uuid
+  blob Bytes @map("blob") @db.Bytea
+  contentType String @map("content_type") @db.VarChar(128)
+  sizeBytes BigInt @map("size_bytes")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  audio AudioAsset @relation(fields: [organizationId, audioId], references: [organizationId, id], onDelete: Cascade)
+  @@id([organizationId, id])
+  @@unique([organizationId, audioId])
+  @@index([organizationId])
+  @@map("audio_blobs")
+}
+
+model CustomRole {
+  organizationId String @map("organization_id") @db.Uuid
+  id String @default(uuid()) @db.Uuid
+  name String @db.VarChar(120)
+  description String? @db.VarChar(500)
+  type String @map("type") @db.VarChar(32)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions RolePermission[]
+  assignments RoleAssignment[]
+  @@id([organizationId, id])
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("custom_roles")
+}
+
+model RolePermission {
+  organizationId String @map("organization_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+  permission String @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  role CustomRole @relation(fields: [organizationId, roleId], references: [organizationId, id], onDelete: Cascade)
+  @@id([organizationId, roleId, permission])
+  @@index([organizationId, roleId])
+  @@map("role_permissions")
+}
+
+model RoleAssignment {
+  organizationId String @map("organization_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  role CustomRole @relation(fields: [organizationId, roleId], references: [organizationId, id], onDelete: Cascade)
+  @@id([organizationId, roleId, userId])
+  @@index([organizationId, roleId])
+  @@index([organizationId, userId])
+  @@map("role_assignments")
 }
 
 /// Durable operation keys prevent a repeated TTS request from charging the
