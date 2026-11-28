@@ -776,7 +776,10 @@ The existing Ubuntu VPS is deployed through a successful main-push CI run.
 The pipeline builds all four real applications in separate release directories,
 uses a dedicated non-root SSH account with pinned host keys, preserves the
 production `.env` and databases, and verifies PM2 and local/public HTTP health.
-The 2026-10-14 audit confirmed the existing `/admin` and `/health` routes.
+The 2026-10-14 audit confirmed the existing public customer and `/health`
+routes. Admin is served only on the approved dedicated hostname
+`https://admin.voice.truevinecloud.online/admin`, restricted to the approved
+operator IP and never on the customer host.
 The deployment uses an isolated pinned runtime under `/opt/truevine-runtime`
 and preserves the legacy checkout for recovery. See the runbook for first cutover.
 
@@ -784,10 +787,17 @@ See [production setup, secrets, routing and rollback](./docs/runbooks/production
 [deployment audit and verification](./docs/runbooks/deployment-audit.md), and
 [ADR 0005](./docs/adr/0005-production-deployment.md).
 
+The checked-in Nginx contracts under `infrastructure/nginx/` preserve the
+dedicated Admin hostname, its `102.209.111.186/32` allowance with IPv4/IPv6
+denial, forwarding-header rejection, certbot certificate renewal, loopback-only
+upstreams, customer-host `/admin` blocking and Admin API `no-store`. The
+deployment pipeline never writes or reloads Nginx configuration.
+
 | Command                                        | Purpose                                                                       |
 | ---------------------------------------------- | ----------------------------------------------------------------------------- |
 | `npm run ci:setup-npm`                         | Verify exact Node pin; install/verify the pinned npm if necessary             |
 | `npm run test:deployment`                      | Deployment safety and rollback tests without infrastructure                   |
+| `npm run test:admin-access`                    | Checked-in Nginx Admin-host preservation contract tests                       |
 | `npm run deploy:release -- <SHA>`              | Linux VPS only: build/activate the uploaded release under the deployment lock |
 | `npm run deploy:rollback -- <SHA>`             | Linux VPS only: reactivate a retained verified release                        |
 | `npm run deploy:verify -- <config-path> <SHA>` | Verify local and confirmed public foundation pages/API                        |
