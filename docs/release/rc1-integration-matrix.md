@@ -55,7 +55,7 @@ account, provider or payment path was contacted.
 | Focused disposable E2E (`campaigns`, `billing`, `payment-intents`) | exit `0`, `3` files / `37` tests | `artifacts/e2e-focused.log`. |
 | Full API E2E, serial workers | exit `0`, `25` files / `314` tests | `artifacts/e2e-api-serial.log`, `artifacts/e2e-api-serial.exit`. Serial execution was used because the local loopback container cannot sustain the repository's default parallel E2E load; no timeout or assertion was changed. |
 | Worker E2E | exit `0`, `1` file / `5` tests | `artifacts/e2e-worker.log`, `artifacts/e2e-worker.exit`. Uses `REDIS_URL=redis://localhost:56379`, matching CI; an IP-literal URL does not populate ioredis `stream.remotePort` on Windows. |
-| `npm run test:production-rollout` | exit `0`, `2` files / `33` tests | `artifacts/test-production-rollout.log`. Follows the transport-aware cookie check fix in `infrastructure/scripts/production-test-http.mjs`. |
+| `npm run test:production-rollout` | exit `0`, `2` files / `34` tests | `artifacts/test-production-rollout.log`. Verifies the environment-based cookie contract: production requires `Secure`; `test` rehearsals require its absence, including behind the CI HTTPS proxy. |
 | `npm run test:security` migration gates | 5/5 gates passed; overall exit `1` locally | `artifacts/test-security.log`: empty DB, representative-row preservation, and `owners`/`identity`/`ownerless` rejection gates all passed. Its bundled E2E phase hit three concurrency timeouts on this host; the equivalent serial E2E run above is green. |
 | `npm audit --omit=dev --audit-level=high` | exit `1`, 8 advisories (2 moderate, 6 high) | `artifacts/npm-audit.log`. Not silently suppressed or auto-fixed; a deliberate dependency upgrade is deferred to a dedicated change. |
 | Secret hygiene | no secret value found or printed | `git ls-files --error-unmatch .env` fails as expected; tracked sensitive-looking paths are limited to `.env.example`, credential-cipher source/spec and the credential-configuration ADR. PR #131 credential-like artifacts are absent from this branch. |
@@ -68,10 +68,18 @@ solely for this RC rehearsal.
 
 | Fix | Root cause | Evidence |
 | --- | --- | --- |
-| Transport-aware cookie assertion in `infrastructure/scripts/production-test-http.mjs` | The verifier demanded `Secure` cookies even when its origin was plain loopback HTTP; the application deliberately omits `Secure` on HTTP so the browser does not discard the session. HTTPS rehearsals still require `Secure`; HTTP rehearsals now reject it. The unit fixture origin was aligned with the HTTPS cookies it serves. | `artifacts/test-production-rollout.log` and `artifacts/e2e-rollout-focused.log` both exit `0`; no security check was removed. |
+| Cookie assertion in `infrastructure/scripts/production-test-http.mjs` | The verifier derived `Secure` from the rehearsal URL, but the application derives it from its environment: `test` omits `Secure` even behind the CI HTTPS proxy, while production requires it. The verifier now takes the expectation from the approved environment; direct callers default to HTTPS. The unit fixture uses a loopback HTTP origin and a new contract test covers both cases. | `artifacts/test-production-rollout.log` exits `0` with `34` tests; full API E2E exits `0` with `314` tests. No security assertion was removed. |
 | RBAC projection contracts | The API role matrix, custom-delegation expectations and `GET /me` partial-snapshot handling were stale relative to replayed PR #129 code. A failed grant lookup now fails closed with `permissions_unavailable` instead of returning a partial permission set. | `artifacts/test-api-rbac.log`: 3 files / 346 tests pass; full `npm test` green. |
 | Worker observability state | Alert expectations were corrected to honour sustained/consecutive thresholds, and the shared observability snapshot now retains the latest samples. | `artifacts/test-worker.log`: 11 files / 72 tests pass. |
 | Web analytics read-only contract | The viewer spec now permits filter/paging/CSV controls while still forbidding `Launch`, `Edit`, `Delete`, `Pause`, `Resume` and `Cancel`. | `artifacts/test-web-readonly.log`: 1 file / 5 tests pass. |
+
+### PR #132 CI feedback
+
+The first PR #132 check run (`46119844969`) failed only in `End-to-end tests`, at the
+Linux HTTPS rollout initialize step, because the verifier still demanded `Secure`
+cookies from an app running with `environment: 'test'`. The environment-based fix
+above was then committed and pushed. Authoritative status for the final branch head
+is the PR #132 check rollup; no test, timeout or assertion was weakened to obtain it.
 
 ## Integration commits currently on the branch
 
@@ -96,7 +104,7 @@ Verified with `git log --oneline --no-merges origin/main..HEAD` (oldest first).
 | `61f744a` | Completed effective-permission and callback configuration contracts. |
 | `71e8186` | Restored shared UI exports and corrected web analytics gating. |
 | `b343dd1` | Mapped the Prisma enum to the reviewed SQL identifier `audio_storage_backend`; no migration was edited. |
-| `41dc083` | Reconciled final validation fixes: RBAC projection, analytics viewer contract, worker observability snapshot, transport-aware rollout cookie verification and release evidence documents. |
+| `41dc083` | Reconciled final validation fixes: RBAC projection, analytics viewer contract, worker observability snapshot, rollout cookie verification and release evidence documents. |
 
 ## Static wiring facts
 
