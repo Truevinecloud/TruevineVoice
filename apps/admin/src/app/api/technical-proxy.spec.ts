@@ -23,6 +23,7 @@ describe('technical API proxy', () => {
         { params: Promise.resolve({ path: ['platform', 'technical', section] }) },
       );
       expect(response.status).toBe(403);
+      expect(response.headers.get('cache-control')).toBe('no-store');
       expect(upstream).toHaveBeenCalledWith(
         new URL(
           `http://127.0.0.1:3003/platform/technical/${section}?action=platform.technical.logs_viewed`,
