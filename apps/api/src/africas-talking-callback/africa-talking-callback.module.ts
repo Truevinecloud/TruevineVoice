@@ -1,24 +1,27 @@
-import { Global, Inject, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { CallbackReceipts, type CallDatabase } from '@truevine/telephony';
 
+import { InfrastructureModule } from '../infrastructure/infrastructure.module.js';
 import { DATABASE_CLIENT } from '../tokens.js';
-import { AfricaTalkingCallbackController } from './africa-talking-callback.controller.js';
+import {
+  AfricaTalkingCallbackController,
+  callbackApiKeyFromEnv,
+} from './africa-talking-callback.controller.js';
 
 /**
- * Africa's Talking voice callback webhook module.
+ * Africa's Talking callback intake.
  *
- * Registers the `/webhooks/africastalking` POST endpoint that receives call
- * event callbacks from Africa's Talking and records them as durable receipts.
- *
- * To enable, add this module to `AppModule.imports` and configure the
- * `AT_CALLBACK_API_KEY` provider (see `AT_CALLBACK_API_KEY` token below).
+ * The route is registered with fail-closed verification: a missing, blank or
+ * short `AT_CALLBACK_API_KEY` leaves the controller rejecting every callback.
+ * The only side effect is a durable receipt insert; no settlement, dispatch or
+ * provider call is wired here.
  */
-@Global()
 @Module({
+  imports: [InfrastructureModule],
   providers: [
     {
       provide: 'AT_CALLBACK_API_KEY',
-      useFactory: () => process.env['AT_CALLBACK_API_KEY'] ?? null,
+      useFactory: () => callbackApiKeyFromEnv(process.env['AT_CALLBACK_API_KEY']),
     },
     {
       provide: CallbackReceipts,
@@ -28,8 +31,6 @@ import { AfricaTalkingCallbackController } from './africa-talking-callback.contr
     AfricaTalkingCallbackController,
   ],
   controllers: [AfricaTalkingCallbackController],
-  exports: [AfricaTalkingCallbackController],
+  exports: [CallbackReceipts],
 })
-export class AfricaTalkingCallbackModule {
-  constructor(@Inject(DATABASE_CLIENT) readonly _db: unknown) {}
-}
+export class AfricaTalkingCallbackModule {}

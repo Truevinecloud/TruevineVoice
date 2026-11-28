@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AfricaTalkingCallbackModule } from './africas-talking-callback/africa-talking-callback.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AnalyticsModule } from './analytics/analytics.module.js';
 import { AudioModule } from './audio/audio.module.js';
@@ -11,12 +12,15 @@ import { ContactsModule } from './contacts/contacts.module.js';
 import { HealthModule } from './health/health.module.js';
 import { InfrastructureModule } from './infrastructure/infrastructure.module.js';
 import { OrganizationsModule } from './organizations/organizations.module.js';
+import { ObservabilityModule } from './observability/observability.module.js';
 import { OperationsModule } from './operations/operations.module.js';
+import { SmsFallbackModule } from './sms/sms-fallback.module.js';
 import { PaymentIntentsModule } from './payments/payment-intents.module.js';
 import { PaymentProvidersModule } from './payments/payment-providers.module.js';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module.js';
 import { SupportModule } from './support/support.module.js';
 import { TechnicalModule } from './technical/technical.module.js';
+import { VoiceProvidersModule } from './voice-providers/voice-providers.module.js';
 
 /**
  * Root API module.
@@ -46,6 +50,10 @@ import { TechnicalModule } from './technical/technical.module.js';
     AuditModule,
     AudioModule,
     AnalyticsModule,
+    VoiceProvidersModule,
+    AfricaTalkingCallbackModule,
+    SmsFallbackModule,
+    ObservabilityModule,
   ],
 })
 export class AppModule {}

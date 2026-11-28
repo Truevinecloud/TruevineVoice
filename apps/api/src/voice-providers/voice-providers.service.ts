@@ -31,6 +31,19 @@ export function voiceKey(value: string | undefined): Buffer | undefined {
   return Buffer.from(value, 'base64');
 }
 
+/**
+ * Optional provider key resolution for start-up. A missing or malformed key
+ * must leave voice configuration unavailable, not abort an otherwise healthy
+ * API boot where no provider is enabled.
+ */
+export function voiceKeyFromEnv(value: string | undefined): Buffer | null {
+  try {
+    return voiceKey(value) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function encryptKey(key: Buffer, environment: Environment, value: string): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
