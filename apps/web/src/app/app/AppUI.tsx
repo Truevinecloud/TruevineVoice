@@ -94,3 +94,90 @@ export function StatusBadge({
 }): React.JSX.Element {
   return <span className={`status-badge status-badge--${tone}`}>{children}</span>;
 }
+
+export function Button({
+  children,
+  disabled = false,
+  onClick,
+  type = 'button',
+  variant = 'primary',
+}: {
+  readonly children: ReactNode;
+  readonly disabled?: boolean;
+  readonly onClick?: () => void;
+  readonly type?: 'button' | 'submit' | 'reset';
+  readonly variant?: 'primary' | 'secondary' | 'danger';
+}): React.JSX.Element {
+  return (
+    <button
+      className={`button-${variant}`}
+      disabled={disabled}
+      onClick={onClick}
+      type={type}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function Input({
+  id,
+  type = 'text',
+  value,
+  onChange,
+  placeholder,
+  maxLength,
+  required,
+  disabled,
+}: {
+  readonly id: string;
+  readonly type?: string;
+  readonly value: string;
+  readonly onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  readonly placeholder?: string;
+  readonly maxLength?: number;
+  readonly required?: boolean;
+  readonly disabled?: boolean;
+}): React.JSX.Element {
+  return (
+    <input
+      id={id}
+      className="input"
+      type={type}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      maxLength={maxLength}
+      required={required}
+      disabled={disabled}
+    />
+  );
+}
+
+export function Textarea({
+  id,
+  value,
+  onChange,
+  placeholder,
+  rows,
+  disabled,
+}: {
+  readonly id: string;
+  readonly value: string;
+  readonly onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  readonly placeholder?: string;
+  readonly rows?: number;
+  readonly disabled?: boolean;
+}): React.JSX.Element {
+  return (
+    <textarea
+      id={id}
+      className="textarea"
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      rows={rows}
+      disabled={disabled}
+    />
+  );
+}

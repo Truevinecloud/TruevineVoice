@@ -112,9 +112,7 @@ describe('read-only Viewer campaign and report pages', () => {
 
     expect(markup).toContain('Campaign inventory summary');
     expect(markup).toContain('<dd>5</dd>');
-    expect(markup).toContain(
-      'Call attempts, delivery outcomes, and performance metrics are not available yet',
-    );
+    expect(markup).toContain('Drafts are prepared records');
     expect(markup).not.toMatch(/<form|<button|Launch|Edit|Delete/);
     expect(mocks.report).toHaveBeenCalledWith('org-a');
   });

@@ -8,6 +8,7 @@ import { formatDateTime } from '../../../lib/datetime';
 import type { Campaign } from '../../../lib/org-api';
 import { StatusBadge } from '../AppUI';
 import type { CampaignAudioAsset, CampaignGroup } from './campaign-builder';
+import { CampaignAnalytics } from './campaign-analytics';
 
 interface Preflight {
   readonly valid: boolean;
@@ -27,6 +28,7 @@ export function CampaignDetail({
   assets,
   canUpdate,
   canDelete,
+  canReadReports,
   onEdit,
   onDeleted,
   onClose,
@@ -37,6 +39,7 @@ export function CampaignDetail({
   readonly assets: readonly CampaignAudioAsset[];
   readonly canUpdate: boolean;
   readonly canDelete: boolean;
+  readonly canReadReports: boolean;
   readonly onEdit: () => void;
   readonly onDeleted: (campaignId: string) => void;
   readonly onClose: () => void;
@@ -241,6 +244,10 @@ export function CampaignDetail({
         deleting a draft does not contact anyone and does not activate telephony, text to speech or
         any paid provider.
       </p>
+
+      {canReadReports && (
+        <CampaignAnalytics organizationId={organizationId} campaignId={campaign.id} />
+      )}
     </section>
   );
 }
