@@ -1,21 +1,18 @@
 /**
- * Africa's Talking voice callback webhook — NOT MOUNTED.
+ * Africa's Talking voice callback webhook — fail-closed durable receipt intake.
  *
- * This controller is kept on disk for the reviewed callback design but is
- * deliberately absent from `AppModule`. Public/provider callback ingress is
- * not approved: `docs/w4-03-provider-callback-controls.md` still lists the
- * bearer-token, allowlist, retention and test-number decisions as outstanding.
+ * Africa's Talking does not document a signed callback, so the only
+ * implemented check is a shared API key. An absent, blank or short key leaves
+ * every request rejected: there is no unauthenticated public callback path.
  *
- * If it is ever mounted, it must fail closed. Africa's Talking does not
- * document a signed callback, so the only implemented check is a shared API
- * key. With no key configured, every request is rejected — there is no
- * unauthenticated public callback path.
- *
- * The handler only records durable receipts. It places no calls and does not
- * mutate provider state. Correlation and state changes belong to the callback
- * worker, using the binding created during dispatch. Provider field names are
- * normalized inside @truevine/telephony and do not enter our domain types.
+ * The handler only records durable receipts. It places no calls, charges
+ * nothing and does not mutate provider state. Correlation and state changes
+ * belong to the callback worker, using the binding created during dispatch.
+ * Provider field names are normalized inside @truevine/telephony and do not
+ * enter our domain types.
  */
+
+import { timingSafeEqual } from 'node:crypto';
 
 import {
   BadRequestException,
@@ -39,7 +36,24 @@ interface AfricaTalkingCallbackRequest {
   readonly body?: unknown;
 }
 
-/** Africa's Talking outbound call event webhook. Kept unwired until approval. */
+/**
+ * Resolves the optional shared callback key at start-up. A short or blank
+ * value is treated as absent so a misconfigured ingress rejects everything
+ * instead of accepting a guessable key.
+ */
+export function callbackApiKeyFromEnv(value: string | undefined): string | null {
+  const candidate = value?.trim();
+  return candidate && candidate.length >= 32 ? candidate : null;
+}
+
+/** Constant-time comparison with a length guard; no key material is logged. */
+function apiKeyMatches(provided: string, expected: string): boolean {
+  const supplied = Buffer.from(provided, 'utf8');
+  const configured = Buffer.from(expected, 'utf8');
+  return supplied.length === configured.length && timingSafeEqual(supplied, configured);
+}
+
+/** Africa's Talking outbound call event webhook: authenticated receipt intake only. */
 @Controller('webhooks/africastalking')
 export class AfricaTalkingCallbackController {
   constructor(
@@ -56,7 +70,7 @@ export class AfricaTalkingCallbackController {
 
     const header = request.headers['apikey'];
     const providedKey = Array.isArray(header) ? header[0] : header;
-    if (!providedKey || providedKey !== this.expectedApiKey)
+    if (!providedKey || !apiKeyMatches(providedKey, this.expectedApiKey))
       throw new UnauthorizedException('Invalid Africa\u2019s Talking callback credentials.');
 
     let event: NormalizedAfricaTalkingCallback;

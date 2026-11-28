@@ -24,6 +24,7 @@ Naming: `NNNN-short-kebab-title.md`, numbered sequentially and never reused.
 | [0017](./0017-provider-neutral-telephony-port-and-call-domain.md) | Provider-neutral telephony port and pure call domain | Accepted for implementation                               |
 | [0023](./0023-campaign-draft-preparation.md)                      | Campaign draft preparation separated from execution  | Proposed with W3-03                                       |
 | [0024](./0024-payment-provider-credential-configuration.md)       | Payment-provider credential configuration            | Proposed; production approval withheld                    |
+| [0026](./0026-fail-closed-api-provider-wiring.md)                 | Fail-closed API provider wiring                      | Accepted for implementation; provider activation withheld |
 
 ## When to write an ADR
 

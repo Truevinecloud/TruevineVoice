@@ -119,6 +119,22 @@ describe('platform session proxy', () => {
     expect(unreviewed.status).toBe(404);
   });
 
+  it('keeps newly registered provider and metrics routes outside the admin proxy allowlist', async () => {
+    const paths = [
+      ['platform', 'voice-providers'],
+      ['metrics'],
+      ['webhooks', 'africastalking'],
+      ['organizations', 'org', 'campaigns', 'campaign', 'sms-fallback'],
+    ];
+    for (const path of paths) {
+      const response = await GET(new NextRequest('https://admin.example.test/admin/api/x'), {
+        params: Promise.resolve({ path }),
+      });
+      expect(response.status, path.join('/')).toBe(404);
+      expect(await response.json()).toEqual({ error: 'not_found' });
+    }
+  });
+
   it('sets no-store when the upstream API URL is missing', async () => {
     vi.stubEnv('TRUEVINE_API_URL', '');
     const request = new NextRequest('https://admin.example.test/admin/api/me');

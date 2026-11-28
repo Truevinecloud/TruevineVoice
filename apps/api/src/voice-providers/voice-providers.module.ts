@@ -7,7 +7,7 @@ import { CurrentPrincipal, RequirePlatformPermission } from '../auth/permission.
 import type { Principal } from '../auth/principal.js';
 import { SessionGuard } from '../auth/session.guard.js';
 import { InfrastructureModule } from '../infrastructure/infrastructure.module.js';
-import { environmentOf, VOICE_FETCH, VOICE_KEY, voiceKey, VoiceProvidersService } from './voice-providers.service.js';
+import { environmentOf, VOICE_FETCH, VOICE_KEY, voiceKeyFromEnv, VoiceProvidersService } from './voice-providers.service.js';
 
 @Controller('platform/voice-providers')
 export class VoiceProvidersController {
@@ -51,7 +51,7 @@ export class VoiceProvidersController {
   controllers: [VoiceProvidersController],
   providers: [
     VoiceProvidersService,
-    { provide: VOICE_KEY, useFactory: () => voiceKey(process.env['VOICE_CREDENTIAL_ENCRYPTION_KEY']) ?? null },
+    { provide: VOICE_KEY, useFactory: () => voiceKeyFromEnv(process.env['VOICE_CREDENTIAL_ENCRYPTION_KEY']) },
     { provide: VOICE_FETCH, useValue: globalThis.fetch },
   ],
   exports: [VoiceProvidersService],
