@@ -21,14 +21,21 @@ const ALLOWED = [
   /^platform\/payments\/providers\/(MTN_MOMO|AIRTEL_MONEY)\/environments\/(SANDBOX|PRODUCTION)(\/activation)?$/i,
 ];
 
+function noStoreJson(body: unknown, status: number) {
+  return NextResponse.json(body, {
+    status,
+    headers: { 'cache-control': 'no-store' },
+  });
+}
+
 async function forward(request: NextRequest, context: RouteContext) {
   const { path } = await context.params;
   const targetPath = path.join('/');
   if (!ALLOWED.some((pattern) => pattern.test(targetPath))) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 });
+    return noStoreJson({ error: 'not_found' }, 404);
   }
   const base = process.env['TRUEVINE_API_URL'];
-  if (!base) return NextResponse.json({ error: 'api_unavailable' }, { status: 503 });
+  if (!base) return noStoreJson({ error: 'api_unavailable' }, 503);
 
   const incoming = new URL(request.url);
   const target = new URL(`/${targetPath}`, base);
@@ -51,13 +58,17 @@ async function forward(request: NextRequest, context: RouteContext) {
     cache: 'no-store',
     redirect: 'manual',
   }).catch(() => undefined);
-  if (!upstream) return NextResponse.json({ error: 'api_unavailable' }, { status: 503 });
+  if (!upstream) return noStoreJson({ error: 'api_unavailable' }, 503);
 
   const responseHeaders = new Headers();
   for (const name of ['content-type', 'cache-control']) {
     const value = upstream.headers.get(name);
     if (value) responseHeaders.set(name, value);
   }
+  // The outbound fetch uses cache: 'no-store', but that does not set a response
+  // header. Force it here so authenticated Admin API responses cannot be stored
+  // by a public cache even if an upstream sends a cacheable directive.
+  responseHeaders.set('cache-control', 'no-store');
   for (const cookie of upstream.headers.getSetCookie())
     responseHeaders.append('set-cookie', cookie);
   return new NextResponse(upstream.body, { status: upstream.status, headers: responseHeaders });
