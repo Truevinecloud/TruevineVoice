@@ -413,18 +413,32 @@ a lost SSH connection/power failure requires inspecting `pm2 ls`, `current`, and
 public health before retrying; no system can run an in-process rollback after
 being killed. The retained releases and lock support supervised recovery.
 
-Deploy never runs development migrations, reset, db push or Compose teardown.
-The migration manifest must exactly match the release migration directories.
-After build and approval checks, deployment runs `npm run prisma:migrate:deploy`
-using DATABASE_URL from the shared production .env, before touching PM2 or current.
-Prisma output is captured to keep connection details out of CI logs. A nonzero
-exit or timeout fails deployment without activating the candidate or restarting
-the baseline. Inspect the migration state securely before retrying.
+Deploy never runs development migrations, reset, db push, Compose teardown,
+manual `prisma migrate deploy`, direct SQL against the live database, or any
+reset-style Prisma command. `infrastructure/migrations-reviewed.json` is a review
+allow-list only: it does not apply SQL or authorize production migration
+execution. PR and `main` CI use disposable databases only. The manifest must
+exactly match the release migration directories in both directions.
+
+Production migrations run only inside this protected workflow, after the exact
+SHA/main-push CI check, manual `authorize_production=true`, environment review,
+explicit migration approval, and verified backup/recovery evidence. After the
+isolated build and those gates, `deploy.mjs` runs
+`npm run prisma:migrate:deploy` using `DATABASE_URL` from the shared production
+`.env`, before touching PM2 or `current`. Prisma output is captured to keep
+connection details out of CI logs. A nonzero exit, timeout, or inconsistent
+ledger prevents activation and leaves the active release untouched. Do not
+retry with a manual migrate command; inspect migration state securely first.
 
 Approval requires SQL review, backward compatibility with the active release,
-a rehearsed backup and a recovery plan. Migration failure can leave partial schema
-changes; code rollback does not undo SQL. Explicit code rollback does not run
-migrations. See [ADR 0011](../adr/0011-reviewed-deployment-migrations.md).
+a rehearsed backup and recovery evidence, and the exact pending migration names.
+The currently deployed schema cannot identify migrations introduced by a newer
+candidate schema, so derive pending names from the reviewed manifest and the
+release diff; see [`rc1-production-preflight.md`](./rc1-production-preflight.md).
+Migration failure can leave partial schema changes. Code rollback does not undo
+SQL or run migrations. Restoring a database is a separate destructive operation
+that requires its own explicit approval and never restores over live production
+as part of this procedure. See [ADR 0011](../adr/0011-reviewed-deployment-migrations.md).
 
 See [ADR 0006](../../docs/adr/0006-tenancy-core-schema.md).
 
@@ -439,9 +453,12 @@ npm run deploy:rollback -- <previous-verified-40-character-SHA>
 
 Rollback uses the same lock, explicit PM2 definitions and all health checks,
 without dependency installation, rebuild, Git operations or database changes.
-It saves PM2 only after verification. If the rollback candidate fails, it attempts
-to restore the previously active release and fails the command. Retain one READY
-release per SHA (duplicate SHA releases require an operator to disambiguate).
+It does not reverse applied SQL and is not a database restore. It saves PM2 only
+after verification. If the rollback candidate fails, it attempts to restore the
+previously active release and fails the command. Retain one READY release per SHA
+(duplicate SHA releases require an operator to disambiguate). A database restore
+requires separate explicit approval and a controlled cutover; never restore
+directly over live production under this rollback procedure.
 
 After deployment/rollback, independently verify the agreed public web URL and
 API URL from another machine. Confirm `/health` returns `status: ok`, both

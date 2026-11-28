@@ -505,9 +505,11 @@ every push to `main`, as four parallel jobs:
 
 CI uses no repository or organisation secrets: the only credentials are the
 disposable local-development values already in `docker-compose.yml`. Node comes
-from `.nvmrc` and npm from `package.json#packageManager`. The pipeline never
-runs `prisma migrate deploy`, and the CI workflow itself does not deploy. A separate deployment workflow
-follows successful main-push CI after production prerequisites are configured.
+from `.nvmrc` and npm from `packageManager`. PR and `main` CI apply migrations
+only to runner-local disposable databases; they never run a production
+migration, and the CI workflow itself does not deploy. A separate protected
+deployment workflow follows successful main-push CI after production
+prerequisites and explicit approvals are configured.
 
 See [`.github/workflows/README.md`](./.github/workflows/README.md) for the design
 notes and [ADR 0004](./docs/adr/0004-github-actions-ci.md) for why the E2E job
@@ -552,8 +554,10 @@ hosted runner and an empty local Docker daemon, and fails elsewhere. See the
 > `npm run typecheck` and `npm run test` build `packages/*` first, because apps
 > resolve `@truevine/*` through their built `dist` output.
 >
-> `npm run prisma:migrate:deploy` runs only in controlled environments. The protected
-> deployment executes approved migrations before activation; see ADR 0011.
+> `npm run prisma:migrate:deploy` must not be run manually against production.
+> The manifest is a review allow-list, not execution authority; production
+> migrations run only inside the protected deployment workflow after all gates
+> and verified backup/recovery evidence, before activation. See ADR 0011.
 
 ---
 

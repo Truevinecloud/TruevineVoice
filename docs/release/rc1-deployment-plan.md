@@ -14,7 +14,7 @@ activation, payment activation or live Voice/SMS action has been performed.** On
 | Exact SHA enforcement | Checked-out SHA, `RELEASE_SHA` and `DEPLOY_SHA` must match; main tip must equal release SHA (`.github/workflows/deploy.yml:55-89`) |
 | CI prerequisite | Completed successful main-push CI for that exact SHA; all required `ci.yml` jobs asserted (`.github/workflows/deploy.yml:68-84`) |
 | Environment gates | `DEPLOYMENT_READY == 'true'`, `production` environment, pinned SSH host keys, serialized deployment (`.github/workflows/deploy.yml:20-32`, `docs/runbooks/production-deployment.md:337-353`) |
-| Migration path | `deploy.mjs` applies reviewed migrations before PM2 activation and adds `-c lock_timeout=5s` (`infrastructure/scripts/deploy.mjs:248-286`) |
+| Migration path | Manifest is a review allow-list only. Production migrations run only inside the protected `deploy.yml` workflow after all gates; `deploy.mjs` applies reviewed migrations before PM2 activation and adds `-c lock_timeout=5s`. No operator-run manual migrate (`infrastructure/scripts/deploy.mjs:248-286`) |
 | Prior production evidence (supplied for this plan; **needs verification** from GitHub Actions/deployment record — not stored in the repository) | Run `46097174759`; deployment record `8123100312`; `/health` and `/` returned `200` |
 
 ## 2. Release sequence
@@ -28,7 +28,7 @@ activation, payment activation or live Voice/SMS action has been performed.** On
 | 5 | Owner approves the RC, exact SHA and migration plan. | All gates in `docs/release/rc1-config-and-accounts.md` section 3. | No |
 | 6 | Merge via the normal PR path to `main`; record the exact merge SHA. | No direct push, force-push or history rewrite. | No |
 | 7 | Verify main CI is green at the exact merge SHA (all four required jobs). | `.github/workflows/deploy.yml:68-84`; no PR artifact is deployable. | No |
-| 8 | Controlled `workflow_dispatch` of `deploy.yml` with the exact merge SHA and `authorize_production=true`, after backup and migration approval. | `.github/workflows/deploy.yml:3-15, 39-89`; `docs/runbooks/production-deployment.md:393-427`. | No |
+| 8 | Controlled `workflow_dispatch` of `deploy.yml` with the exact merge SHA and `authorize_production=true`, after verified backup/recovery evidence and explicit migration approval. No manual migration. | `.github/workflows/deploy.yml:3-15, 39-89`; `docs/runbooks/production-deployment.md:393-427`; `docs/runbooks/rc1-production-preflight.md`. | No |
 | 9 | Post-deploy health/route checks: `/health` status `ok`, dependencies up, `environment: production`, `APP_VERSION` equals selected SHA; verify `/` and confirmed routes from another machine. | `npm run deploy:verify -- <config-path> <SHA>`; `docs/runbooks/production-deployment.md:446-449`. | No |
 | 10 | Monitor PM2, HTTP, migration ledger and error rates; retain the prior compatible READY release. | `docs/runbooks/production-deployment.md:381-414`. | No |
 | 11 | Roll back via the approved path if a trigger occurs (next section). | `npm run deploy:rollback -- <previous-verified-40-character-SHA>`. | No |
@@ -68,19 +68,25 @@ activation, payment activation or live Voice/SMS action has been performed.** On
 
 ### Rollback policy notes
 
-- Code rollback changes code only; it never reverses SQL (`docs/runbooks/production-deployment.md:440-444`).
-- Restore from a vetted backup only with owner approval via `docs/runbooks/postgres-redis-recovery.md:338-355`.
-- No raw destructive commands are part of this plan; use only `package.json` scripts and the cited runbooks.
+- Code rollback changes code only; it never reverses SQL (`docs/runbooks/production-deployment.md` rollback section).
+- Restore from a vetted backup only with separate explicit owner approval via `docs/runbooks/postgres-redis-recovery.md:338-355`; never restore over live production in this plan or its preflight.
+- No operator-run manual migration, direct data edit, reset, `db push`, or raw destructive command is part of this plan; use only `package.json` scripts, the protected workflow and the cited runbooks.
 
 ## 5. Deployment / rollback matrix
 
 | Scenario | Deploy action | Rollback action | Approval gate |
 | --- | --- | --- | --- |
-| CI green, approvals complete, migration evidence complete | Dispatch exact SHA with `authorize_production=true` | None expected | Release/merge + migration |
-| CI green but migration approval missing | Do not deploy | N/A | Migration execution |
-| Activation health check fails | Workflow restores prior release automatically where possible | `npm run deploy:rollback -- <previous-verified-40-character-SHA>` if automatic recovery fails | Release approver |
-| Application defect after successful activation | No new deploy until root-caused | `npm run deploy:rollback -- <previous-verified-40-character-SHA>` | Release approver |
-| Database-only regression | Stop writes at the application boundary via approved incident process; do not hand-edit data | Owner-approved restore/cutover per recovery runbook | Owner + migration |
+| CI green, approvals complete, migration evidence complete | Dispatch exact SHA with `authorize_production=true`; protected workflow runs migrations then activates | None expected | Release/merge + migration |
+| CI green but migration approval missing | Do not deploy; no manual migration | N/A | Migration execution |
+| Activation health check fails | Workflow restores prior code release automatically where possible; migrations are not reversed | `npm run deploy:rollback -- <previous-verified-40-character-SHA>` if automatic recovery fails | Release approver |
+| Application defect after successful activation | No new deploy until root-caused | `npm run deploy:rollback -- <previous-verified-40-character-SHA>`; SQL remains applied | Release approver |
+| Database-only regression | Stop writes at the application boundary via approved incident process; do not hand-edit data | Separate owner-approved restore/cutover per recovery runbook; never restore over live production without that approval | Owner + separate database restoration approval |
 | Provider/payment/live-call behaviour requested | Deferred; no activation path authorized | N/A | Provider/payment/live-call activation |
+
+The deployed release's migration files cannot list migrations introduced by the
+newer candidate schema. Before approval, derive exact pending migration names
+from the candidate manifest and the live `_prisma_migrations` ledger, and require
+the 11 RC1 additions in `rc1-migration-plan.md`. Use the exact commands in
+[`docs/runbooks/rc1-production-preflight.md`](../runbooks/rc1-production-preflight.md).
 
 All statuses remain **PENDING** until an owner records explicit approval.
