@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { OrganizationsController } from './organizations.controller.js';
 import { OrganizationsService } from './organizations.service.js';
-import { aMembership, FakeAuditStore, FakeAuthStore, FakeOrganizationStore, FakeSecurityTransaction } from '../../test/fakes/auth.fakes.js';
+import { aMembership, FakeAuditStore, FakeAuthStore, FakeCustomRoleStore, FakeOrganizationStore, FakeSecurityTransaction } from '../../test/fakes/auth.fakes.js';
 
 describe('GET /me organization permission projection', () => {
   it('isolates fresh grants per tenant, hides suspended authority, and rejects a partial snapshot', async () => {
@@ -23,7 +23,7 @@ describe('GET /me organization permission projection', () => {
       store, auth, audit,
       { send: async () => undefined } as never,
       'http://localhost:3000', 'test-terms',
-      new FakeSecurityTransaction(auth, organizations, audit),
+      new FakeSecurityTransaction(auth, organizations, audit, new FakeCustomRoleStore()),
       { consume: async () => ({ allowed: true, retryAfterMs: 0, remaining: 1 }) } as never,
     );
     const controller = new OrganizationsController(service);

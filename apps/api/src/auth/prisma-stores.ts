@@ -68,12 +68,15 @@ type TransactionClient = Pick<
   | '$queryRaw'
 >;
 export type SecurityDatabase = TransactionClient & {
-  $transaction<T>(work: (tx: TransactionClient) => Promise<T>): Promise<T>;
+  $transaction<T>(
+    work: (tx: TransactionClient) => Promise<T>,
+    options?: { readonly isolationLevel: import('@truevine/database').Prisma.TransactionIsolationLevel },
+  ): Promise<T>;
 };
 @Injectable()
 export class PrismaSecurityTransaction implements SecurityTransaction {
   constructor(@Inject(DATABASE_CLIENT) private readonly database: SecurityDatabase) {}
-  run<T>(work: (stores: SecurityStores) => Promise<T>, _options?: { readonly isolationLevel: import('@truevine/database').Prisma.TransactionIsolationLevel }): Promise<T> {
+  run<T>(work: (stores: SecurityStores) => Promise<T>, options?: { readonly isolationLevel: import('@truevine/database').Prisma.TransactionIsolationLevel }): Promise<T> {
     return this.database.$transaction(async (tx) => {
       const client: SecurityDatabase = {
         user: tx.user,
@@ -104,7 +107,7 @@ export class PrismaSecurityTransaction implements SecurityTransaction {
           await tx.$queryRaw`SELECT id FROM organizations WHERE id = ${id}::uuid FOR UPDATE`;
         },
       });
-    });
+    }, options);
   }
 }
 
@@ -423,6 +426,10 @@ export class PrismaOrganizationStore implements OrganizationStore {
 
       return { ok: true };
     });
+  }
+
+  async readCustomOrganizationGrants(_organizationId: string): Promise<readonly string[]> {
+    return [];
   }
 
   async transferOwnership(

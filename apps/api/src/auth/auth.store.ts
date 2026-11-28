@@ -269,6 +269,16 @@ export interface OrganizationStore {
   removeMembership(organizationId: string, userId: string): Promise<MembershipChangeResult>;
 
   /**
+   * Custom organization grants for one organization.
+   *
+   * These are additional permissions granted outside the role registry, for
+   * example a time-limited campaign:create grant to a VIEWER. Only mutating
+   * permissions (not ending in `:read`) are effective; read access is governed
+   * by the role alone.
+   */
+  readCustomOrganizationGrants(organizationId: string): Promise<readonly string[]>;
+
+  /**
    * Moves ownership from one member to another.
    *
    * One transaction, and `expectedCurrentOwnerId` makes it a compare-and-set: if

@@ -270,6 +270,10 @@ export class FakeOrganizationStoreForCustomRoles {
     return { ok: true };
   }
 
+  async readCustomOrganizationGrants(_organizationId: string): Promise<readonly string[]> {
+    return [];
+  }
+
   async findInvitationState(_organizationId: string, _id: string) {
     return undefined;
   }

@@ -25,6 +25,17 @@ export interface ApiConfig {
   } | null;
   readonly audioTtsRegion?: string | null;
   /**
+   * Optional local synthetic callback ingress for loopback test clients.
+   *
+   * When null/absent, the synthetic callback route returns 404. When present,
+   * `keyFile` points to a base64url-encoded 32-byte credential and
+   * `bodyLimitBytes` caps the request body size.
+   */
+  readonly localSyntheticCallback?: {
+    readonly keyFile: string;
+    readonly bodyLimitBytes: number;
+  } | null;
+  /**
    * Base64-encoded 32-byte AES-256-GCM key for payment-provider credentials.
    *
    * Required in production. Null in development/test means the payment
@@ -166,6 +177,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         })
       : null,
     audioTtsRegion: audioTtsRegion || null,
+    localSyntheticCallback: null,
     paymentCredentialEncryptionKey: readPaymentCredentialEncryptionKey(environment, env),
   });
 }

@@ -39,7 +39,6 @@ import type { Request } from 'express';
 import { ipPrefixOf } from '../auth/cookies.js';
 import {
   ORGANIZATION_ROLES,
-  ORGANIZATION_ROLE_PERMISSIONS,
   type OrganizationRole,
 } from '@truevine/auth';
 
@@ -292,19 +291,33 @@ export class OrganizationsController {
   private async membershipSummaries(userId: string): Promise<readonly MembershipSummary[]> {
     const memberships = await this.organizations.membershipsFor(userId);
 
-    return memberships.map((membership) => ({
-      organizationId: membership.organization.id,
-      organizationSlug: membership.organization.slug,
-      organizationName: membership.organization.name,
-      organizationStatus: membership.organization.suspendedAt ? 'SUSPENDED' : 'ACTIVE',
-      // The database enum and the registry role are the same vocabulary; the
-      // mapping is explicit so a future divergence fails to compile rather than
-      // silently looking up `undefined` permissions.
-      role: membership.role as OrganizationRole,
-      // Sent explicitly so the client's navigation matches what the server will
-      // actually permit. The server never trusts these values - they are for
-      // presentation only, and every request is re-checked by the guard.
-      permissions: ORGANIZATION_ROLE_PERMISSIONS[membership.role as OrganizationRole],
-    }));
+    const summaries = await Promise.all(
+      memberships.map(async (membership) => {
+        const suspended = membership.organization.suspendedAt !== null;
+        const organizationStatus: 'ACTIVE' | 'SUSPENDED' = suspended ? 'SUSPENDED' : 'ACTIVE';
+        const permissions = suspended
+          ? []
+          : await this.organizations.effectivePermissions(
+              membership.organization.id,
+              membership.role as OrganizationRole,
+            );
+        return {
+          organizationId: membership.organization.id,
+          organizationSlug: membership.organization.slug,
+          organizationName: membership.organization.name,
+          organizationStatus,
+          // The database enum and the registry role are the same vocabulary; the
+          // mapping is explicit so a future divergence fails to compile rather than
+          // silently looking `undefined` permissions.
+          role: membership.role as OrganizationRole,
+          // Sent explicitly so the client's navigation matches what the server will
+          // actually permit. The server never trusts these values - they are for
+          // presentation only, and every request is re-checked by the guard.
+          permissions,
+        };
+      }),
+    );
+
+    return summaries;
   }
 }

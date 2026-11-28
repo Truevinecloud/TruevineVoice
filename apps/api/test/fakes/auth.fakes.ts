@@ -1,5 +1,6 @@
 import type { SecurityTransaction, SecurityStores } from '../../src/auth/security-transaction.js';
 import { FakeCustomRoleStore } from '../../src/custom-roles/custom-role.fakes.js';
+export { FakeCustomRoleStore };
 /**
  * In-memory fakes for the authentication stores.
  *
@@ -335,6 +336,10 @@ export class FakeOrganizationStore implements OrganizationStore {
     }
 
     return { ok: true };
+  }
+
+  async readCustomOrganizationGrants(_organizationId: string): Promise<readonly string[]> {
+    return [];
   }
 
   async transferOwnership(
