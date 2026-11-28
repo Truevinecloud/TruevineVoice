@@ -9,7 +9,7 @@ activation, payment activation or live Voice/SMS action has been performed.** On
 | Fact | Value / evidence |
 | --- | --- |
 | Verified `origin/main` | `8fcb5527165de77ad1e2ac585c54a5a53c5217b9` (`git rev-parse origin/main`) |
-| Integration branch | `integration/production-release-rc1`, validated RC commit `41dc08356f74ab864b250084bbfa51ae1d2ce9fc`, 18 commits ahead at validation; pushed; PR #132 open |
+| Integration branch | `integration/production-release-rc1`, validated RC commit `1250607f128371a571901cfe1108164fe7502b26`, 21 commits ahead at validation; pushed; PR #132 open |
 | Deployment workflow | `.github/workflows/deploy.yml` — `workflow_dispatch` only; requires full 40-character `release_sha` and `authorize_production=true` (lines 3-15, 39-47) |
 | Exact SHA enforcement | Checked-out SHA, `RELEASE_SHA` and `DEPLOY_SHA` must match; main tip must equal release SHA (`.github/workflows/deploy.yml:55-89`) |
 | CI prerequisite | Completed successful main-push CI for that exact SHA; all required `ci.yml` jobs asserted (`.github/workflows/deploy.yml:68-84`) |

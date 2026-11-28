@@ -4,15 +4,15 @@
 
 This document records integration and disposable-environment evidence only. It does not
 merge, deploy, migrate a production target, activate a provider/payment path, or change an
-account. Source checks cover validated RC commit `41dc08356f74ab864b250084bbfa51ae1d2ce9fc`;
-any later commit on the branch is documentation-only.
+account. Source checks cover validated RC commit `1250607f128371a571901cfe1108164fe7502b26`;
+all commits through that SHA are included in the evidence below.
 
 | Item | Value | Evidence |
 | --- | --- | --- |
 | Deployed `origin/main` baseline | `8fcb5527165de77ad1e2ac585c54a5a53c5217b9` | `git rev-parse origin/main` |
 | PR #129 head | `253df1df5ed746f72df87b71f9c016aa3acc03a4` | object present locally; `git log` |
 | PR #131 head | `51137024e089390c31cf6b557a0fa29f8d948dac` | object present locally; `git log` |
-| Integration branch | `integration/production-release-rc1`, validated at `41dc08356f74ab864b250084bbfa51ae1d2ce9fc` | `git status --short --branch`, `git log`; 18 commits ahead of `origin/main` at validation; branch pushed and PR #132 opened |
+| Integration branch | `integration/production-release-rc1`, validated at `1250607f128371a571901cfe1108164fe7502b26` | `git status --short --branch`, `git log`; 21 commits ahead of `origin/main` at validation; branch pushed and PR #132 open |
 | PR #130 | Payment-intent manifest approval already on deployed main | `git show 8fcb552:.../migrations-reviewed.json` includes `20261107120000_payment_intent_foundation` |
 
 ## Provenance decisions
@@ -109,7 +109,10 @@ Verified with `git log --oneline --no-merges origin/main..HEAD` (oldest first).
 | `61f744a` | Completed effective-permission and callback configuration contracts. |
 | `71e8186` | Restored shared UI exports and corrected web analytics gating. |
 | `b343dd1` | Mapped the Prisma enum to the reviewed SQL identifier `audio_storage_backend`; no migration was edited. |
-| `41dc083` | Reconciled final validation fixes: RBAC projection, analytics viewer contract, worker observability snapshot, rollout cookie verification and release evidence documents. |
+| `41dc083` | Reconciled validation fixes: RBAC projection, analytics viewer contract, worker observability snapshot, rollout cookie verification and release evidence documents. |
+| `ba46dcc` | Recorded the pushed branch and PR #132 in the release documents. |
+| `4d4de09` | Made rollout cookie verification environment-based and added the focused contract test. |
+| `1250607` | Passed the explicit test cookie contract to the raw rollout clients and updated the declaration; final validated RC commit. |
 
 ## Static wiring facts
 
