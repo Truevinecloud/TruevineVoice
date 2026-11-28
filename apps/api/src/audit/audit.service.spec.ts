@@ -225,6 +225,18 @@ describe('AuditService organizations', () => {
 });
 
 describe('AuditService audit trail', () => {
+  it('returns the stored organization identity without replacing it with metadata', async () => {
+    const { service, store } = buildService();
+    store.events = [anAuditEvent({
+      trail: 'security', scope: 'PLATFORM', organizationId: 'stored-organization',
+      metadata: { organizationId: 'legacy-metadata-organization', reasonCode: 'security_incident' },
+    }), anAuditEvent()];
+    const result = await service.auditTrail(ACTOR, {});
+    expect(result.events[0]!.organizationId).toBe('stored-organization');
+    expect(result.events[0]!.metadata).toMatchObject({ reasonCode: 'security_incident' });
+    expect(result.events[1]!.organizationId).toBeNull();
+  });
+
   it('pages at 50 and returns a trail-qualified cursor', async () => {
     const { service, store } = buildService();
     store.events = Array.from({ length: 51 }, (_, index) =>
@@ -302,6 +314,142 @@ describe('AuditService audit trail', () => {
       NotFoundException,
       'audit_cursor_not_found',
     );
+  });
+});
+
+describe('AuditService sensitive evidence', () => {
+  const uuid = '20000000-0000-4000-8000-000000000001';
+  const walletEvent = anAuditEvent({
+    trail: 'security',
+    scope: 'PLATFORM',
+    action: 'platform.billing.wallet_adjusted',
+    targetType: 'wallet_entry',
+    targetId: 'entry-1',
+    metadata: {
+      auditVersion: 1,
+      target: { type: 'wallet_entry', id: 'entry-1' },
+      before: { currency: 'UGX', balanceMinor: '1000', token: 'leak' },
+      change: { currency: 'UGX', amountMinor: '500' },
+      after: { currency: 'UGX', balanceMinor: '1500' },
+      reasonCode: 'wallet_adjustment',
+      justification: null,
+      reasonSource: 'server',
+    },
+  });
+
+  it('exposes bounded before/change/after evidence to a billing-authorized reader', async () => {
+    const { service, store } = buildService();
+    store.events = [walletEvent];
+
+    const result = await service.auditTrail(ACTOR, {}, 'PLATFORM_OWNER');
+
+    expect(result.events[0]!.evidence).toMatchObject({
+      target: { type: 'wallet_entry', id: 'entry-1' },
+      before: { currency: 'UGX', balanceMinor: '1000' },
+      change: { currency: 'UGX', amountMinor: '500' },
+      after: { currency: 'UGX', balanceMinor: '1500' },
+      reasonCode: 'wallet_adjustment',
+      reasonSource: 'server',
+      financialAccess: 'visible',
+      redacted: [],
+    });
+    // A credential-shaped key is dropped at read time even inside evidence.
+    expect(result.events[0]!.evidence.before).not.toHaveProperty('token');
+  });
+
+  it.each(['AUDITOR', 'SUPPORT_ADMIN', 'TECHNICAL_ADMIN'] as const)(
+    'redacts monetary evidence but keeps the record for %s',
+    async (role) => {
+      const { service, store } = buildService();
+      store.events = [walletEvent];
+
+      const result = await service.auditTrail(ACTOR, {}, role);
+      const evidence = result.events[0]!.evidence;
+
+      expect(evidence.before).toMatchObject({ currency: 'UGX', balanceMinor: '[redacted]' });
+      expect(evidence.change).toMatchObject({ currency: 'UGX', amountMinor: '[redacted]' });
+      expect(evidence.after).toMatchObject({ currency: 'UGX', balanceMinor: '[redacted]' });
+      expect(evidence.financialAccess).toBe('redacted');
+      expect(evidence.redacted).toEqual([
+        'after.balanceMinor',
+        'before.balanceMinor',
+        'change.amountMinor',
+      ]);
+      // The event itself remains visible: redaction must not hide the action.
+      expect(result.events[0]!.action).toBe('platform.billing.wallet_adjusted');
+    },
+  );
+
+  it('keeps non-financial evidence visible to an auditor', async () => {
+    const { service, store } = buildService();
+    store.events = [
+      anAuditEvent({
+        trail: 'security',
+        scope: 'PLATFORM',
+        metadata: {
+          target: { type: 'membership', id: uuid },
+          before: { role: 'VIEWER' },
+          change: { role: 'ADMIN' },
+          after: { role: 'ADMIN' },
+          reasonCode: 'membership_request',
+          reasonSource: 'caller',
+        },
+      }),
+    ];
+
+    const result = await service.auditTrail(ACTOR, {}, 'AUDITOR');
+
+    expect(result.events[0]!.evidence).toMatchObject({
+      before: { role: 'VIEWER' },
+      change: { role: 'ADMIN' },
+      after: { role: 'ADMIN' },
+      financialAccess: 'not_financial',
+      redacted: [],
+    });
+  });
+
+  it('passes every validated filter to the store and normalizes dates', async () => {
+    const { service, store } = buildService();
+
+    await service.auditTrail(
+      ACTOR,
+      {
+        action: 'platform.support.organization_viewed',
+        trail: 'security',
+        outcome: 'DENIED',
+        actor: 'ops@example.invalid',
+        organizationId: uuid,
+        targetId: 'campaign-1',
+        from: '2026-10-01',
+        to: '2026-10-31',
+      },
+      'AUDITOR',
+    );
+
+    expect(store.lastAudit).toMatchObject({
+      action: 'platform.support.organization_viewed',
+      trail: 'security',
+      outcome: 'DENIED',
+      actor: 'ops@example.invalid',
+      organizationId: uuid,
+      targetId: 'campaign-1',
+      from: new Date('2026-10-01T00:00:00.000Z'),
+      to: new Date('2026-10-31T23:59:59.999Z'),
+    });
+  });
+
+  it.each([
+    [{ outcome: 'MAYBE' }, 'invalid_outcome'],
+    [{ trail: 'organization' }, 'invalid_trail'],
+    [{ organizationId: 'not-a-uuid' }, 'invalid_filter'],
+    [{ targetId: 'x'.repeat(65) }, 'invalid_filter'],
+    [{ actor: 'wild%card' }, 'invalid_search'],
+    [{ from: 'not-a-date' }, 'invalid_time_range'],
+    [{ from: '2026-10-31', to: '2026-10-01' }, 'invalid_time_range'],
+  ] as const)('rejects an invalid filter %o', async (query, code) => {
+    const { service } = buildService();
+
+    await expectError(service.auditTrail(ACTOR, query), BadRequestException, code);
   });
 });
 

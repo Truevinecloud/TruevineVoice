@@ -185,16 +185,30 @@ describe('RBAC-011 read-only auditor over real PostgreSQL and HTTP', () => {
   it('lists organization identity and status, never tenant content or money', async () => {
     const auditor = await signIn(EMAIL_AUDITOR);
 
-    const organizations = await auditor.get('/platform/audit/organizations');
-    expect(organizations.status).toBe(200);
-    expect(organizations.body.organizations).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: ORG_A, status: 'ACTIVE', memberCount: 1 }),
-        expect.objectContaining({ id: ORG_B, status: 'ACTIVE' }),
-      ]),
-    );
+    // The organizations endpoint is keyset-paginated by slug (page size 50).
+    // The isolated QA database has many organizations from previous runs.
+    // Fetch pages until we locate the two fixture organizations by their exact UUIDs.
+    let after: string | undefined;
+    let orgA: { id: string; status: string; memberCount: number } | undefined;
+    let orgB: { id: string; status: string } | undefined;
+    for (let i = 0; i < 5 && (!orgA || !orgB); i++) {
+      const path = after ? `/platform/audit/organizations?after=${after}` : '/platform/audit/organizations';
+      const organizations = await auditor.get(path);
+      expect(organizations.status).toBe(200);
+      for (const o of organizations.body.organizations) {
+        if (o.id === ORG_A) orgA = { id: o.id, status: o.status, memberCount: o.memberCount };
+        if (o.id === ORG_B) orgB = { id: o.id, status: o.status };
+      }
+      after = organizations.body.nextCursor;
+      if (!after) break;
+    }
 
-    const serialized = JSON.stringify(organizations.body);
+    expect(orgA).toMatchObject({ id: ORG_A, status: 'ACTIVE', memberCount: 1 });
+    expect(orgB).toMatchObject({ id: ORG_B, status: 'ACTIVE' });
+
+    // Verify no tenant content or money in the first page response
+    const firstPage = await auditor.get('/platform/audit/organizations');
+    const serialized = JSON.stringify(firstPage.body);
     expect(serialized).not.toMatch(/wallet|billing|balance|amountMinor|topUp/i);
   });
 
@@ -236,6 +250,65 @@ describe('RBAC-011 read-only auditor over real PostgreSQL and HTTP', () => {
     }
   });
 
+  it('returns structured evidence but redacts monetary values from audit readers without billing permission', async () => {
+    const entryId = randomUUID();
+    await database.securityAuditEvent.create({
+      data: {
+        organizationId: ORG_A,
+        actorUserId: AUDITOR,
+        action: 'platform.billing.wallet_adjusted',
+        scope: 'PLATFORM',
+        outcome: 'SUCCESS',
+        targetType: 'wallet_entry',
+        targetId: entryId,
+        metadata: {
+          auditVersion: 1,
+          target: { type: 'wallet_entry', id: entryId },
+          before: { currency: 'UGX', balanceMinor: '1000' },
+          change: { currency: 'UGX', amountMinor: '500' },
+          after: { currency: 'UGX', balanceMinor: '1500' },
+          reasonCode: 'wallet_adjustment',
+          justification: null,
+          reasonSource: 'server',
+        },
+      },
+    });
+
+    const auditor = await signIn(EMAIL_AUDITOR);
+    const response = await auditor.get(
+      `/platform/audit/audit?action=platform.billing.wallet_adjusted&targetId=${entryId}`,
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.events).toHaveLength(1);
+    const event = response.body.events[0];
+    expect(event).toMatchObject({
+      action: 'platform.billing.wallet_adjusted',
+      targetId: entryId,
+      evidence: {
+        target: { type: 'wallet_entry', id: entryId },
+        before: { currency: 'UGX', balanceMinor: '[redacted]' },
+        change: { currency: 'UGX', amountMinor: '[redacted]' },
+        after: { currency: 'UGX', balanceMinor: '[redacted]' },
+        reasonCode: 'wallet_adjustment',
+        financialAccess: 'redacted',
+        redacted: ['after.balanceMinor', 'before.balanceMinor', 'change.amountMinor'],
+      },
+    });
+
+    // Redaction replaces the values; it does not merely move them somewhere
+    // else in the payload.
+    const body = JSON.stringify(response.body);
+    expect(body).not.toContain('"balanceMinor":"1000"');
+    expect(body).not.toContain('"amountMinor":"500"');
+    expect(body).not.toContain('"balanceMinor":"1500"');
+
+    // The support role holds audit read but not billing read: same redaction.
+    const support = await signIn(EMAIL_SUPPORT);
+    const supportView = await support.get(`/platform/audit/audit?targetId=${entryId}`);
+    expect(supportView.status).toBe(200);
+    expect(supportView.body.events[0]?.evidence.financialAccess).toBe('redacted');
+  });
+
   it('refuses customer owners, support and operations admins, and anonymous callers', async () => {
     const owner = await signIn(EMAIL_OWNER_A);
     expect((await owner.get('/platform/audit/me')).status).toBe(403);
@@ -266,6 +339,11 @@ describe('RBAC-011 read-only auditor over real PostgreSQL and HTTP', () => {
     const auditor = await signIn(EMAIL_AUDITOR);
 
     expect((await auditor.get('/platform/audit/audit?action=nope')).status).toBe(400);
+    expect((await auditor.get('/platform/audit/audit?trail=organization')).status).toBe(400);
+    expect((await auditor.get('/platform/audit/audit?outcome=MAYBE')).status).toBe(400);
+    expect((await auditor.get('/platform/audit/audit?organizationId=not-a-uuid')).status).toBe(400);
+    expect((await auditor.get('/platform/audit/audit?actor=wild%25card')).status).toBe(400);
+    expect((await auditor.get('/platform/audit/audit?from=2026-10-31&to=2026-10-01')).status).toBe(400);
     expect((await auditor.get('/platform/audit/audit?cursor=identity:not-a-uuid')).status).toBe(400);
     expect((await auditor.get('/platform/audit/audit?cursor=organization:abc')).status).toBe(400);
   });

@@ -1,87 +1,77 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-
 import { api } from '../../../lib/api';
-import {
-  AuditorAccessNotice,
-  AuditorHeader,
-  AuditorNav,
-  OrganizationsTable,
-  type OrganizationRow,
-} from '../auditor-ui';
+import { AuditorAccessNotice, AuditorHeader, AuditorNav, OrganizationsTable, type OrganizationRow } from '../auditor-ui';
 
 type OrganizationsResponse = { organizations: OrganizationRow[]; nextCursor: string | null };
 
-/** Organization identity and status (RBAC-011). Never content, money or members' identities. */
+/** Organization identity/status only; the API independently checks platform permissions. */
 export default function AuditorOrganizationsPage() {
-  const [access, setAccess] = useState<number | null | 'checking'>('checking');
-  const [organizations, setOrganizations] = useState<OrganizationRow[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
+  const [query, setQuery] = useState({ after: '', revision: 0 });
+  const [result, setResult] = useState<OrganizationsResponse | null>(null);
+  const [status, setStatus] = useState<number | null>(null);
+  const [busy, setBusy] = useState(true);
 
   useEffect(() => {
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
+      setBusy(true); setStatus(null);
       void (async () => {
         try {
-          await api('/platform/audit/me');
-          setAccess(null);
-          await load();
+          await api('/platform/audit/me', { signal: controller.signal });
+          const page = await api<OrganizationsResponse>(
+            `/platform/audit/organizations${query.after ? `?after=${encodeURIComponent(query.after)}` : ''}`,
+            { signal: controller.signal },
+          );
+          if (!controller.signal.aborted) setResult((previous) => ({
+            organizations: query.after ? [...(previous?.organizations ?? []), ...page.organizations] : page.organizations,
+            nextCursor: page.nextCursor,
+          }));
         } catch (error) {
-          setAccess((error as { status?: number }).status ?? 500);
+          if (!controller.signal.aborted) {
+            const code = (error as { status?: number }).status ?? 500;
+            setStatus(code);
+            if (code === 401 || code === 403) setResult(null);
+          }
+        } finally {
+          if (!controller.signal.aborted) setBusy(false);
         }
       })();
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [query]);
 
-  async function load(after?: string) {
-    setBusy(true);
-    setMessage('');
-    try {
-      const result = await api<OrganizationsResponse>(
-        `/platform/audit/organizations${after ? `?after=${encodeURIComponent(after)}` : ''}`,
-      );
-      setOrganizations((current) => (after ? [...current, ...result.organizations] : result.organizations));
-      setCursor(result.nextCursor);
-    } catch {
-      setMessage('The organization list could not be read.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
+  const denied = status === 401 || status === 403;
   return (
-    <main className="operations-shell">
+    <div className="operations-shell auditor-workspace">
       <AuditorHeader title="Organizations" />
       <AuditorNav current="organizations" />
-      <AuditorAccessNotice status={typeof access === 'number' ? access : null} />
-      {access === null && (
+      <p className="subtitle">Review organization identity, status and membership counts.</p>
+      <AuditorAccessNotice status={denied ? status : null} />
+      {!denied && (
         <>
-          {message && (
-            <p className="notice" role="status">
-              {message}
-            </p>
-          )}
-          <section className="card">
-            <div className="section-heading">
-              <h2>Organizations</h2>
-              <span>{organizations.length} shown</span>
+          {status !== null && (
+            <div className="notice" role="alert">
+              <p>The organization list could not be read. Please retry.</p>
+              <button className="quiet-button" disabled={busy} onClick={() => {
+                setBusy(true); setQuery((previous) => ({ ...previous, revision: previous.revision + 1 }));
+              }}>Retry</button>
             </div>
-            <OrganizationsTable organizations={organizations} />
-            {cursor && (
-              <button className="quiet-button" disabled={busy} onClick={() => void load(cursor)}>
-                Load more
-              </button>
+          )}
+          <section className="card" aria-busy={busy}>
+            <div className="section-heading"><h2>Organizations</h2><span>{result?.organizations.length ?? 0} shown</span></div>
+            {busy && <p role="status">Loading organizations...</p>}
+            {result && <OrganizationsTable organizations={result.organizations} />}
+            {result?.nextCursor && (
+              <button className="quiet-button" disabled={busy} onClick={() => {
+                setBusy(true); setQuery((previous) => ({ ...previous, after: result.nextCursor! }));
+              }}>Load more</button>
             )}
           </section>
-          <p className="footnote">
-            Identity and status only. Campaign content, wallet balances, billing profiles and
-            member lists belong to support diagnostics, which this role does not hold.
-          </p>
+          <p className="footnote">This directory shows organization metadata. Customer content, financial records and member identities require separate permissions.</p>
         </>
       )}
-    </main>
+    </div>
   );
 }

@@ -1,5 +1,17 @@
 import type { ReactNode } from 'react';
 
+export function OrganizationAccessDenied(): React.JSX.Element {
+  return (
+    <section className="card workspace-access-state" aria-labelledby="workspace-access-title">
+      <span className="status-badge status-badge--warning">Workspace unavailable</span>
+      <h1 id="workspace-access-title">Choose an authorized workspace</h1>
+      <p role="alert">You do not have access to the selected organization. Your access may have changed.</p>
+      <p>Use the workspace selector or return to your dashboard to continue.</p>
+      <a className="button-primary" href="/app">Return to my workspace</a>
+    </section>
+  );
+}
+
 export function PageHeader({
   title,
   description,

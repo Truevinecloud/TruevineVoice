@@ -32,14 +32,39 @@ export function csrfToken(): string {
   );
 }
 
+/**
+ * Makes sure a CSRF cookie exists before a mutation is attempted.
+ *
+ * The admin application is reachable on a host that has never loaded the web
+ * application, so no `tv_csrf` cookie may exist yet. The API issues one on any
+ * request, and `GET /auth/terms` needs no session and returns nothing
+ * sensitive. Doing this here rather than in each screen keeps sign-out, role
+ * revocation and payment configuration working on a fresh browser.
+ */
+async function ensureCsrfToken(): Promise<void> {
+  if (csrfToken().length > 0) return;
+
+  await fetch(`${API_BASE}/auth/terms`, {
+    credentials: 'same-origin',
+    cache: 'no-store',
+  }).catch(() => undefined);
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const method = (init.method ?? 'GET').toUpperCase();
+  const mutating = method !== 'GET' && method !== 'HEAD';
+
+  // A mutation without the cookie's value would be rejected by the API's CSRF
+  // guard with a 403 that looks like a permissions problem.
+  if (mutating) await ensureCsrfToken();
+
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     credentials: 'same-origin',
     cache: 'no-store',
     headers: {
       ...(init.body ? { 'content-type': 'application/json' } : {}),
-      ...(init.method && init.method !== 'GET' ? { 'x-truevine-csrf': csrfToken() } : {}),
+      ...(mutating ? { 'x-truevine-csrf': csrfToken() } : {}),
       ...init.headers,
     },
   });

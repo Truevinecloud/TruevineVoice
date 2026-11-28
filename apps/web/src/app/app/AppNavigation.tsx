@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { OrganizationPermission } from '@truevine/auth';
 import type { MembershipSummary } from '../../lib/session';
 import { SignOutButton } from './SignOutButton';
+import { selectMembership } from '../../lib/organization-context';
 
 type NavGroup = 'Workspace' | 'Organization' | 'Account';
 type NavigationItem = {
@@ -92,7 +93,7 @@ export function organizationNavigationItems(
       icon: 'wallet',
       permissions: ['billing:read', 'wallet:read'],
     },
-    { label: 'My Profile', href: '/app/account', group: 'Account', icon: 'user', permissions: [] },
+    { label: 'My Profile', href: `/app/account?organization=${organization}`, group: 'Account', icon: 'user', permissions: [] },
   ];
 
   return candidates.filter((item) =>
@@ -194,16 +195,19 @@ function NavIcon({ name }: { readonly name: string }): React.JSX.Element {
 export function AppNavigation({
   memberships,
   email,
+  onChooseOrganization,
+  switching = false,
 }: {
   readonly memberships: readonly MembershipSummary[];
   readonly email: string;
+  readonly onChooseOrganization?: (organizationId: string) => void;
+  readonly switching?: boolean;
 }): React.JSX.Element {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const requestedOrganization = searchParams.get('organization');
-  const selected =
-    memberships.find((item) => item.organizationId === requestedOrganization) ?? memberships[0];
+  const requestedOrganization = searchParams.has('organization') ? searchParams.getAll('organization') : undefined;
+  const selected = selectMembership(memberships, requestedOrganization);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
@@ -231,8 +235,9 @@ export function AppNavigation({
   function chooseOrganization(organizationId: string): void {
     // The select options are the session memberships. Never navigate to an ID
     // supplied outside that authenticated list.
-    if (!memberships.some((entry) => entry.organizationId === organizationId)) return;
-    router.push(`/app?organization=${encodeURIComponent(organizationId)}`);
+    if (!selectMembership(memberships, organizationId)) return;
+    if (onChooseOrganization) onChooseOrganization(organizationId);
+    else router.push(`/app?organization=${encodeURIComponent(organizationId)}`);
     setMobileOpen(false);
   }
 
@@ -274,10 +279,12 @@ export function AppNavigation({
             {memberships.length > 1 ? (
               <select
                 aria-label="Switch organization"
+                disabled={switching}
                 value={selected?.organizationId ?? ''}
                 onChange={(event) => chooseOrganization(event.target.value)}
               >
-                {memberships.map((entry) => (
+                {!selected && <option value="" disabled>Choose a workspace</option>}
+                {memberships.filter((entry) => entry.organizationStatus !== 'SUSPENDED').map((entry) => (
                   <option key={entry.organizationId} value={entry.organizationId}>
                     {entry.organizationName}
                   </option>
@@ -285,11 +292,11 @@ export function AppNavigation({
               </select>
             ) : (
               <span className="organization-switcher__name">
-                {selected?.organizationName ?? 'No organization'}
+                {selected?.organizationName ?? (requestedOrganization ? 'Workspace unavailable' : 'No organization')}
               </span>
             )}
           </label>
-          <Link className="topbar-account" href="/app/account" aria-label={`Account: ${email}`}>
+          <Link className="topbar-account" href={selected ? `/app/account?organization=${encodeURIComponent(selected.organizationId)}` : '/app/account'} aria-label={`Account: ${email}`}>
             <span className="avatar" aria-hidden="true">
               {email.slice(0, 1).toUpperCase()}
             </span>
@@ -372,7 +379,7 @@ export function AppNavigation({
           </span>
           <span className="sidebar-organization__text">
             <small>Current workspace</small>
-            <strong>{selected?.organizationName ?? 'No organization'}</strong>
+            <strong>{selected?.organizationName ?? (requestedOrganization ? 'Workspace unavailable' : 'No organization')}</strong>
           </span>
         </div>
         <nav className="sidebar-navigation" aria-label="Main navigation">
@@ -408,8 +415,8 @@ export function AppNavigation({
             })
           ) : (
             <div className="sidebar-empty-state">
-              <strong>No workspace yet</strong>
-              <p>Accept an invitation or ask an organization owner to invite you.</p>
+              <strong>{memberships.length ? 'Workspace unavailable' : 'No workspace yet'}</strong>
+              <p>{memberships.length ? 'Choose an available workspace above or return to your dashboard.' : 'Accept an invitation or ask an organization owner to invite you.'}</p>
               <Link href="/app/account">View account</Link>
             </div>
           )}

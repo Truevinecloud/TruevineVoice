@@ -24,6 +24,7 @@ import { AuthService } from '../src/auth/auth.service.js';
 import { PrismaCampaignStore } from '../src/campaigns/prisma-campaign.store.js';
 import { PrismaBillingStore } from '../src/billing/prisma-billing.store.js';
 import { PrismaOperationsStore } from '../src/operations/prisma-operations.store.js';
+import { PrismaPlatformAdminStore } from '../src/platform-admin/prisma-platform-admin.store.js';
 import { withAuditRequest } from '../src/auth/audit-context.js';
 import {
   assertDisposableDatabase,
@@ -694,6 +695,7 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
     'account',
     'emergency',
     'provisioning',
+    'platform_role',
   ] as const)('rolls back %s when PostgreSQL rejects its required audit INSERT', async (action) => {
     const f = await fixture(),
       broken = failingDatabase(),
@@ -770,6 +772,13 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
             },
             { id: provisionOrg, slug: provisionOrg, name: 'Should roll back' },
           );
+        case 'platform_role':
+          return new PrismaPlatformAdminStore(broken).grantRole({
+            userId: f.member,
+            role: 'AUDITOR',
+            grantedByUserId: f.owner,
+            reason: { reasonCode: 'security_incident' },
+          });
       }
     };
 
@@ -805,11 +814,86 @@ describe('RBAC-013 sensitive action audit on disposable PostgreSQL', () => {
       await db.securityAuditEvent.count({ where: { organizationId: f.org, outcome: 'SUCCESS' } }),
     ).toBe(0);
     expect(await db.walletEntry.count({ where: { organizationId: f.org } })).toBe(0);
+    expect(await db.platformRoleAssignment.findUnique({ where: { userId: f.member } })).toBeNull();
+    if (action === 'platform_role') {
+      expect(
+        await db.identityAuditEvent.count({
+          where: { actorUserId: f.owner, action: 'platform.admin.role_granted' },
+        }),
+      ).toBe(0);
+    }
     if (action === 'provisioning') {
       expect(await db.user.count({ where: { id: provisionUser } })).toBe(0);
       expect(await db.organization.count({ where: { id: provisionOrg } })).toBe(0);
     }
   });
+  it('commits a platform role grant and revoke with caller reason and actual before/after evidence', async () => {
+    const f = await fixture();
+    const store = new PrismaPlatformAdminStore(db);
+    await store.grantRole({
+      userId: f.member,
+      role: 'AUDITOR',
+      grantedByUserId: f.owner,
+      reason: { reasonCode: 'security_incident', justification: '  Incident review  ' },
+    });
+    expect(
+      (await db.platformRoleAssignment.findUnique({ where: { userId: f.member } }))?.role,
+    ).toBe('AUDITOR');
+
+    const granted = await db.identityAuditEvent.findFirstOrThrow({
+      where: { actorUserId: f.owner, action: 'platform.admin.role_granted' },
+      orderBy: { occurredAt: 'desc' },
+    });
+    expect(granted.outcome).toBe('SUCCESS');
+    expect(metadata(granted)).toMatchObject({
+      auditVersion: 1,
+      target: { type: 'platform_role', id: f.member },
+      before: null,
+      change: { operation: 'granted', role: 'AUDITOR' },
+      after: { role: 'AUDITOR' },
+      reasonCode: 'security_incident',
+      justification: 'Incident review',
+      reasonSource: 'caller',
+    });
+
+    // Re-granting records the role that was actually there before the change.
+    await store.grantRole({
+      userId: f.member,
+      role: 'SUPPORT_ADMIN',
+      grantedByUserId: f.owner,
+      reason: { reasonCode: 'customer_request' },
+    });
+    const changed = await db.identityAuditEvent.findFirstOrThrow({
+      where: { actorUserId: f.owner, action: 'platform.admin.role_granted' },
+      orderBy: { occurredAt: 'desc' },
+    });
+    expect(changed.id).not.toBe(granted.id);
+    expect(metadata(changed)).toMatchObject({
+      before: { role: 'AUDITOR' },
+      change: { operation: 'granted', role: 'SUPPORT_ADMIN' },
+      after: { role: 'SUPPORT_ADMIN' },
+    });
+
+    expect(
+      await store.revokeRole(f.member, f.owner, { reasonCode: 'routine_administration' }),
+    ).toBe('revoked');
+    expect(
+      (await db.platformRoleAssignment.findUnique({ where: { userId: f.member } }))?.revokedAt,
+    ).not.toBeNull();
+    const revoked = await db.identityAuditEvent.findFirstOrThrow({
+      where: { actorUserId: f.owner, action: 'platform.admin.role_revoked' },
+      orderBy: { occurredAt: 'desc' },
+    });
+    expect(metadata(revoked)).toMatchObject({
+      target: { type: 'platform_role', id: f.member },
+      before: { role: 'SUPPORT_ADMIN' },
+      change: { operation: 'revoked', role: 'SUPPORT_ADMIN' },
+      after: null,
+      reasonCode: 'routine_administration',
+      reasonSource: 'caller',
+    });
+  });
+
   it('rejects UPDATE, DELETE and TRUNCATE of both audit trails, retaining historical rows', async () => {
     const f = await fixture();
     await services().organization.updateProfile(f.org, f.owner, 'Audited');

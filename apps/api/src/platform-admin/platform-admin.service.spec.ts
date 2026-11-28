@@ -37,19 +37,80 @@ describe('PlatformAdminService', () => {
 
   it('refuses invalid role grants', async () => {
     const state = service();
-    await expect(state.service.grantRole('actor-1', '11111111-2222-4333-8444-555555555555', 'NOT_A_ROLE')).rejects.toBeTruthy();
+    await expect(
+      state.service.grantRole(
+        'actor-1',
+        '11111111-2222-4333-8444-555555555555',
+        'NOT_A_ROLE',
+        { reasonCode: 'routine_administration' },
+      ),
+    ).rejects.toBeTruthy();
     expect(state.store.grantRole).not.toHaveBeenCalled();
   });
 
-  it('revokes a role and records an audit event', async () => {
+  it('requires a valid reason before granting a role', async () => {
     const state = service();
-    const result = await state.service.revokeRole('actor-1', '11111111-2222-4333-8444-555555555555');
+    await expect(
+      state.service.grantRole(
+        'actor-1',
+        '11111111-2222-4333-8444-555555555555',
+        'AUDITOR',
+        undefined,
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      state.service.grantRole(
+        'actor-1',
+        '11111111-2222-4333-8444-555555555555',
+        'AUDITOR',
+        { reasonCode: 'not_a_reason' },
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(state.store.grantRole).not.toHaveBeenCalled();
+  });
+
+  it('passes a validated reason to the store, which commits the audit', async () => {
+    const state = service();
+    await state.service.grantRole(
+      'actor-1',
+      '11111111-2222-4333-8444-555555555555',
+      'AUDITOR',
+      { reasonCode: 'security_incident', justification: '  Incident review  ' },
+    );
+    expect(state.store.grantRole).toHaveBeenCalledWith({
+      userId: '11111111-2222-4333-8444-555555555555',
+      role: 'AUDITOR',
+      grantedByUserId: 'actor-1',
+      reason: { reasonCode: 'security_incident', justification: 'Incident review' },
+    });
+    // The service must not write a second, post-commit record for the same change.
+    expect(state.audit.recordIdentity).not.toHaveBeenCalled();
+  });
+
+  it('revokes a role and passes the actor and reason to the store', async () => {
+    const state = service();
+    const result = await state.service.revokeRole(
+      'actor-1',
+      '11111111-2222-4333-8444-555555555555',
+      { reasonCode: 'customer_request' },
+    );
     expect(result).toMatchObject({ revoked: true });
-    expect(state.audit.recordIdentity).toHaveBeenCalled();
+    expect(state.store.revokeRole).toHaveBeenCalledWith(
+      '11111111-2222-4333-8444-555555555555',
+      'actor-1',
+      { reasonCode: 'customer_request', justification: null },
+    );
+    expect(state.audit.recordIdentity).not.toHaveBeenCalled();
   });
 
   it('refuses to remove the last active platform owner', async () => {
     const state = service({ revokeRole: vi.fn(async () => 'last_owner' as const) });
-    await expect(state.service.revokeRole('actor-1', 'user-1')).rejects.toBeTruthy();
+    await expect(
+      state.service.revokeRole(
+        'actor-1',
+        '11111111-2222-4333-8444-555555555555',
+        { reasonCode: 'routine_administration' },
+      ),
+    ).rejects.toBeTruthy();
   });
 });

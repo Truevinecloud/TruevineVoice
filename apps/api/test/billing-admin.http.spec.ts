@@ -57,6 +57,8 @@ class FakeBillingAdminStore implements BillingAdminStore {
   entries = new Map<string, BillingAdminWalletEntry>();
   entryOrganizations = new Map<string, string>();
 
+  constructor(private readonly audit?: FakeAuditStore) {}
+
   async listOrganizations() {
     return this.organizations;
   }
@@ -100,6 +102,39 @@ class FakeBillingAdminStore implements BillingAdminStore {
     };
     this.entries.set(entry.id, entry);
     this.entryOrganizations.set(entry.id, input.organizationId);
+
+    // Simulate the real store's behavior: write audit evidence in the same transaction.
+    // The real PrismaBillingAdminStore calls writeMutationAudit and writeIdentityMutationAudit.
+    if (this.audit) {
+      const evidence = {
+        targetType: 'wallet_entry',
+        targetId: entry.id,
+        before: { currency: input.currency, balanceMinor: '0' },
+        change: { currency: input.currency, amountMinor: input.amountMinor.toString() },
+        after: { currency: input.currency, balanceMinor: input.amountMinor.toString() },
+        reasonCode: 'wallet_adjustment',
+        legacy: { organizationId: input.organizationId, reason: input.reason },
+      } as const;
+
+      this.audit.events.push({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: 'platform.billing.wallet_adjusted',
+        scope: 'PLATFORM',
+        outcome: 'SUCCESS',
+        targetType: evidence.targetType,
+        targetId: evidence.targetId,
+        metadata: { ...evidence, auditVersion: 1 },
+      });
+
+      this.audit.identityEvents.push({
+        actorUserId: input.actorUserId,
+        action: 'platform.billing.wallet_adjusted',
+        outcome: 'SUCCESS',
+        metadata: { ...evidence, auditVersion: 1 },
+      });
+    }
+
     return { entry, created: true };
   }
 }
@@ -115,8 +150,8 @@ describe('platform billing admin HTTP adjustments', () => {
     auth = new FakeAuthStore();
     const organizations = new FakeOrganizationStore();
     platformRoles = new FakePlatformRoleStore();
-    store = new FakeBillingAdminStore();
     audit = new FakeAuditStore();
+    store = new FakeBillingAdminStore(audit);
 
     auth.users.push(aUser({ id: 'user-1' }));
     await auth.createSession({

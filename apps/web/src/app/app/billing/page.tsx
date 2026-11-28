@@ -1,3 +1,4 @@
+import { selectMembership } from '../../../lib/organization-context';
 import { redirect } from 'next/navigation';
 import { currentSession, hasPermission } from '../../../lib/session';
 import { fetchBilling } from '../../../lib/billing-api';
@@ -13,13 +14,7 @@ export default async function BillingPage({
   if (!session.ok) redirect('/sign-in');
   if (!session.me.termsAccepted) redirect('/accept-terms');
   const params = await searchParams;
-  const requested = Array.isArray(params.organization)
-    ? params.organization[0]
-    : params.organization;
-  const membership =
-    requested === undefined
-      ? session.me.memberships[0]
-      : session.me.memberships.find((entry) => entry.organizationId === requested);
+  const membership = selectMembership(session.me.memberships, params.organization);
   if (
     !membership ||
     !hasPermission(membership, 'billing:read') ||
@@ -66,6 +61,7 @@ export default async function BillingPage({
           ))}
       </nav>
       <BillingView
+        key={membership.organizationId}
         organizationId={membership.organizationId}
         canUpdate={hasPermission(membership, 'billing:update')}
         {...data}

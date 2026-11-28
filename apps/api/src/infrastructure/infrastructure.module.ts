@@ -37,7 +37,13 @@ class InfrastructureLifecycle implements OnApplicationShutdown {
     {
       provide: DATABASE_CLIENT,
       inject: [APP_CONFIG],
-      useFactory: (config: ApiConfig): PrismaClient => createDatabaseClient(config.databaseUrl),
+      useFactory: (config: ApiConfig): PrismaClient => {
+        const timeoutMs = process.env.DATABASE_TRANSACTION_TIMEOUT_MS
+          ? Number.parseInt(process.env.DATABASE_TRANSACTION_TIMEOUT_MS, 10)
+          : undefined;
+        const options = timeoutMs !== undefined ? { transactionTimeoutMs: timeoutMs } : {};
+        return createDatabaseClient(config.databaseUrl, options);
+      },
     },
     {
       provide: REDIS_CLIENT,

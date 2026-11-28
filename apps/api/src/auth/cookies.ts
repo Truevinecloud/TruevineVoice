@@ -29,16 +29,35 @@ const BASE_COOKIE_OPTIONS = {
 } as const;
 
 /**
+ * Whether cookies must be marked `Secure` in `environment`.
+ *
+ * `Secure` tells the browser to store and send the cookie over HTTPS only. It is
+ * therefore a property of the transport, not of how serious the environment
+ * sounds: the two environments this repository runs over plain HTTP on loopback
+ * are `development` and `test`. Marking a cookie `Secure` there does not make
+ * anything safer - the browser silently discards the `Set-Cookie`, the session
+ * never sticks, and the symptom is a sign-in that appears to succeed and then
+ * immediately returns 401 on the next request.
+ *
+ * Every other environment name (`production`, `staging`, a deployment-specific
+ * name) is treated as HTTPS, so a new environment fails closed rather than
+ * quietly losing the flag.
+ */
+export function secureCookiesFor(environment: string): boolean {
+  return environment !== 'development' && environment !== 'test';
+}
+
+/**
  * Returns session cookie options for the given environment.
  *
- * In development (HTTP), `secure` must be false so the browser accepts the
- * cookie. In production (HTTPS), `secure` is true.
+ * `secure` follows {@link secureCookiesFor}: false only for the loopback HTTP
+ * environments, true everywhere else.
  */
 export function sessionCookieOptions(environment: string): CookieSerializeOptions {
   return {
     ...BASE_COOKIE_OPTIONS,
     httpOnly: true,
-    secure: environment !== 'development',
+    secure: secureCookiesFor(environment),
   };
 }
 
@@ -50,14 +69,15 @@ export function sessionCookieOptions(environment: string): CookieSerializeOption
  * client echoes it back in a header, and a cross-site attacker can neither read
  * the cookie nor set the header. `httpOnly` here would break it.
  *
- * In development (HTTP), `secure` must be false so the browser accepts the
- * cookie. In production (HTTPS), `secure` is true.
+ * In development and test (plain HTTP on loopback), `secure` must be false so
+ * the browser accepts the cookie. In every other environment (HTTPS), it is
+ * true. See {@link secureCookiesFor}.
  */
 export function csrfCookieOptions(environment: string): CookieSerializeOptions {
   return {
     ...BASE_COOKIE_OPTIONS,
     httpOnly: false,
-    secure: environment !== 'development',
+    secure: secureCookiesFor(environment),
   };
 }
 

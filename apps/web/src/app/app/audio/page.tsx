@@ -1,3 +1,4 @@
+import { selectMembership } from '../../../lib/organization-context';
 import { redirect } from 'next/navigation';
 
 import { currentSession, hasPermission } from '../../../lib/session';
@@ -13,12 +14,7 @@ export default async function AudioPage({
   if (!session.ok) redirect('/sign-in');
   if (!session.me.termsAccepted) redirect('/accept-terms');
   const params = await searchParams;
-  const requested = Array.isArray(params.organization)
-    ? params.organization[0]
-    : params.organization;
-  const membership = requested
-    ? session.me.memberships.find((item) => item.organizationId === requested)
-    : session.me.memberships[0];
+  const membership = selectMembership(session.me.memberships, params.organization);
   if (!membership || !hasPermission(membership, 'audio:read'))
     return (
       <>
@@ -36,7 +32,7 @@ export default async function AudioPage({
         eyebrow={membership.organizationName}
         description="Review campaign audio assets and prepare new recordings when secure storage is configured."
       />
-      <AudioLibrary organizationId={membership.organizationId} canCreate={canCreate} />
+      <AudioLibrary key={membership.organizationId} organizationId={membership.organizationId} canCreate={canCreate} />
     </>
   );
 }
